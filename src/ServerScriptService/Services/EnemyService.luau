@@ -1,4 +1,4 @@
-﻿local ServerStorage = game:GetService("ServerStorage")
+local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -84,6 +84,14 @@ function EnemyService.spawnWave(enemyCount, batchDelay)
 			enemy:PivotTo(spawnPoint.CFrame + Vector3.new(0, 3, 0))
 			enemy.Parent = container
 			spawned += 1
+
+			if enemy:GetAttribute("IsTemporaryTestEnemy") then
+				task.delay(15, function()
+					if humanoid and humanoid.Parent and humanoid.Health > 0 then
+						humanoid:TakeDamage(humanoid.MaxHealth)
+					end
+				end)
+			end
 
 			humanoid.Died:Once(function()
 				task.delay(2, function()

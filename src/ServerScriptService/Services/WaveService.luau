@@ -1,18 +1,34 @@
-﻿local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local EnemyService = require(script.Parent.EnemyService)
 
-local remotesFolder = ReplicatedStorage:WaitForChild(Config.Remotes.Folder)
-local waveStateRemote = remotesFolder:WaitForChild(Config.Remotes.WaveState)
-
 local WaveService = {}
 
 local running = false
 local waveNumber = 0
+local waveStateRemote = nil
+
+local function resolveWaveStateRemote()
+	local remotesFolder = ReplicatedStorage:FindFirstChild(Config.Remotes.Folder)
+	if not remotesFolder then
+		return nil
+	end
+
+	local remote = remotesFolder:FindFirstChild(Config.Remotes.WaveState)
+	if remote and remote:IsA("RemoteEvent") then
+		return remote
+	end
+
+	return nil
+end
 
 local function broadcastState(stateName, payload)
+	if not waveStateRemote then
+		return
+	end
+
 	payload = payload or {}
 	payload.state = stateName
 	payload.wave = waveNumber
@@ -41,6 +57,12 @@ end
 function WaveService.start()
 	if running then
 		warn("WaveService is already running")
+		return
+	end
+
+	waveStateRemote = resolveWaveStateRemote()
+	if not waveStateRemote then
+		warn("WaveService could not find ReplicatedStorage/Remotes/WaveState")
 		return
 	end
 

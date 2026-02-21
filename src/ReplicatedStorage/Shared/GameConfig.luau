@@ -1,4 +1,4 @@
-﻿local Config = {
+local Config = {
 	Wave = {
 		IntermissionSeconds = 10,
 		BaseEnemyCount = 6,

@@ -1,9 +1,7 @@
-﻿local Players = game:GetService("Players")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
-local remotesFolder = ReplicatedStorage:WaitForChild(Config.Remotes.Folder)
-local waveStateRemote = remotesFolder:WaitForChild(Config.Remotes.WaveState)
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -25,6 +23,20 @@ label.Font = Enum.Font.GothamBold
 label.TextScaled = true
 label.Text = "Waiting for wave..."
 label.Parent = gui
+
+local remotesFolder = ReplicatedStorage:WaitForChild(Config.Remotes.Folder, 15)
+if not remotesFolder then
+	label.Text = "Remotes folder missing"
+	warn("WaveHud could not find ReplicatedStorage/Remotes")
+	return
+end
+
+local waveStateRemote = remotesFolder:WaitForChild(Config.Remotes.WaveState, 15)
+if not waveStateRemote then
+	label.Text = "WaveState remote missing"
+	warn("WaveHud could not find ReplicatedStorage/Remotes/WaveState")
+	return
+end
 
 local function formatWaveState(payload)
 	local wave = payload.wave or 0
