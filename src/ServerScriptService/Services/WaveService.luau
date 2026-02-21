@@ -32,6 +32,14 @@ local function broadcastState(stateName, payload)
 	payload = payload or {}
 	payload.state = stateName
 	payload.wave = waveNumber
+
+	local remotesFolder = waveStateRemote.Parent
+	if remotesFolder then
+		remotesFolder:SetAttribute("CurrentWaveState", stateName)
+		remotesFolder:SetAttribute("CurrentWaveNumber", waveNumber)
+		remotesFolder:SetAttribute("IntermissionEndTime", payload.intermissionEndsAt or 0)
+	end
+
 	waveStateRemote:FireAllClients(payload)
 end
 
@@ -75,6 +83,7 @@ function WaveService.start()
 		broadcastState("Preparing", {
 			enemies = enemiesToSpawn,
 			intermission = Config.Wave.IntermissionSeconds,
+			intermissionEndsAt = Workspace:GetServerTimeNow() + Config.Wave.IntermissionSeconds,
 		})
 		task.wait(Config.Wave.IntermissionSeconds)
 
@@ -82,7 +91,7 @@ function WaveService.start()
 			enemies = enemiesToSpawn,
 		})
 
-		local spawned = EnemyService.spawnWave(enemiesToSpawn, Config.Wave.SpawnBatchDelay)
+		local spawned = EnemyService.spawnWave(enemiesToSpawn, waveNumber)
 		if spawned == 0 then
 			warn("No enemies were spawned. Add Brainrot enemy models and spawn points.")
 			broadcastState("Blocked", {

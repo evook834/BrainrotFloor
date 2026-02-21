@@ -1,9 +1,11 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local WaveService = require(script.Parent.Services.WaveService)
+local ShopService = require(script.Parent.Services.ShopService)
 
 local function ensureFolder(parent, name)
 	local folder = parent:FindFirstChild(name)
@@ -20,7 +22,7 @@ end
 local function ensureTempEnemyTemplate(templateFolder)
 	local hasEnemyModel = false
 	for _, child in templateFolder:GetChildren() do
-		if child:IsA("Model") and child:FindFirstChildOfClass("Humanoid") then
+		if child:IsA("Model") and child:FindFirstChildWhichIsA("BasePart", true) then
 			hasEnemyModel = true
 			break
 		end
@@ -78,6 +80,92 @@ local function ensureTempSpawnPoint(spawnFolder)
 	warn("Created temporary spawn point at Workspace/SpawnPoints/TempSpawnPoint")
 end
 
+local function ensureLeaderstats(player)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then
+		leaderstats = Instance.new("Folder")
+		leaderstats.Name = "leaderstats"
+		leaderstats.Parent = player
+	end
+
+	local money = leaderstats:FindFirstChild("Money")
+	if not money then
+		money = Instance.new("IntValue")
+		money.Name = "Money"
+		money.Value = (Config.Player and Config.Player.StartingMoney) or 0
+		money.Parent = leaderstats
+	end
+end
+
+local function disableHumanoidRegen(humanoid)
+	local lastHealth = humanoid.Health
+	local adjusting = false
+
+	humanoid.HealthChanged:Connect(function(newHealth)
+		if adjusting then
+			return
+		end
+
+		if newHealth > lastHealth then
+			adjusting = true
+			humanoid.Health = lastHealth
+			adjusting = false
+			return
+		end
+
+		lastHealth = newHealth
+	end)
+end
+
+local pendingRespawnByPlayer = {}
+
+local function scheduleRespawn(player)
+	local respawnDelaySeconds = (Config.Player and Config.Player.RespawnDelaySeconds) or 60
+	local respawnToken = (pendingRespawnByPlayer[player] or 0) + 1
+	pendingRespawnByPlayer[player] = respawnToken
+
+	task.spawn(function()
+		task.wait(respawnDelaySeconds)
+		if player.Parent ~= Players then
+			return
+		end
+
+		if pendingRespawnByPlayer[player] ~= respawnToken then
+			return
+		end
+
+		player:LoadCharacter()
+	end)
+end
+
+local function bindPlayerSystems(player)
+	ensureLeaderstats(player)
+
+	local function onCharacter(character)
+		pendingRespawnByPlayer[player] = (pendingRespawnByPlayer[player] or 0) + 1
+
+		local humanoid = character:WaitForChild("Humanoid", 10)
+		if not humanoid then
+			return
+		end
+
+		if Config.Player and Config.Player.DisableHealthRegen then
+			disableHumanoidRegen(humanoid)
+		end
+
+		humanoid.Died:Connect(function()
+			scheduleRespawn(player)
+		end)
+	end
+
+	player.CharacterAdded:Connect(onCharacter)
+	if player.Character then
+		task.spawn(onCharacter, player.Character)
+	else
+		player:LoadCharacter()
+	end
+end
+
 local remotesFolder = ensureFolder(ReplicatedStorage, Config.Remotes.Folder)
 if not remotesFolder:FindFirstChild(Config.Remotes.WaveState) then
 	local waveStateRemote = Instance.new("RemoteEvent")
@@ -91,4 +179,14 @@ ensureFolder(Workspace, Config.Enemy.ContainerName)
 ensureTempEnemyTemplate(templateFolder)
 ensureTempSpawnPoint(spawnFolder)
 
+Players.CharacterAutoLoads = false
+Players.PlayerAdded:Connect(bindPlayerSystems)
+Players.PlayerRemoving:Connect(function(player)
+	pendingRespawnByPlayer[player] = nil
+end)
+for _, player in Players:GetPlayers() do
+	bindPlayerSystems(player)
+end
+
+ShopService.start()
 WaveService.start()
