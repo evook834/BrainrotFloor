@@ -14,6 +14,9 @@ local defaultProfile = {
 	AcquireRange = 200,
 	ThinkInterval = 0.15,
 	TurnSpeed = 12,
+	FacingPitchOffsetDegrees = 0,
+	FacingYawOffsetDegrees = 0,
+	FacingRollOffsetDegrees = 0,
 	AttackWindup = 0.2,
 	ChaseAnimationId = "",
 	AttackAnimationId = "",
@@ -149,13 +152,14 @@ local function getNearestTarget(originPosition, acquireRange)
 	return nearestHumanoid, nearestRootPart, nearestDistance
 end
 
-local function setMovementState(enemyModel, rootPart, humanoid, targetPosition, speed, deltaTime, turnSpeed)
-	if humanoid then
-		humanoid.WalkSpeed = speed
-		humanoid:MoveTo(targetPosition)
-		return
-	end
+local function getFacingOffsetCFrame(profile)
+	local pitchOffsetDegrees = tonumber(profile.FacingPitchOffsetDegrees) or 0
+	local yawOffsetDegrees = tonumber(profile.FacingYawOffsetDegrees) or 0
+	local rollOffsetDegrees = tonumber(profile.FacingRollOffsetDegrees) or 0
+	return CFrame.Angles(math.rad(pitchOffsetDegrees), math.rad(yawOffsetDegrees), math.rad(rollOffsetDegrees))
+end
 
+local function setMovementState(enemyModel, rootPart, humanoid, targetPosition, speed, deltaTime, turnSpeed, facingOffsetCFrame, hasFacingOffset)
 	local planarTarget = Vector3.new(targetPosition.X, rootPart.Position.Y, targetPosition.Z)
 	local direction = planarTarget - rootPart.Position
 	local directionMagnitude = direction.Magnitude
@@ -163,9 +167,26 @@ local function setMovementState(enemyModel, rootPart, humanoid, targetPosition, 
 		return
 	end
 
-	local stepSize = math.min(speed * deltaTime, directionMagnitude)
-	local destination = rootPart.Position + direction.Unit * stepSize
-	local currentLook = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
+	if humanoid then
+		humanoid.WalkSpeed = speed
+		humanoid:MoveTo(targetPosition)
+		if not hasFacingOffset then
+			return
+		end
+	end
+
+	local destination = rootPart.Position
+	if not humanoid then
+		local stepSize = math.min(speed * deltaTime, directionMagnitude)
+		destination += direction.Unit * stepSize
+	end
+
+	local resolvedHeadingFrame = rootPart.CFrame
+	if hasFacingOffset then
+		resolvedHeadingFrame *= facingOffsetCFrame:Inverse()
+	end
+	local currentLook = Vector3.new(resolvedHeadingFrame.LookVector.X, 0, resolvedHeadingFrame.LookVector.Z)
+
 	local desiredLook = Vector3.new(direction.Unit.X, 0, direction.Unit.Z)
 	if currentLook.Magnitude <= 0.001 then
 		currentLook = desiredLook
@@ -189,17 +210,27 @@ local function setMovementState(enemyModel, rootPart, humanoid, targetPosition, 
 	end
 	flatLook = flatLook.Unit
 
-	enemyModel:PivotTo(CFrame.lookAt(destination, destination + flatLook))
+	local targetCFrame = CFrame.lookAt(destination, destination + flatLook)
+	if hasFacingOffset then
+		targetCFrame *= facingOffsetCFrame
+	end
+
+	enemyModel:PivotTo(targetCFrame)
 end
 
-local function faceTarget(enemyModel, rootPart, targetPosition, turnSpeed, deltaTime)
+local function faceTarget(enemyModel, rootPart, targetPosition, turnSpeed, deltaTime, facingOffsetCFrame, hasFacingOffset)
 	local planarTarget = Vector3.new(targetPosition.X, rootPart.Position.Y, targetPosition.Z)
 	local direction = planarTarget - rootPart.Position
 	if direction.Magnitude <= 0.001 then
 		return
 	end
 
-	local currentLook = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
+	local resolvedHeadingFrame = rootPart.CFrame
+	if hasFacingOffset then
+		resolvedHeadingFrame *= facingOffsetCFrame:Inverse()
+	end
+	local currentLook = Vector3.new(resolvedHeadingFrame.LookVector.X, 0, resolvedHeadingFrame.LookVector.Z)
+
 	if currentLook.Magnitude <= 0.001 then
 		currentLook = Vector3.new(0, 0, 1)
 	end
@@ -210,7 +241,12 @@ local function faceTarget(enemyModel, rootPart, targetPosition, turnSpeed, delta
 		blendedLook = direction.Unit
 	end
 
-	enemyModel:PivotTo(CFrame.lookAt(rootPart.Position, rootPart.Position + blendedLook.Unit))
+	local targetCFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + blendedLook.Unit)
+	if hasFacingOffset then
+		targetCFrame *= facingOffsetCFrame
+	end
+
+	enemyModel:PivotTo(targetCFrame)
 end
 
 local function waitForNextTick(hasHumanoid, thinkInterval)
@@ -249,8 +285,14 @@ function EnemyAIService.start(enemyModel, templateName)
 
 	local humanoid = enemyModel:FindFirstChildOfClass("Humanoid")
 	local profile = mergeProfile(templateName)
+	local facingOffsetCFrame = getFacingOffsetCFrame(profile)
+	local hasFacingOffset = facingOffsetCFrame ~= CFrame.new()
 
 	prepareModelForMovement(enemyModel, humanoid)
+
+	if humanoid then
+		humanoid.AutoRotate = not hasFacingOffset
+	end
 
 	pcall(function()
 		rootPart:SetNetworkOwner(nil)
@@ -288,8 +330,16 @@ function EnemyAIService.start(enemyModel, templateName)
 			if targetHumanoid and targetRootPart then
 				if distance <= profile.AttackRange then
 					stopTrack(chaseTrack)
-					if not humanoid then
-						faceTarget(enemyModel, rootPart, targetRootPart.Position, profile.TurnSpeed, deltaTime)
+					if not humanoid or hasFacingOffset then
+						faceTarget(
+							enemyModel,
+							rootPart,
+							targetRootPart.Position,
+							profile.TurnSpeed,
+							deltaTime,
+							facingOffsetCFrame,
+							hasFacingOffset
+						)
 					end
 
 					local now = os.clock()
@@ -322,7 +372,17 @@ function EnemyAIService.start(enemyModel, templateName)
 						chaseTrack:Play(0.15, 1, 1)
 					end
 
-					setMovementState(enemyModel, rootPart, humanoid, targetRootPart.Position, profile.MoveSpeed, deltaTime, profile.TurnSpeed)
+					setMovementState(
+						enemyModel,
+						rootPart,
+						humanoid,
+						targetRootPart.Position,
+						profile.MoveSpeed,
+						deltaTime,
+						profile.TurnSpeed,
+						facingOffsetCFrame,
+						hasFacingOffset
+					)
 				end
 			else
 				stopTrack(chaseTrack)

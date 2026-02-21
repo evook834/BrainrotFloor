@@ -1,6 +1,6 @@
 local Config = {
 	Wave = {
-		IntermissionSeconds = 30,
+		IntermissionSeconds = 10,
 		BaseEnemyCount = 6,
 		EnemiesPerWave = 2,
 		SpawnCadence = {
@@ -56,6 +56,12 @@ local Config = {
 				SpawnOffsetY = -0.5,
 				ChaseAnimationId = "rbxassetid://507777826",
 				AttackAnimationId = "rbxassetid://522635514",
+			},
+			Bombardiro_Crocodilo = {
+				FacingYawOffsetDegrees = 270,
+			},
+			KarKerKar_Tries = {
+				FacingPitchOffsetDegrees = 90,
 			},
 		},
 	},
