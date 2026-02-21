@@ -1,6 +1,9 @@
+local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local ServerStorage = game:GetService("ServerStorage")
+local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
@@ -12,7 +15,11 @@ local remotesFolder = nil
 local shopOpenRemote = nil
 local shopGetCatalogFunction = nil
 local shopBuyWeaponFunction = nil
+local weaponAimRemote = nil
 local weaponById = {}
+local weaponEffectsFolder = nil
+local toolRuntimeState = setmetatable({}, { __mode = "k" })
+local playerAimState = {}
 
 local function ensureRemote(parent, className, name)
 	local instance = parent:FindFirstChild(name)
@@ -28,6 +35,26 @@ local function ensureRemote(parent, className, name)
 	instance.Name = name
 	instance.Parent = parent
 	return instance
+end
+
+local function getEffectsFolder()
+	if weaponEffectsFolder and weaponEffectsFolder.Parent == Workspace then
+		return weaponEffectsFolder
+	end
+
+	weaponEffectsFolder = Workspace:FindFirstChild("WeaponEffects")
+	if weaponEffectsFolder and weaponEffectsFolder:IsA("Folder") then
+		return weaponEffectsFolder
+	end
+
+	if weaponEffectsFolder then
+		weaponEffectsFolder:Destroy()
+	end
+
+	weaponEffectsFolder = Instance.new("Folder")
+	weaponEffectsFolder.Name = "WeaponEffects"
+	weaponEffectsFolder.Parent = Workspace
+	return weaponEffectsFolder
 end
 
 local function getEnemyContainer()
@@ -64,49 +91,64 @@ local function findEnemyModelFromDescendant(descendant, enemyContainer)
 	return nil
 end
 
-local function findTargetEnemy(character, origin, lookVector, range)
-	local enemyContainer = getEnemyContainer()
-	if not enemyContainer then
-		return nil
-	end
-
+local function buildWeaponRaycastParams(character, additionalExclusions)
 	local raycastParams = RaycastParams.new()
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-	raycastParams.FilterDescendantsInstances = { character }
 	raycastParams.IgnoreWater = true
 
-	local hit = Workspace:Raycast(origin, lookVector * range, raycastParams)
-	if hit then
-		local directTarget = findEnemyModelFromDescendant(hit.Instance, enemyContainer)
-		if directTarget then
-			return directTarget
-		end
+	local exclusions = { character, getEffectsFolder() }
+	for _, item in ipairs(additionalExclusions or {}) do
+		table.insert(exclusions, item)
 	end
 
-	local bestTarget = nil
-	local bestScore = -math.huge
-	for _, enemyModel in enemyContainer:GetChildren() do
-		if enemyModel:IsA("Model") then
-			local enemyRoot = resolveEnemyRoot(enemyModel)
-			if enemyRoot then
-				local offset = enemyRoot.Position - origin
-				local distance = offset.Magnitude
-				if distance <= range and distance > 0.05 then
-					local direction = offset.Unit
-					local facingScore = lookVector:Dot(direction)
-					if facingScore > 0 then
-						local score = facingScore * 100 - distance
-						if score > bestScore then
-							bestScore = score
-							bestTarget = enemyModel
-						end
-					end
-				end
-			end
-		end
+	raycastParams.FilterDescendantsInstances = exclusions
+	return raycastParams
+end
+
+local function updatePlayerAim(player, hitPosition, lookDirection)
+	if typeof(hitPosition) ~= "Vector3" then
+		return
+	end
+	if typeof(lookDirection) ~= "Vector3" or lookDirection.Magnitude <= 0.001 then
+		return
 	end
 
-	return bestTarget
+	playerAimState[player] = {
+		hitPosition = hitPosition,
+		lookDirection = lookDirection.Unit,
+		updatedAt = os.clock(),
+	}
+end
+
+local function getPlayerAimDirection(player, rootPart, origin)
+	local baseDirection = rootPart.CFrame.LookVector
+	local aimState = playerAimState[player]
+	if not aimState then
+		return baseDirection
+	end
+
+	if os.clock() - (aimState.updatedAt or 0) > 0.8 then
+		return baseDirection
+	end
+
+	local aimDirection = nil
+	local toHit = aimState.hitPosition - origin
+	if toHit.Magnitude > 0.01 then
+		aimDirection = toHit.Unit
+	else
+		aimDirection = aimState.lookDirection
+	end
+
+	if typeof(aimDirection) ~= "Vector3" or aimDirection.Magnitude <= 0.001 then
+		return baseDirection
+	end
+
+	-- Keep aiming mostly in front of the character to avoid invalid client angles.
+	if baseDirection:Dot(aimDirection.Unit) < 0.02 then
+		return baseDirection
+	end
+
+	return aimDirection.Unit
 end
 
 local function getMoneyValue(player)
@@ -151,6 +193,11 @@ local function applyDamageToEnemy(player, enemyModel, damage)
 		return
 	end
 
+	local appliedDamage = math.max(0, tonumber(damage) or 0)
+	if appliedDamage <= 0 then
+		return
+	end
+
 	local humanoid = enemyModel:FindFirstChildOfClass("Humanoid")
 	if humanoid then
 		local previousHealth = humanoid.Health
@@ -158,7 +205,7 @@ local function applyDamageToEnemy(player, enemyModel, damage)
 			return
 		end
 
-		humanoid:TakeDamage(damage)
+		humanoid:TakeDamage(appliedDamage)
 		if previousHealth > 0 and humanoid.Health <= 0 then
 			rewardEnemyKill(player, enemyModel)
 		end
@@ -175,7 +222,7 @@ local function applyDamageToEnemy(player, enemyModel, damage)
 		health = maxHealth
 	end
 
-	health -= damage
+	health -= appliedDamage
 	enemyModel:SetAttribute("EnemyMaxHealth", maxHealth)
 	enemyModel:SetAttribute("EnemyHealth", health)
 
@@ -185,17 +232,536 @@ local function applyDamageToEnemy(player, enemyModel, damage)
 	end
 end
 
+local function resolveWeaponClass(weaponDef)
+	if type(weaponDef.WeaponClass) == "string" and weaponDef.WeaponClass ~= "" then
+		return weaponDef.WeaponClass
+	end
+
+	if (weaponDef.Range or 0) <= 12 then
+		return "Melee"
+	end
+
+	return "Ranged"
+end
+
+local function getMagazineSize(weaponDef)
+	local magazineSize = tonumber(weaponDef.MagazineSize)
+	if not magazineSize then
+		return nil
+	end
+
+	magazineSize = math.floor(magazineSize + 0.5)
+	if magazineSize <= 0 then
+		return nil
+	end
+
+	return magazineSize
+end
+
+local function getToolState(tool, weaponDef)
+	local state = toolRuntimeState[tool]
+	if state then
+		return state
+	end
+
+	state = {
+		lastActivatedAt = -math.huge,
+		ammo = getMagazineSize(weaponDef),
+		isReloading = false,
+		isBursting = false,
+		baseGrip = tool.Grip,
+		swingToken = 0,
+	}
+	toolRuntimeState[tool] = state
+	return state
+end
+
+local function updateAmmoAttributes(tool, weaponDef, state)
+	local magazineSize = getMagazineSize(weaponDef)
+	if not magazineSize then
+		tool:SetAttribute("MaxAmmo", nil)
+		tool:SetAttribute("CurrentAmmo", nil)
+		tool:SetAttribute("IsReloading", false)
+		tool.ToolTip = tostring(weaponDef.DisplayName or tool.Name)
+		return
+	end
+
+	if type(state.ammo) ~= "number" then
+		state.ammo = magazineSize
+	end
+
+	tool:SetAttribute("MaxAmmo", magazineSize)
+	tool:SetAttribute("CurrentAmmo", state.ammo)
+	tool:SetAttribute("IsReloading", state.isReloading == true)
+
+	if state.isReloading then
+		tool.ToolTip = string.format("%s | Reloading...", tostring(weaponDef.DisplayName or tool.Name))
+	else
+		tool.ToolTip = string.format("%s | Ammo %d/%d", tostring(weaponDef.DisplayName or tool.Name), state.ammo, magazineSize)
+	end
+end
+
+local function startReload(tool, weaponDef, state)
+	local magazineSize = getMagazineSize(weaponDef)
+	if not magazineSize or state.isReloading then
+		return
+	end
+
+	state.isReloading = true
+	updateAmmoAttributes(tool, weaponDef, state)
+
+	local reloadSeconds = math.max(0.2, tonumber(weaponDef.ReloadSeconds) or 2)
+	task.delay(reloadSeconds, function()
+		state.isReloading = false
+		state.ammo = magazineSize
+		if tool.Parent then
+			updateAmmoAttributes(tool, weaponDef, state)
+		end
+	end)
+end
+
+local function tryConsumeAmmo(tool, weaponDef, state)
+	local magazineSize = getMagazineSize(weaponDef)
+	if not magazineSize then
+		return true
+	end
+
+	if state.isReloading then
+		return false
+	end
+
+	if type(state.ammo) ~= "number" then
+		state.ammo = magazineSize
+	end
+
+	if state.ammo <= 0 then
+		startReload(tool, weaponDef, state)
+		return false
+	end
+
+	state.ammo -= 1
+	updateAmmoAttributes(tool, weaponDef, state)
+
+	if state.ammo <= 0 then
+		startReload(tool, weaponDef, state)
+	end
+
+	return true
+end
+
+local function createTracerSegment(startPos, endPos, color, thickness, lifetimeSeconds)
+	local delta = endPos - startPos
+	local length = delta.Magnitude
+	if length <= 0.05 then
+		return
+	end
+
+	local segment = Instance.new("Part")
+	segment.Name = "WeaponTracer"
+	segment.Anchored = true
+	segment.CanCollide = false
+	segment.CanTouch = false
+	segment.CanQuery = false
+	segment.Material = Enum.Material.Neon
+	segment.Color = color or Color3.fromRGB(255, 230, 140)
+	segment.Size = Vector3.new(thickness or 0.18, thickness or 0.18, length)
+	segment.CFrame = CFrame.lookAt((startPos + endPos) * 0.5, endPos)
+	segment.Parent = getEffectsFolder()
+
+	Debris:AddItem(segment, lifetimeSeconds or 0.1)
+end
+
+local function createMuzzleFlash(position, color, size, lifetimeSeconds)
+	local flash = Instance.new("Part")
+	flash.Name = "MuzzleFlash"
+	flash.Anchored = true
+	flash.CanCollide = false
+	flash.CanTouch = false
+	flash.CanQuery = false
+	flash.Shape = Enum.PartType.Ball
+	flash.Material = Enum.Material.Neon
+	flash.Color = color or Color3.fromRGB(255, 190, 95)
+	flash.Size = Vector3.new(size or 0.5, size or 0.5, size or 0.5)
+	flash.CFrame = CFrame.new(position)
+	flash.Parent = getEffectsFolder()
+	Debris:AddItem(flash, lifetimeSeconds or 0.08)
+end
+
+local function createExplosionEffect(position, radius)
+	local blast = Instance.new("Part")
+	blast.Name = "RocketExplosion"
+	blast.Shape = Enum.PartType.Ball
+	blast.Anchored = true
+	blast.CanCollide = false
+	blast.CanTouch = false
+	blast.CanQuery = false
+	blast.Material = Enum.Material.Neon
+	blast.Color = Color3.fromRGB(255, 145, 70)
+	blast.Transparency = 0.2
+	blast.Size = Vector3.new(2, 2, 2)
+	blast.CFrame = CFrame.new(position)
+	blast.Parent = getEffectsFolder()
+
+	local tween = TweenService:Create(
+		blast,
+		TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{
+			Size = Vector3.new(radius * 2, radius * 2, radius * 2),
+			Transparency = 1,
+		}
+	)
+	tween:Play()
+	Debris:AddItem(blast, 0.25)
+end
+
+local function getWeaponOriginAndDirection(player, rootPart, handle)
+	local origin = rootPart.Position + Vector3.new(0, 1.5, 0)
+	if handle and handle:IsA("BasePart") then
+		origin = handle.Position + rootPart.CFrame.LookVector * math.max(0.8, handle.Size.Z * 0.45)
+	end
+
+	local direction = getPlayerAimDirection(player, rootPart, origin)
+	if direction.Magnitude <= 0.001 then
+		direction = rootPart.CFrame.LookVector
+	end
+
+	return origin, direction
+end
+
+local function resolveEnemyFromRaycastResult(result)
+	if not result then
+		return nil
+	end
+
+	local enemyContainer = getEnemyContainer()
+	if not enemyContainer then
+		return nil
+	end
+
+	return findEnemyModelFromDescendant(result.Instance, enemyContainer)
+end
+
+local function projectPointOnSegment(point, segmentStart, segmentEnd)
+	local segment = segmentEnd - segmentStart
+	local lengthSquared = segment:Dot(segment)
+	if lengthSquared <= 0.0001 then
+		return segmentStart, 0
+	end
+
+	local t = math.clamp((point - segmentStart):Dot(segment) / lengthSquared, 0, 1)
+	return segmentStart + segment * t, t
+end
+
+local function hasClearPathToEnemy(character, startPos, enemyModel, enemyRoot)
+	local params = buildWeaponRaycastParams(character, {})
+	local direction = enemyRoot.Position - startPos
+	if direction.Magnitude <= 0.01 then
+		return true
+	end
+
+	local result = Workspace:Raycast(startPos, direction, params)
+	if not result then
+		return true
+	end
+
+	local hitEnemy = resolveEnemyFromRaycastResult(result)
+	return hitEnemy == enemyModel
+end
+
+local function getEnemyHitRadius(enemyRoot)
+	local rootSize = enemyRoot.Size
+	local rootRadius = math.max(rootSize.X, rootSize.Z) * 0.55
+	return math.clamp(rootRadius, 1.2, 5.5)
+end
+
+local function findEnemyAlongSegment(character, segmentStart, segmentEnd, extraRadius)
+	local enemyContainer = getEnemyContainer()
+	if not enemyContainer then
+		return nil, nil
+	end
+
+	local closestEnemy = nil
+	local closestDistance = math.huge
+	local impactPoint = nil
+	local radiusPadding = math.max(0, extraRadius or 0)
+
+	for _, enemyModel in enemyContainer:GetChildren() do
+		if enemyModel:IsA("Model") then
+			local enemyRoot = resolveEnemyRoot(enemyModel)
+			if enemyRoot then
+				local nearestPoint = projectPointOnSegment(enemyRoot.Position, segmentStart, segmentEnd)
+				local distanceFromPath = (enemyRoot.Position - nearestPoint).Magnitude
+				local allowedRadius = getEnemyHitRadius(enemyRoot) + radiusPadding
+				if distanceFromPath <= allowedRadius and hasClearPathToEnemy(character, segmentStart, enemyModel, enemyRoot) then
+					local alongDistance = (nearestPoint - segmentStart).Magnitude
+					if alongDistance < closestDistance then
+						closestDistance = alongDistance
+						closestEnemy = enemyModel
+						impactPoint = nearestPoint
+					end
+				end
+			end
+		end
+	end
+
+	return closestEnemy, impactPoint
+end
+
+local function getEnemiesInCone(character, origin, lookDirection, range, arcDegrees)
+	local enemyContainer = getEnemyContainer()
+	if not enemyContainer then
+		return {}
+	end
+
+	local enemies = {}
+	local normalizedLook = lookDirection.Magnitude > 0.001 and lookDirection.Unit or Vector3.new(0, 0, -1)
+	local minDot = math.cos(math.rad(math.clamp((arcDegrees or 90) * 0.5, 1, 179)))
+
+	for _, enemyModel in enemyContainer:GetChildren() do
+		if enemyModel:IsA("Model") then
+			local enemyRoot = resolveEnemyRoot(enemyModel)
+			if enemyRoot then
+				local offset = enemyRoot.Position - origin
+				local distance = offset.Magnitude
+				if distance <= range and distance > 0.05 then
+					local direction = offset.Unit
+					local facingDot = normalizedLook:Dot(direction)
+					if facingDot >= minDot and hasClearPathToEnemy(character, origin, enemyModel, enemyRoot) then
+						table.insert(enemies, enemyModel)
+					end
+				end
+			end
+		end
+	end
+
+	return enemies
+end
+
+local function applyBlastDamage(player, centerPosition, radius, maxDamage)
+	local enemyContainer = getEnemyContainer()
+	if not enemyContainer then
+		return
+	end
+
+	for _, enemyModel in enemyContainer:GetChildren() do
+		if enemyModel:IsA("Model") then
+			local enemyRoot = resolveEnemyRoot(enemyModel)
+			if enemyRoot then
+				local distance = (enemyRoot.Position - centerPosition).Magnitude
+				if distance <= radius then
+					local falloff = 1 - (distance / math.max(radius, 0.01))
+					local damageScale = math.clamp(0.3 + falloff * 0.7, 0.3, 1)
+					applyDamageToEnemy(player, enemyModel, maxDamage * damageScale)
+				end
+			end
+		end
+	end
+end
+
+local function playMeleeSwing(tool, weaponDef, state)
+	local baseGrip = state.baseGrip or tool.Grip
+	state.baseGrip = baseGrip
+	state.swingToken += 1
+	local swingToken = state.swingToken
+
+	local swingForwardDegrees = tonumber(weaponDef.SwingForwardDegrees) or 70
+	local swingDuration = math.max(0.05, tonumber(weaponDef.SwingDuration) or 0.14)
+	local swingGrip = baseGrip * CFrame.Angles(math.rad(-swingForwardDegrees), 0, 0)
+
+	tool.Grip = swingGrip
+	task.delay(swingDuration, function()
+		if state.swingToken ~= swingToken then
+			return
+		end
+		if tool.Parent then
+			tool.Grip = baseGrip
+		end
+	end)
+end
+
+local function fireBulletShot(player, character, origin, direction, weaponDef)
+	local range = math.max(1, tonumber(weaponDef.Range) or 40)
+	local raycastParams = buildWeaponRaycastParams(character, {})
+	local result = Workspace:Raycast(origin, direction * range, raycastParams)
+	local hitPosition = origin + direction * range
+	local enemyTarget = nil
+
+	if result then
+		hitPosition = result.Position
+		enemyTarget = resolveEnemyFromRaycastResult(result)
+	end
+
+	if not enemyTarget then
+		local fallbackEnemy, fallbackImpact = findEnemyAlongSegment(character, origin, hitPosition, 0.75)
+		if fallbackEnemy then
+			enemyTarget = fallbackEnemy
+			if fallbackImpact then
+				hitPosition = fallbackImpact
+			end
+		end
+	end
+
+	createMuzzleFlash(origin, Color3.fromRGB(255, 210, 120), 0.35, 0.06)
+	createTracerSegment(origin, hitPosition, Color3.fromRGB(255, 235, 140), 0.13, 0.08)
+
+	if enemyTarget then
+		applyDamageToEnemy(player, enemyTarget, weaponDef.Damage or 20)
+	end
+end
+
+local function fireMeleeAttack(player, character, origin, direction, weaponDef, state, tool)
+	playMeleeSwing(tool, weaponDef, state)
+
+	local range = math.max(1, tonumber(weaponDef.Range) or 8)
+	local arcDegrees = tonumber(weaponDef.ArcDegrees) or 90
+	local targets = getEnemiesInCone(character, origin, direction, range, arcDegrees)
+
+	for _, enemyModel in ipairs(targets) do
+		applyDamageToEnemy(player, enemyModel, weaponDef.Damage or 15)
+	end
+end
+
+local function fireFlamethrower(player, character, weaponDef, state, handle)
+	if state.isBursting then
+		return
+	end
+	state.isBursting = true
+
+	local burstTicks = math.max(1, math.floor((tonumber(weaponDef.BurstTicks) or 5) + 0.5))
+	local burstInterval = math.max(0.03, tonumber(weaponDef.BurstIntervalSeconds) or 0.07)
+	local range = math.max(4, tonumber(weaponDef.Range) or 25)
+	local arcDegrees = tonumber(weaponDef.ArcDegrees) or 60
+	local tickDamage = math.max(1, (tonumber(weaponDef.Damage) or 10) / burstTicks)
+
+	task.spawn(function()
+		for _ = 1, burstTicks do
+			if not character.Parent then
+				break
+			end
+
+			local liveRootPart = character:FindFirstChild("HumanoidRootPart")
+			if not liveRootPart then
+				break
+			end
+
+			local origin, direction = getWeaponOriginAndDirection(player, liveRootPart, handle)
+			local flameEnd = origin + direction * math.min(range, 9)
+			createMuzzleFlash(origin, Color3.fromRGB(255, 145, 70), 0.8, 0.08)
+			createTracerSegment(origin, flameEnd, Color3.fromRGB(255, 120, 65), 0.65, 0.09)
+
+			local targets = getEnemiesInCone(character, origin, direction, range, arcDegrees)
+			for _, enemyModel in ipairs(targets) do
+				applyDamageToEnemy(player, enemyModel, tickDamage)
+			end
+
+			task.wait(burstInterval)
+		end
+
+		state.isBursting = false
+	end)
+end
+
+local function fireRocket(player, character, origin, direction, weaponDef)
+	local speed = math.max(30, tonumber(weaponDef.ProjectileSpeed) or 140)
+	local range = math.max(30, tonumber(weaponDef.Range) or 120)
+	local blastRadius = math.max(4, tonumber(weaponDef.BlastRadius) or 16)
+	local blastDamage = tonumber(weaponDef.Damage) or 100
+
+	local rocket = Instance.new("Part")
+	rocket.Name = "RocketProjectile"
+	rocket.Size = Vector3.new(0.45, 0.45, 2.2)
+	rocket.Material = Enum.Material.Metal
+	rocket.Color = Color3.fromRGB(120, 125, 130)
+	rocket.Anchored = true
+	rocket.CanCollide = false
+	rocket.CanTouch = false
+	rocket.CanQuery = false
+	rocket.CFrame = CFrame.lookAt(origin, origin + direction)
+	rocket.Parent = getEffectsFolder()
+	Debris:AddItem(rocket, 8)
+
+	local tailAttachment = Instance.new("Attachment")
+	tailAttachment.Position = Vector3.new(0, 0, rocket.Size.Z * 0.5)
+	tailAttachment.Parent = rocket
+
+	local tailFire = Instance.new("Fire")
+	tailFire.Size = 2.5
+	tailFire.Heat = 8
+	tailFire.Color = Color3.fromRGB(255, 185, 90)
+	tailFire.SecondaryColor = Color3.fromRGB(255, 95, 45)
+	tailFire.Parent = rocket
+
+	task.spawn(function()
+		local currentPosition = origin
+		local traveled = 0
+		local raycastParams = buildWeaponRaycastParams(character, { rocket })
+
+		while rocket.Parent and traveled < range do
+			local deltaTime = RunService.Heartbeat:Wait()
+			local stepDistance = math.min(speed * deltaTime, range - traveled)
+			local raycastResult = Workspace:Raycast(currentPosition, direction * stepDistance, raycastParams)
+			local stepEndPosition = currentPosition + direction * stepDistance
+
+			local nextPosition = stepEndPosition
+			local directTarget = nil
+			if raycastResult then
+				nextPosition = raycastResult.Position
+				directTarget = resolveEnemyFromRaycastResult(raycastResult)
+			else
+				local fallbackEnemy, fallbackImpact = findEnemyAlongSegment(character, currentPosition, stepEndPosition, 1.15)
+				if fallbackEnemy then
+					directTarget = fallbackEnemy
+					if fallbackImpact then
+						nextPosition = fallbackImpact
+					end
+				end
+			end
+
+			rocket.CFrame = CFrame.lookAt(nextPosition, nextPosition + direction)
+			createTracerSegment(currentPosition, nextPosition, Color3.fromRGB(255, 170, 95), 0.22, 0.08)
+
+			currentPosition = nextPosition
+			traveled += stepDistance
+
+			if raycastResult or directTarget then
+				if directTarget then
+					applyDamageToEnemy(player, directTarget, blastDamage)
+				end
+
+				break
+			end
+		end
+
+		if rocket.Parent then
+			createExplosionEffect(currentPosition, blastRadius)
+			applyBlastDamage(player, currentPosition, blastRadius, blastDamage)
+			rocket:Destroy()
+		end
+	end)
+end
+
 local function createFallbackWeaponTool(weaponDef)
 	local tool = Instance.new("Tool")
 	local handle = Instance.new("Part")
 	handle.Name = "Handle"
-	handle.Size = weaponDef.Range >= 20 and Vector3.new(1, 1, 3) or Vector3.new(1, 1, 2)
+	handle.Size = Vector3.new(1, 1, 2.2)
 	handle.Color = weaponDef.Color or Color3.fromRGB(180, 180, 180)
 	handle.Material = Enum.Material.Metal
 	handle.TopSurface = Enum.SurfaceType.Smooth
 	handle.BottomSurface = Enum.SurfaceType.Smooth
 	handle.CanCollide = false
 	handle.Parent = tool
+
+	local weaponClass = resolveWeaponClass(weaponDef)
+	if weaponClass == "Melee" then
+		handle.Size = Vector3.new(0.7, 0.7, 2.8)
+	elseif weaponClass == "Flamethrower" then
+		handle.Size = Vector3.new(1.2, 1, 3.4)
+	elseif weaponClass == "RPG" then
+		handle.Size = Vector3.new(1.3, 1.3, 4.2)
+	elseif (weaponDef.Range or 0) >= 50 then
+		handle.Size = Vector3.new(1, 1, 3.2)
+	end
 
 	return tool
 end
@@ -257,17 +823,46 @@ local function prepareToolParts(tool, handle)
 	end
 end
 
+local function normalizeTemplateKey(value)
+	if type(value) ~= "string" then
+		return ""
+	end
+
+	return string.lower((string.gsub(value, "[^%w]", "")))
+end
+
 local function findShopItemTemplate(weaponDef)
 	local shopItemsFolder = ServerStorage:FindFirstChild("ShopItems")
 	if not shopItemsFolder then
 		return nil
 	end
 
+	local templateName = weaponDef.TemplateName
+	local templateNameLower = string.lower(templateName or "")
+	local templateNameKey = normalizeTemplateKey(templateName)
+
 	local idLower = string.lower(weaponDef.Id or "")
 	local nameLower = string.lower(weaponDef.DisplayName or "")
+	local idKey = normalizeTemplateKey(weaponDef.Id)
+	local nameKey = normalizeTemplateKey(weaponDef.DisplayName)
 	for _, child in shopItemsFolder:GetChildren() do
 		local childNameLower = string.lower(child.Name)
+		local childKey = normalizeTemplateKey(child.Name)
+
+		if templateNameLower ~= "" and childNameLower == templateNameLower then
+			return child
+		end
+		if templateNameKey ~= "" and (childKey == templateNameKey or string.find(childKey, templateNameKey, 1, true)) then
+			return child
+		end
+
 		if childNameLower == idLower or childNameLower == nameLower then
+			return child
+		end
+		if idKey ~= "" and (childKey == idKey or string.find(childKey, idKey, 1, true)) then
+			return child
+		end
+		if nameKey ~= "" and (childKey == nameKey or string.find(childKey, nameKey, 1, true)) then
 			return child
 		end
 	end
@@ -313,12 +908,17 @@ local function createToolFromTemplate(weaponDef)
 end
 
 local function configureWeaponTool(tool, weaponDef)
+	local weaponClass = resolveWeaponClass(weaponDef)
+
 	tool.Name = weaponDef.DisplayName
 	tool.CanBeDropped = false
 	tool:SetAttribute("WeaponId", weaponDef.Id)
+	tool:SetAttribute("WeaponClass", weaponClass)
 	tool:SetAttribute("Damage", weaponDef.Damage)
 	tool:SetAttribute("Range", weaponDef.Range)
 	tool:SetAttribute("Cooldown", weaponDef.Cooldown)
+	tool:SetAttribute("MagazineSize", getMagazineSize(weaponDef))
+	tool:SetAttribute("ReloadSeconds", tonumber(weaponDef.ReloadSeconds))
 
 	local handle = tool:FindFirstChild("Handle", true)
 	tool.RequiresHandle = handle ~= nil
@@ -340,7 +940,10 @@ local function configureWeaponTool(tool, weaponDef)
 	end
 	tool.Grip = grip
 
-	local lastActivatedAt = -math.huge
+	local state = getToolState(tool, weaponDef)
+	state.baseGrip = tool.Grip
+	updateAmmoAttributes(tool, weaponDef, state)
+
 	tool.Activated:Connect(function()
 		local character = tool.Parent
 		if not character or not character:IsA("Model") then
@@ -359,17 +962,39 @@ local function configureWeaponTool(tool, weaponDef)
 		end
 
 		local now = os.clock()
-		if now - lastActivatedAt < weaponDef.Cooldown then
+		local cooldown = math.max(0.05, tonumber(weaponDef.Cooldown) or 0.25)
+		if now - (state.lastActivatedAt or -math.huge) < cooldown then
 			return
 		end
-		lastActivatedAt = now
 
-		local origin = rootPart.Position + Vector3.new(0, 1.5, 0)
-		local lookVector = rootPart.CFrame.LookVector
-		local target = findTargetEnemy(character, origin, lookVector, weaponDef.Range)
-		if target then
-			applyDamageToEnemy(owner, target, weaponDef.Damage)
+		if state.isReloading then
+			return
 		end
+
+		if weaponClass == "Flamethrower" and state.isBursting then
+			return
+		end
+
+		if not tryConsumeAmmo(tool, weaponDef, state) then
+			return
+		end
+
+		state.lastActivatedAt = now
+
+		local origin, direction = getWeaponOriginAndDirection(owner, rootPart, handle)
+		if weaponClass == "Melee" then
+			fireMeleeAttack(owner, character, origin, direction, weaponDef, state, tool)
+		elseif weaponClass == "Flamethrower" then
+			fireFlamethrower(owner, character, weaponDef, state, handle)
+		elseif weaponClass == "RPG" then
+			fireRocket(owner, character, origin, direction, weaponDef)
+		else
+			fireBulletShot(owner, character, origin, direction, weaponDef)
+		end
+	end)
+
+	tool.Destroying:Connect(function()
+		toolRuntimeState[tool] = nil
 	end)
 end
 
@@ -380,7 +1005,6 @@ local function createWeaponTool(weaponDef)
 	end
 
 	configureWeaponTool(tool, weaponDef)
-
 	return tool
 end
 
@@ -430,10 +1054,13 @@ local function getCatalogForPlayer(player)
 		table.insert(weapons, {
 			id = weaponDef.Id,
 			name = weaponDef.DisplayName,
+			weaponClass = resolveWeaponClass(weaponDef),
 			cost = weaponDef.Cost,
 			damage = weaponDef.Damage,
 			range = weaponDef.Range,
 			cooldown = weaponDef.Cooldown,
+			magazineSize = getMagazineSize(weaponDef),
+			reloadSeconds = tonumber(weaponDef.ReloadSeconds),
 			owned = playerOwnsWeapon(player, weaponDef.Id),
 		})
 	end
@@ -583,6 +1210,7 @@ function ShopService.start()
 	shopOpenRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.ShopOpen)
 	shopGetCatalogFunction = ensureRemote(remotesFolder, "RemoteFunction", Config.Remotes.ShopGetCatalog)
 	shopBuyWeaponFunction = ensureRemote(remotesFolder, "RemoteFunction", Config.Remotes.ShopBuyWeapon)
+	weaponAimRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.WeaponAim)
 
 	shopGetCatalogFunction.OnServerInvoke = function(player)
 		return getCatalogForPlayer(player)
@@ -598,6 +1226,16 @@ function ShopService.start()
 
 		return buyWeapon(player, weaponId)
 	end
+
+	if weaponAimRemote then
+		weaponAimRemote.OnServerEvent:Connect(function(player, hitPosition, lookDirection)
+			updatePlayerAim(player, hitPosition, lookDirection)
+		end)
+	end
+
+	Players.PlayerRemoving:Connect(function(player)
+		playerAimState[player] = nil
+	end)
 
 	ensureTraderPrompt()
 end

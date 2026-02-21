@@ -188,13 +188,20 @@ local function renderCatalog(catalog)
 		info.Font = Enum.Font.GothamSemibold
 		info.TextSize = 14
 		info.TextColor3 = Color3.fromRGB(228, 233, 240)
+		local ammoLine = ""
+		if type(weapon.magazineSize) == "number" and weapon.magazineSize > 0 then
+			local reloadSeconds = tonumber(weapon.reloadSeconds) or 0
+			ammoLine = string.format("  MAG %d  RELOAD %.1fs", weapon.magazineSize, reloadSeconds)
+		end
 		info.Text = string.format(
-			"%s  |  $%d\nDMG %d  RANGE %d  CD %.2fs",
+			"%s (%s)  |  $%d\nDMG %d  RANGE %d  CD %.2fs%s",
 			weapon.name or weapon.id or "?",
+			weapon.weaponClass or "Weapon",
 			weapon.cost or 0,
 			weapon.damage or 0,
 			weapon.range or 0,
-			weapon.cooldown or 0
+			weapon.cooldown or 0,
+			ammoLine
 		)
 		info.Parent = row
 

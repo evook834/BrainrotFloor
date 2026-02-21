@@ -261,6 +261,10 @@ end
 local function prepareModelForMovement(enemyModel, humanoid)
 	for _, descendant in enemyModel:GetDescendants() do
 		if descendant:IsA("BasePart") then
+			-- Weapon raycasts rely on query/touch visibility on enemy parts.
+			descendant.CanQuery = true
+			descendant.CanTouch = true
+
 			if humanoid then
 				descendant.Anchored = false
 			else
