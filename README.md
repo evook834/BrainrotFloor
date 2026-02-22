@@ -9,6 +9,7 @@
 2. Run `rojo serve`.
 3. In Roblox Studio, install and open the Rojo plugin.
 4. Connect to `localhost:34872` and sync the project.
+5. If you use lobby matchmaking, set `MATCH_PLACE_ID` in `src/ServerScriptService/Lobby/MatchmakingConfig.luau` to your gameplay place ID.
 
 ## Game scaffold included
 - Wave loop with intermission and scaling enemy count.
@@ -23,6 +24,23 @@
 ## Existing place file
 Your existing place file (`Brainrot  Floor.rbxlx`) is untouched.
 Rojo sync uses `default.project.json` and `src/` going forward.
+
+## Lobby script placement
+Use these exact paths when syncing with Rojo:
+
+1. `src/ServerScriptService/Lobby/MatchmakingConfig.luau`
+   - Studio location: `ServerScriptService > Lobby > MatchmakingConfig` (`ModuleScript`)
+2. `src/ServerScriptService/Lobby/LobbyMatchmaker.server.luau`
+   - Studio location: `ServerScriptService > Lobby > LobbyMatchmaker` (`Script`)
+   - Runs in the lobby place (public server). Handles difficulty button prompts and teleports.
+3. `src/ServerScriptService/Lobby/MatchServerRegistry.server.luau`
+   - Studio location: `ServerScriptService > Lobby > MatchServerRegistry` (`Script`)
+   - Runs in reserved match servers. Publishes heartbeat/player slot state to MemoryStore.
+
+Required lobby workspace setup:
+- `Workspace > DifficultyButtons` folder with button `BasePart` instances.
+- Each button maps to a difficulty (`Easy`, `Normal`, `Hard`) by part name, or by a `Difficulty` attribute.
+- Set `MATCH_PLACE_ID` in `src/ServerScriptService/Lobby/MatchmakingConfig.luau` to your real gameplay place ID.
 
 ## Automatic local backups
 - Backup script: `scripts/auto_backup_place.ps1`
