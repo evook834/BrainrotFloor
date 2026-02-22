@@ -300,7 +300,20 @@ shopOpenRemote.OnClientEvent:Connect(function()
 end)
 
 if waveStateRemote and waveStateRemote:IsA("RemoteEvent") then
-	waveStateRemote.OnClientEvent:Connect(function()
+	waveStateRemote.OnClientEvent:Connect(function(payload)
+		local stateName = nil
+		if type(payload) == "table" then
+			stateName = payload.state
+		end
+		if type(stateName) ~= "string" then
+			stateName = remotesFolder:GetAttribute("CurrentWaveState")
+		end
+
+		if stateName == "InProgress" and panel.Visible then
+			closeShop()
+			return
+		end
+
 		if panel.Visible then
 			refreshCatalog()
 		end

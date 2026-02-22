@@ -16,6 +16,7 @@ local shopOpenRemote = nil
 local shopGetCatalogFunction = nil
 local shopBuyWeaponFunction = nil
 local weaponAimRemote = nil
+local weaponFireRemote = nil
 local weaponById = {}
 local weaponEffectsFolder = nil
 local toolRuntimeState = setmetatable({}, { __mode = "k" })
@@ -105,30 +106,60 @@ local function buildWeaponRaycastParams(character, additionalExclusions)
 	return raycastParams
 end
 
-local function updatePlayerAim(player, hitPosition, lookDirection)
+local function updatePlayerAim(player, hitPosition, lookDirection, cameraOrigin)
 	if typeof(hitPosition) ~= "Vector3" then
 		return
 	end
 	if typeof(lookDirection) ~= "Vector3" or lookDirection.Magnitude <= 0.001 then
 		return
 	end
+	if cameraOrigin ~= nil and typeof(cameraOrigin) ~= "Vector3" then
+		return
+	end
 
 	playerAimState[player] = {
 		hitPosition = hitPosition,
 		lookDirection = lookDirection.Unit,
+		cameraOrigin = cameraOrigin,
 		updatedAt = os.clock(),
 	}
 end
 
-local function getPlayerAimDirection(player, rootPart, origin)
-	local baseDirection = rootPart.CFrame.LookVector
+local function getFreshAimState(player)
 	local aimState = playerAimState[player]
+	if not aimState then
+		return nil
+	end
+
+	if os.clock() - (aimState.updatedAt or 0) > 0.8 then
+		return nil
+	end
+
+	return aimState
+end
+
+local function getPlayerAimDirection(player, character, rootPart, origin)
+	local baseDirection = rootPart.CFrame.LookVector
+	local aimState = getFreshAimState(player)
 	if not aimState then
 		return baseDirection
 	end
 
-	if os.clock() - (aimState.updatedAt or 0) > 0.8 then
-		return baseDirection
+	local cameraOrigin = aimState.cameraOrigin
+	local lookDirection = aimState.lookDirection
+	if typeof(cameraOrigin) == "Vector3" then
+		local range = 1800
+		local raycastParams = buildWeaponRaycastParams(character, {})
+		local raycastResult = Workspace:Raycast(cameraOrigin, lookDirection * range, raycastParams)
+		local targetPosition = cameraOrigin + lookDirection * range
+		if raycastResult then
+			targetPosition = raycastResult.Position
+		end
+
+		local toTarget = targetPosition - origin
+		if toTarget.Magnitude > 0.01 then
+			return toTarget.Unit
+		end
 	end
 
 	local aimDirection = nil
@@ -143,12 +174,23 @@ local function getPlayerAimDirection(player, rootPart, origin)
 		return baseDirection
 	end
 
-	-- Keep aiming mostly in front of the character to avoid invalid client angles.
-	if baseDirection:Dot(aimDirection.Unit) < 0.02 then
-		return baseDirection
+	return aimDirection.Unit
+end
+
+local function getPlayerShotRay(player, rootPart, fallbackOrigin, fallbackDirection)
+	local aimState = getFreshAimState(player)
+	if aimState and typeof(aimState.cameraOrigin) == "Vector3" then
+		local lookDirection = aimState.lookDirection
+		if typeof(lookDirection) == "Vector3" and lookDirection.Magnitude > 0.001 then
+			return aimState.cameraOrigin, lookDirection.Unit
+		end
 	end
 
-	return aimDirection.Unit
+	if typeof(fallbackOrigin) == "Vector3" and typeof(fallbackDirection) == "Vector3" and fallbackDirection.Magnitude > 0.001 then
+		return fallbackOrigin, fallbackDirection.Unit
+	end
+
+	return rootPart.Position + Vector3.new(0, 1.5, 0), rootPart.CFrame.LookVector
 end
 
 local function getMoneyValue(player)
@@ -414,15 +456,25 @@ local function createExplosionEffect(position, radius)
 	Debris:AddItem(blast, 0.25)
 end
 
-local function getWeaponOriginAndDirection(player, rootPart, handle)
+local function getWeaponOriginAndDirection(player, character, rootPart, handle)
 	local origin = rootPart.Position + Vector3.new(0, 1.5, 0)
 	if handle and handle:IsA("BasePart") then
-		origin = handle.Position + rootPart.CFrame.LookVector * math.max(0.8, handle.Size.Z * 0.45)
+		origin = handle.Position
 	end
 
-	local direction = getPlayerAimDirection(player, rootPart, origin)
+	local direction = getPlayerAimDirection(player, character, rootPart, origin)
 	if direction.Magnitude <= 0.001 then
 		direction = rootPart.CFrame.LookVector
+	end
+	direction = direction.Unit
+
+	if handle and handle:IsA("BasePart") then
+		origin += direction * math.max(0.8, handle.Size.Z * 0.45)
+		direction = getPlayerAimDirection(player, character, rootPart, origin)
+		if direction.Magnitude <= 0.001 then
+			direction = rootPart.CFrame.LookVector
+		end
+		direction = direction.Unit
 	end
 
 	return origin, direction
@@ -579,11 +631,13 @@ local function playMeleeSwing(tool, weaponDef, state)
 	end)
 end
 
-local function fireBulletShot(player, character, origin, direction, weaponDef)
+local function fireBulletShot(player, character, origin, direction, weaponDef, shotOrigin, shotDirection)
 	local range = math.max(1, tonumber(weaponDef.Range) or 40)
+	local rayOrigin = typeof(shotOrigin) == "Vector3" and shotOrigin or origin
+	local rayDirection = typeof(shotDirection) == "Vector3" and shotDirection.Unit or direction
 	local raycastParams = buildWeaponRaycastParams(character, {})
-	local result = Workspace:Raycast(origin, direction * range, raycastParams)
-	local hitPosition = origin + direction * range
+	local result = Workspace:Raycast(rayOrigin, rayDirection * range, raycastParams)
+	local hitPosition = rayOrigin + rayDirection * range
 	local enemyTarget = nil
 
 	if result then
@@ -592,7 +646,7 @@ local function fireBulletShot(player, character, origin, direction, weaponDef)
 	end
 
 	if not enemyTarget then
-		local fallbackEnemy, fallbackImpact = findEnemyAlongSegment(character, origin, hitPosition, 0.75)
+		local fallbackEnemy, fallbackImpact = findEnemyAlongSegment(character, rayOrigin, hitPosition, 0.75)
 		if fallbackEnemy then
 			enemyTarget = fallbackEnemy
 			if fallbackImpact then
@@ -644,7 +698,7 @@ local function fireFlamethrower(player, character, weaponDef, state, handle)
 				break
 			end
 
-			local origin, direction = getWeaponOriginAndDirection(player, liveRootPart, handle)
+			local origin, direction = getWeaponOriginAndDirection(player, character, liveRootPart, handle)
 			local flameEnd = origin + direction * math.min(range, 9)
 			createMuzzleFlash(origin, Color3.fromRGB(255, 145, 70), 0.8, 0.08)
 			createTracerSegment(origin, flameEnd, Color3.fromRGB(255, 120, 65), 0.65, 0.09)
@@ -661,11 +715,24 @@ local function fireFlamethrower(player, character, weaponDef, state, handle)
 	end)
 end
 
-local function fireRocket(player, character, origin, direction, weaponDef)
+local function fireRocket(player, character, origin, direction, weaponDef, shotOrigin, shotDirection)
 	local speed = math.max(30, tonumber(weaponDef.ProjectileSpeed) or 140)
 	local range = math.max(30, tonumber(weaponDef.Range) or 120)
 	local blastRadius = math.max(4, tonumber(weaponDef.BlastRadius) or 16)
 	local blastDamage = tonumber(weaponDef.Damage) or 100
+	local aimRayOrigin = typeof(shotOrigin) == "Vector3" and shotOrigin or origin
+	local aimRayDirection = typeof(shotDirection) == "Vector3" and shotDirection.Unit or direction
+	local aimRaycastParams = buildWeaponRaycastParams(character, {})
+	local aimRaycastResult = Workspace:Raycast(aimRayOrigin, aimRayDirection * range, aimRaycastParams)
+	local aimTargetPosition = aimRayOrigin + aimRayDirection * range
+	if aimRaycastResult then
+		aimTargetPosition = aimRaycastResult.Position
+	end
+
+	local toAimTarget = aimTargetPosition - origin
+	if toAimTarget.Magnitude > 0.01 then
+		direction = toAimTarget.Unit
+	end
 
 	local rocket = Instance.new("Part")
 	rocket.Name = "RocketProjectile"
@@ -944,23 +1011,7 @@ local function configureWeaponTool(tool, weaponDef)
 	state.baseGrip = tool.Grip
 	updateAmmoAttributes(tool, weaponDef, state)
 
-	tool.Activated:Connect(function()
-		local character = tool.Parent
-		if not character or not character:IsA("Model") then
-			return
-		end
-
-		local owner = Players:GetPlayerFromCharacter(character)
-		if not owner then
-			return
-		end
-
-		local humanoid = character:FindFirstChildOfClass("Humanoid")
-		local rootPart = character:FindFirstChild("HumanoidRootPart")
-		if not humanoid or humanoid.Health <= 0 or not rootPart then
-			return
-		end
-
+	local function fireWeapon(owner, character, humanoid, rootPart, explicitShotOrigin, explicitShotDirection)
 		local now = os.clock()
 		local cooldown = math.max(0.05, tonumber(weaponDef.Cooldown) or 0.25)
 		if now - (state.lastActivatedAt or -math.huge) < cooldown then
@@ -981,19 +1032,74 @@ local function configureWeaponTool(tool, weaponDef)
 
 		state.lastActivatedAt = now
 
-		local origin, direction = getWeaponOriginAndDirection(owner, rootPart, handle)
+		local origin, direction = getWeaponOriginAndDirection(owner, character, rootPart, handle)
+		local shotOrigin, shotDirection = nil, nil
+		if typeof(explicitShotOrigin) == "Vector3" and typeof(explicitShotDirection) == "Vector3" and explicitShotDirection.Magnitude > 0.001 then
+			shotOrigin = explicitShotOrigin
+			shotDirection = explicitShotDirection.Unit
+		else
+			shotOrigin, shotDirection = getPlayerShotRay(owner, rootPart, origin, direction)
+		end
+
 		if weaponClass == "Melee" then
 			fireMeleeAttack(owner, character, origin, direction, weaponDef, state, tool)
 		elseif weaponClass == "Flamethrower" then
 			fireFlamethrower(owner, character, weaponDef, state, handle)
 		elseif weaponClass == "RPG" then
-			fireRocket(owner, character, origin, direction, weaponDef)
+			fireRocket(owner, character, origin, direction, weaponDef, shotOrigin, shotDirection)
 		else
-			fireBulletShot(owner, character, origin, direction, weaponDef)
+			fireBulletShot(owner, character, origin, direction, weaponDef, shotOrigin, shotDirection)
 		end
+	end
+
+	state.fireHandler = function(owner, explicitShotOrigin, explicitShotDirection)
+		if not owner or not owner:IsA("Player") then
+			return
+		end
+
+		local character = owner.Character
+		if not character or tool.Parent ~= character then
+			return
+		end
+
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		local rootPart = character:FindFirstChild("HumanoidRootPart")
+		if not humanoid or humanoid.Health <= 0 or not rootPart then
+			return
+		end
+
+		fireWeapon(owner, character, humanoid, rootPart, explicitShotOrigin, explicitShotDirection)
+	end
+
+	tool.Activated:Connect(function()
+		-- Prefer explicit client fire remote for aim-accurate shots.
+		if weaponFireRemote then
+			return
+		end
+
+		local character = tool.Parent
+		if not character or not character:IsA("Model") then
+			return
+		end
+
+		local owner = Players:GetPlayerFromCharacter(character)
+		if not owner then
+			return
+		end
+
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		local rootPart = character:FindFirstChild("HumanoidRootPart")
+		if not humanoid or humanoid.Health <= 0 or not rootPart then
+			return
+		end
+
+		fireWeapon(owner, character, humanoid, rootPart, nil, nil)
 	end)
 
 	tool.Destroying:Connect(function()
+		if state then
+			state.fireHandler = nil
+		end
 		toolRuntimeState[tool] = nil
 	end)
 end
@@ -1006,6 +1112,25 @@ local function createWeaponTool(weaponDef)
 
 	configureWeaponTool(tool, weaponDef)
 	return tool
+end
+
+local function getEquippedWeaponTool(player, weaponId)
+	if type(weaponId) ~= "string" or weaponId == "" then
+		return nil
+	end
+
+	local character = player.Character
+	if not character then
+		return nil
+	end
+
+	for _, child in ipairs(character:GetChildren()) do
+		if child:IsA("Tool") and child:GetAttribute("WeaponId") == weaponId then
+			return child
+		end
+	end
+
+	return nil
 end
 
 local function playerOwnsWeapon(player, weaponId)
@@ -1211,6 +1336,7 @@ function ShopService.start()
 	shopGetCatalogFunction = ensureRemote(remotesFolder, "RemoteFunction", Config.Remotes.ShopGetCatalog)
 	shopBuyWeaponFunction = ensureRemote(remotesFolder, "RemoteFunction", Config.Remotes.ShopBuyWeapon)
 	weaponAimRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.WeaponAim)
+	weaponFireRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.WeaponFire)
 
 	shopGetCatalogFunction.OnServerInvoke = function(player)
 		return getCatalogForPlayer(player)
@@ -1228,8 +1354,35 @@ function ShopService.start()
 	end
 
 	if weaponAimRemote then
-		weaponAimRemote.OnServerEvent:Connect(function(player, hitPosition, lookDirection)
-			updatePlayerAim(player, hitPosition, lookDirection)
+		weaponAimRemote.OnServerEvent:Connect(function(player, hitPosition, lookDirection, cameraOrigin)
+			updatePlayerAim(player, hitPosition, lookDirection, cameraOrigin)
+		end)
+	end
+
+	if weaponFireRemote then
+		weaponFireRemote.OnServerEvent:Connect(function(player, weaponId, hitPosition, lookDirection, cameraOrigin)
+			if typeof(hitPosition) == "Vector3" and typeof(lookDirection) == "Vector3" then
+				updatePlayerAim(player, hitPosition, lookDirection, cameraOrigin)
+			end
+
+			local tool = getEquippedWeaponTool(player, weaponId)
+			if not tool then
+				return
+			end
+
+			local state = toolRuntimeState[tool]
+			if not state or type(state.fireHandler) ~= "function" then
+				return
+			end
+
+			local explicitShotOrigin = nil
+			local explicitShotDirection = nil
+			if typeof(cameraOrigin) == "Vector3" and typeof(lookDirection) == "Vector3" and lookDirection.Magnitude > 0.001 then
+				explicitShotOrigin = cameraOrigin
+				explicitShotDirection = lookDirection.Unit
+			end
+
+			state.fireHandler(player, explicitShotOrigin, explicitShotDirection)
 		end)
 	end
 

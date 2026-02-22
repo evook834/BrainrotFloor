@@ -72,6 +72,7 @@ local Config = {
 		ShopGetCatalog = "ShopGetCatalog",
 		ShopBuyWeapon = "ShopBuyWeapon",
 		WeaponAim = "WeaponAim",
+		WeaponFire = "WeaponFire",
 	},
 	Player = {
 		StartingMoney = 5000,
@@ -138,6 +139,7 @@ local Config = {
 			{
 				Id = "railgun",
 				DisplayName = "Railgun",
+				TemplateName = "railgun",
 				Cost = 1800,
 				WeaponClass = "Ranged",
 				Damage = 80,
@@ -147,6 +149,7 @@ local Config = {
 				ReloadSeconds = 2.8,
 				ProjectileSpeed = 420,
 				Color = Color3.fromRGB(120, 170, 220),
+				GripRotationDeg = Vector3.new(0, 270, 0),
 			},
 			{
 				Id = "flamethrower",
