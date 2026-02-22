@@ -9,6 +9,7 @@ local Workspace = game:GetService("Workspace")
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local ClassService = require(script.Parent.ClassService)
 local EnemyVfxService = require(script.Parent.EnemyVfxService)
+local ModelRootResolver = require(script.Parent.ModelRootResolver)
 
 local ShopService = {}
 
@@ -66,24 +67,6 @@ end
 
 local function getEnemyContainer()
 	return Workspace:FindFirstChild(Config.Enemy.ContainerName)
-end
-
-local function resolveEnemyRoot(enemyModel)
-	if enemyModel.PrimaryPart and enemyModel.PrimaryPart:IsA("BasePart") then
-		return enemyModel.PrimaryPart
-	end
-
-	local humanoidRootPart = enemyModel:FindFirstChild("HumanoidRootPart", true)
-	if humanoidRootPart and humanoidRootPart:IsA("BasePart") then
-		enemyModel.PrimaryPart = humanoidRootPart
-		return humanoidRootPart
-	end
-
-	local anyPart = enemyModel:FindFirstChildWhichIsA("BasePart", true)
-	if anyPart then
-		enemyModel.PrimaryPart = anyPart
-	end
-	return anyPart
 end
 
 local function findEnemyModelFromDescendant(descendant, enemyContainer)
@@ -335,7 +318,7 @@ local function emitDamageIndicator(player, enemyModel, dealtDamage, indicatorSty
 	end
 
 	local worldPosition = nil
-	local enemyRoot = resolveEnemyRoot(enemyModel)
+	local enemyRoot = ModelRootResolver.resolveRootPart(enemyModel)
 	if enemyRoot then
 		worldPosition = enemyRoot.Position
 	else
@@ -890,7 +873,7 @@ local function findEnemyAlongSegment(character, segmentStart, segmentEnd, extraR
 
 	for _, enemyModel in enemyContainer:GetChildren() do
 		if enemyModel:IsA("Model") then
-			local enemyRoot = resolveEnemyRoot(enemyModel)
+			local enemyRoot = ModelRootResolver.resolveRootPart(enemyModel)
 			if enemyRoot then
 				local nearestPoint = projectPointOnSegment(enemyRoot.Position, segmentStart, segmentEnd)
 				local distanceFromPath = (enemyRoot.Position - nearestPoint).Magnitude
@@ -922,7 +905,7 @@ local function getEnemiesInCone(character, origin, lookDirection, range, arcDegr
 
 	for _, enemyModel in enemyContainer:GetChildren() do
 		if enemyModel:IsA("Model") then
-			local enemyRoot = resolveEnemyRoot(enemyModel)
+			local enemyRoot = ModelRootResolver.resolveRootPart(enemyModel)
 			if enemyRoot then
 				local offset = enemyRoot.Position - origin
 				local distance = offset.Magnitude
@@ -951,7 +934,7 @@ local function applyBlastDamage(player, centerPosition, radius, maxDamage, weapo
 
 	for _, enemyModel in enemyContainer:GetChildren() do
 		if enemyModel:IsA("Model") then
-			local enemyRoot = resolveEnemyRoot(enemyModel)
+			local enemyRoot = ModelRootResolver.resolveRootPart(enemyModel)
 			if enemyRoot then
 				local distance = (enemyRoot.Position - centerPosition).Magnitude
 				if distance <= radius then

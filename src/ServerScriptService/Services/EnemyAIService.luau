@@ -4,6 +4,7 @@ local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local ClassService = require(script.Parent.ClassService)
+local ModelRootResolver = require(script.Parent.ModelRootResolver)
 
 local EnemyAIService = {}
 
@@ -38,26 +39,6 @@ local function normalizeAnimationId(rawId)
 	end
 
 	return ""
-end
-
-local function resolveRootPart(model)
-	if model.PrimaryPart and model.PrimaryPart:IsA("BasePart") then
-		return model.PrimaryPart
-	end
-
-	local humanoidRootPart = model:FindFirstChild("HumanoidRootPart", true)
-	if humanoidRootPart and humanoidRootPart:IsA("BasePart") then
-		model.PrimaryPart = humanoidRootPart
-		return humanoidRootPart
-	end
-
-	local anyPart = model:FindFirstChildWhichIsA("BasePart", true)
-	if anyPart then
-		model.PrimaryPart = anyPart
-		return anyPart
-	end
-
-	return nil
 end
 
 local function mergeProfile(templateName)
@@ -283,7 +264,7 @@ local function stopTrack(track)
 end
 
 function EnemyAIService.start(enemyModel, templateName)
-	local rootPart = resolveRootPart(enemyModel)
+	local rootPart = ModelRootResolver.resolveRootPart(enemyModel)
 	if not rootPart then
 		return
 	end
@@ -326,7 +307,7 @@ function EnemyAIService.start(enemyModel, templateName)
 				break
 			end
 
-			rootPart = resolveRootPart(enemyModel)
+			rootPart = ModelRootResolver.resolveRootPart(enemyModel)
 			if not rootPart then
 				break
 			end
@@ -360,7 +341,7 @@ function EnemyAIService.start(enemyModel, templateName)
 								return
 							end
 
-							local liveRootPart = resolveRootPart(enemyModel)
+							local liveRootPart = ModelRootResolver.resolveRootPart(enemyModel)
 							local liveTargetRoot = targetHumanoid.Parent:FindFirstChild("HumanoidRootPart")
 							if not liveRootPart or not liveTargetRoot then
 								return

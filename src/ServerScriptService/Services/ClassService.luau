@@ -327,6 +327,26 @@ local function getPlayerClassDefinition(player)
 	return getClassDefinition(fallbackId)
 end
 
+local function getPlayerSelectedClassProgress(player)
+	local classDef = getPlayerClassDefinition(player)
+	if not classDef then
+		return nil, nil
+	end
+
+	local state = getOrCreatePlayerState(player)
+	local progress = getOrCreateClassProgress(state, classDef.Id)
+	return classDef, progress
+end
+
+local function getPlayerSelectedClassBonuses(player)
+	local classDef, progress = getPlayerSelectedClassProgress(player)
+	if not classDef or not progress then
+		return nil, nil
+	end
+
+	return classDef, getBonusesAtLevel(classDef, progress.level)
+end
+
 local function applyHumanoidClassBonus(humanoid, maxHealthMultiplier)
 	if not humanoid or not humanoid:IsA("Humanoid") then
 		return
@@ -374,14 +394,10 @@ local function applyHumanoidMoveSpeedBonus(humanoid, moveSpeedMultiplier)
 end
 
 local function applyCharacterClassBonuses(player, character)
-	local classDef = getPlayerClassDefinition(player)
-	if not classDef then
+	local _, bonuses = getPlayerSelectedClassBonuses(player)
+	if not bonuses then
 		return
 	end
-
-	local state = getOrCreatePlayerState(player)
-	local progress = getOrCreateClassProgress(state, classDef.Id)
-	local bonuses = getBonusesAtLevel(classDef, progress.level)
 
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	if humanoid then
@@ -619,10 +635,11 @@ function ClassService.getWeaponDamageMultiplier(player, weaponDef)
 		return 0
 	end
 
-	local classDef = getPlayerClassDefinition(player)
-	local state = getOrCreatePlayerState(player)
-	local progress = getOrCreateClassProgress(state, classDef.Id)
-	local bonuses = getBonusesAtLevel(classDef, progress.level)
+	local _, bonuses = getPlayerSelectedClassBonuses(player)
+	if not bonuses then
+		return 0
+	end
+
 	return math.max(0, bonuses.damageMultiplier)
 end
 
@@ -631,10 +648,11 @@ function ClassService.getIncomingDamageMultiplier(player)
 		return 1
 	end
 
-	local classDef = getPlayerClassDefinition(player)
-	local state = getOrCreatePlayerState(player)
-	local progress = getOrCreateClassProgress(state, classDef.Id)
-	local bonuses = getBonusesAtLevel(classDef, progress.level)
+	local _, bonuses = getPlayerSelectedClassBonuses(player)
+	if not bonuses then
+		return 1
+	end
+
 	return math.max(0.05, bonuses.incomingDamageMultiplier)
 end
 
@@ -646,10 +664,11 @@ function ClassService.getMeleeRangeMultiplier(player, weaponDef)
 		return 1
 	end
 
-	local classDef = getPlayerClassDefinition(player)
-	local state = getOrCreatePlayerState(player)
-	local progress = getOrCreateClassProgress(state, classDef.Id)
-	local bonuses = getBonusesAtLevel(classDef, progress.level)
+	local _, bonuses = getPlayerSelectedClassBonuses(player)
+	if not bonuses then
+		return 1
+	end
+
 	return math.max(0.1, bonuses.meleeRangeMultiplier)
 end
 
@@ -661,14 +680,12 @@ local function getPlayerWeaponBonuses(player, weaponDef)
 		return nil
 	end
 
-	local classDef = getPlayerClassDefinition(player)
+	local classDef, bonuses = getPlayerSelectedClassBonuses(player)
 	if not classDef or not isWeaponAllowedForClass(classDef, weaponDef) then
 		return nil
 	end
 
-	local state = getOrCreatePlayerState(player)
-	local progress = getOrCreateClassProgress(state, classDef.Id)
-	return getBonusesAtLevel(classDef, progress.level)
+	return bonuses
 end
 
 function ClassService.getWeaponShopCost(player, weaponDef)
@@ -756,13 +773,11 @@ function ClassService.recordDamage(player, damage, weaponDef)
 		return
 	end
 
-	local classDef = getPlayerClassDefinition(player)
-	if not classDef then
+	local classDef, progress = getPlayerSelectedClassProgress(player)
+	if not classDef or not progress then
 		return
 	end
 
-	local state = getOrCreatePlayerState(player)
-	local progress = getOrCreateClassProgress(state, classDef.Id)
 	local maxLevel = getMaxLevel()
 	local leveledUp = false
 

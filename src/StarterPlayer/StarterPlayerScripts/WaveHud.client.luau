@@ -135,8 +135,12 @@ local uiState = {
 	waveState = "Waiting",
 	livingEnemies = 0,
 }
-local countdownToken = 0
-local respawnCountdownToken = 0
+local intermissionCountdownState = {
+	token = 0,
+}
+local respawnCountdownState = {
+	token = 0,
+}
 
 local function render()
 	hpLine.Text = string.format("HP: %d / %d", math.max(0, math.floor(uiState.hp + 0.5)), math.max(1, math.floor(uiState.maxHp + 0.5)))
@@ -147,16 +151,30 @@ end
 
 render()
 
+local function beginCountdown(countdownState)
+	countdownState.token += 1
+	return countdownState.token
+end
+
+local function isCountdownActive(countdownState, token)
+	return token == countdownState.token
+end
+
+local function cancelCountdown(countdownState, label)
+	beginCountdown(countdownState)
+	label.Visible = false
+	label.Text = ""
+end
+
 local function startIntermissionCountdown(seconds, waveNumber, intermissionEndsAt)
-	countdownToken += 1
-	local activeToken = countdownToken
+	local activeToken = beginCountdown(intermissionCountdownState)
 
 	task.spawn(function()
 		local fallbackRemaining = math.max(0, math.floor(seconds or 0))
 		local useServerEndTime = type(intermissionEndsAt) == "number" and intermissionEndsAt > 0
 
 		topTimer.Visible = true
-		while activeToken == countdownToken do
+		while isCountdownActive(intermissionCountdownState, activeToken) do
 			local remaining
 			if useServerEndTime then
 				remaining = math.max(0, math.ceil(intermissionEndsAt - Workspace:GetServerTimeNow()))
@@ -180,19 +198,16 @@ local function startIntermissionCountdown(seconds, waveNumber, intermissionEndsA
 end
 
 local function hideCountdown()
-	countdownToken += 1
-	topTimer.Visible = false
-	topTimer.Text = ""
+	cancelCountdown(intermissionCountdownState, topTimer)
 end
 
 local function startRespawnCountdown(seconds)
-	respawnCountdownToken += 1
-	local activeToken = respawnCountdownToken
+	local activeToken = beginCountdown(respawnCountdownState)
 	local remaining = math.max(0, math.floor(seconds or 0))
 
 	task.spawn(function()
 		respawnTimer.Visible = true
-		while activeToken == respawnCountdownToken and remaining >= 0 do
+		while isCountdownActive(respawnCountdownState, activeToken) and remaining >= 0 do
 			respawnTimer.Text = string.format("You died - respawning in %02ds", remaining)
 			if remaining <= 0 then
 				break
@@ -202,16 +217,14 @@ local function startRespawnCountdown(seconds)
 			remaining -= 1
 		end
 
-		if activeToken == respawnCountdownToken then
+		if isCountdownActive(respawnCountdownState, activeToken) then
 			respawnTimer.Text = "Respawning..."
 		end
 	end)
 end
 
 local function hideRespawnCountdown()
-	respawnCountdownToken += 1
-	respawnTimer.Visible = false
-	respawnTimer.Text = ""
+	cancelCountdown(respawnCountdownState, respawnTimer)
 end
 
 local remotesFolder = ReplicatedStorage:WaitForChild(Config.Remotes.Folder, 15)

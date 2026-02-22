@@ -6,28 +6,9 @@ local Players = game:GetService("Players")
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local EnemyAIService = require(script.Parent.EnemyAIService)
 local EnemyVfxService = require(script.Parent.EnemyVfxService)
+local ModelRootResolver = require(script.Parent.ModelRootResolver)
 
 local EnemyService = {}
-
-local function resolveRootPart(model)
-	if model.PrimaryPart then
-		return model.PrimaryPart
-	end
-
-	local humanoidRootPart = model:FindFirstChild("HumanoidRootPart", true)
-	if humanoidRootPart and humanoidRootPart:IsA("BasePart") then
-		model.PrimaryPart = humanoidRootPart
-		return humanoidRootPart
-	end
-
-	local anyPart = model:FindFirstChildWhichIsA("BasePart", true)
-	if anyPart then
-		model.PrimaryPart = anyPart
-		return anyPart
-	end
-
-	return nil
-end
 
 local function getEnemyTemplates()
 	local folder = ServerStorage:FindFirstChild(Config.Enemy.TemplateFolderName)
@@ -37,7 +18,7 @@ local function getEnemyTemplates()
 
 	local templates = {}
 	for _, child in folder:GetChildren() do
-		if child:IsA("Model") and resolveRootPart(child) then
+		if child:IsA("Model") and ModelRootResolver.resolveRootPart(child) then
 			table.insert(templates, child)
 		end
 	end
@@ -262,7 +243,7 @@ function EnemyService.spawnWave(enemyCount, waveNumber)
 			enemy.Name = string.format("Brainrot_%d", spawnIndex)
 
 			local humanoid = enemy:FindFirstChildOfClass("Humanoid")
-			local root = resolveRootPart(enemy)
+			local root = ModelRootResolver.resolveRootPart(enemy)
 
 			if root then
 				addTemplateHitboxProxy(enemy, templateName, root)
