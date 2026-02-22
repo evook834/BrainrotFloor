@@ -9,7 +9,7 @@
 2. Run `rojo serve`.
 3. In Roblox Studio, install and open the Rojo plugin.
 4. Connect to `localhost:34872` and sync the project.
-5. If you use lobby matchmaking, set `MATCH_PLACE_ID` in `src/ServerScriptService/Lobby/MatchmakingConfig.luau` to your gameplay place ID.
+5. If you use lobby matchmaking, set `MATCH_PLACE_IDS` in `src/ServerScriptService/Lobby/MatchmakingConfig.luau` to your map place IDs.
 
 ## Game scaffold included
 - Wave loop with intermission and scaling enemy count.
@@ -40,7 +40,8 @@ Use these exact paths when syncing with Rojo:
 Required lobby workspace setup:
 - `Workspace > DifficultyButtons` folder with button `BasePart` instances.
 - Each button maps to a difficulty (`Easy`, `Normal`, `Hard`) by part name, or by a `Difficulty` attribute.
-- Set `MATCH_PLACE_ID` in `src/ServerScriptService/Lobby/MatchmakingConfig.luau` to your real gameplay place ID.
+- Set `MATCH_PLACE_IDS` in `src/ServerScriptService/Lobby/MatchmakingConfig.luau` to the shared map pool used for all difficulties.
+- Matchmaking reuses existing servers first; if none exist for that difficulty, it reserves a server on a random place from `MATCH_PLACE_IDS`.
 
 ## Automatic local backups
 - Backup script: `scripts/auto_backup_place.ps1`

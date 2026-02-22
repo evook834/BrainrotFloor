@@ -1,7 +1,16 @@
 local Config = {}
 
--- Set this to your gameplay place ID (the place players should play rounds in).
-Config.MATCH_PLACE_ID = 1234567890
+-- Shared map place IDs used by all difficulties.
+-- If no suitable server is already running for a chosen difficulty,
+-- the lobby creates a reserved server on a random place from this list.
+Config.MATCH_PLACE_IDS = {
+	85990388071078,
+	117569264354652,
+	93216049725715,
+}
+
+-- Legacy single-place fallback (kept for compatibility).
+Config.MATCH_PLACE_ID = 85990388071078
 
 -- Shared MemoryStore key used by all lobby and match servers.
 Config.MEMORYSTORE_MAP_NAME = "KF_MatchServers_v1"

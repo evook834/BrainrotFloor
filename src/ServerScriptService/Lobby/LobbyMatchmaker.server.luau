@@ -4,6 +4,8 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local TeleportService = game:GetService("TeleportService")
 local Workspace = game:GetService("Workspace")
 
+local PLACEHOLDER_PLACE_ID = 1234567890
+
 local function resolveConfigModule()
 	local localConfig = script.Parent:FindFirstChild("MatchmakingConfig")
 	if localConfig and localConfig:IsA("ModuleScript") then
@@ -29,11 +31,7 @@ end
 
 local Config = requireConfig()
 local matchServers = MemoryStoreService:GetSortedMap(Config.MEMORYSTORE_MAP_NAME)
-local matchPlaceId = tonumber(Config.MATCH_PLACE_ID)
-
-if matchPlaceId == 1234567890 then
-	warn("[LobbyMatchmaker] Config.MATCH_PLACE_ID is still the template placeholder (1234567890). Set it to your Match place's PlaceId.")
-end
+local randomGenerator = Random.new()
 
 if game.PrivateServerId ~= "" and not Config.ALLOW_PRIVATE_SERVER_LOBBY then
 	warn("[LobbyMatchmaker] Private server detected. Skipping lobby matchmaking button wiring.")
@@ -74,14 +72,94 @@ local function isDifficulty(value)
 	return difficultyLookup[value] == true
 end
 
-local function isMatchPlaceConfigured()
-	if type(matchPlaceId) ~= "number" then
-		return false
+local function addMatchPlaceId(placeIds, placeIdLookup, rawPlaceId)
+	local placeId = toNumber(rawPlaceId, nil)
+	if placeId == nil then
+		return
 	end
-	if matchPlaceId <= 0 then
-		return false
+
+	if placeId ~= math.floor(placeId) then
+		warn(("[LobbyMatchmaker] Ignoring non-integer place id '%s'."):format(tostring(rawPlaceId)))
+		return
 	end
-	return matchPlaceId ~= 1234567890
+
+	if placeId <= 0 then
+		warn(("[LobbyMatchmaker] Ignoring invalid place id '%s'."):format(tostring(rawPlaceId)))
+		return
+	end
+
+	if placeId == PLACEHOLDER_PLACE_ID then
+		warn("[LobbyMatchmaker] Ignoring template placeholder place id 1234567890.")
+		return
+	end
+
+	if placeIdLookup[placeId] then
+		return
+	end
+
+	placeIdLookup[placeId] = true
+	table.insert(placeIds, placeId)
+end
+
+local function collectMatchPlaceIds()
+	local placeIds = {}
+	local placeIdLookup = {}
+
+	if type(Config.MATCH_PLACE_IDS) == "table" then
+		for _, rawPlaceId in ipairs(Config.MATCH_PLACE_IDS) do
+			addMatchPlaceId(placeIds, placeIdLookup, rawPlaceId)
+		end
+	end
+
+	if #placeIds == 0 then
+		addMatchPlaceId(placeIds, placeIdLookup, Config.MATCH_PLACE_ID)
+	end
+
+	if #placeIds == 0 then
+		warn("[LobbyMatchmaker] No valid match place IDs configured. Set MATCH_PLACE_IDS in MatchmakingConfig.")
+	end
+
+	return placeIds, placeIdLookup
+end
+
+local matchPlaceIds, matchPlaceIdLookup = collectMatchPlaceIds()
+
+local function hasConfiguredMatchPlaces()
+	return #matchPlaceIds > 0
+end
+
+local function chooseRandomMatchPlaceId()
+	if #matchPlaceIds == 0 then
+		return nil
+	end
+
+	if #matchPlaceIds == 1 then
+		return matchPlaceIds[1]
+	end
+
+	local randomIndex = randomGenerator:NextInteger(1, #matchPlaceIds)
+	return matchPlaceIds[randomIndex]
+end
+
+local function resolveEntryPlaceId(value)
+	local placeId = toNumber(value and value.placeId, nil)
+	if placeId == nil and #matchPlaceIds == 1 then
+		-- Backward compatibility with old entries that predate placeId field.
+		placeId = matchPlaceIds[1]
+	end
+	if placeId == nil then
+		return nil
+	end
+
+	if placeId ~= math.floor(placeId) then
+		return nil
+	end
+
+	if not matchPlaceIdLookup[placeId] then
+		return nil
+	end
+
+	return placeId
 end
 
 local function maxPlayersForDifficulty(difficulty)
@@ -134,6 +212,11 @@ local function fetchCandidateServers(difficulty)
 			continue
 		end
 
+		local placeId = resolveEntryPlaceId(value)
+		if placeId == nil then
+			continue
+		end
+
 		local playerCount = math.max(toNumber(value.playerCount, 0), 0)
 		local pendingSlots = math.max(toNumber(value.pendingSlots, 0), 0)
 		local maxPlayers = math.max(toNumber(value.maxPlayers, 0), 0)
@@ -142,6 +225,7 @@ local function fetchCandidateServers(difficulty)
 		if maxPlayers > 0 and effectiveCount < maxPlayers then
 			table.insert(candidates, {
 				key = serverKey,
+				placeId = placeId,
 				accessCode = value.accessCode,
 				effectiveCount = effectiveCount,
 			})
@@ -159,6 +243,7 @@ end
 local function reserveSlot(serverKey, difficulty)
 	local didReserve = false
 	local accessCode
+	local reservedPlaceId
 
 	local ok = safeCall(("UpdateAsync reserve %s"):format(serverKey), function()
 		matchServers:UpdateAsync(serverKey, function(oldValue, oldSortKey)
@@ -167,6 +252,11 @@ local function reserveSlot(serverKey, difficulty)
 			end
 
 			if oldValue.difficulty ~= difficulty then
+				return oldValue, oldSortKey
+			end
+
+			local placeId = resolveEntryPlaceId(oldValue)
+			if placeId == nil then
 				return oldValue, oldSortKey
 			end
 
@@ -183,21 +273,23 @@ local function reserveSlot(serverKey, difficulty)
 				return oldValue, oldSortKey
 			end
 
+			oldValue.placeId = placeId
 			oldValue.pendingSlots = pendingSlots + 1
 			oldValue.lastHeartbeat = currentTime
 
 			didReserve = true
 			accessCode = oldValue.accessCode
+			reservedPlaceId = placeId
 
 			return oldValue, currentTime
 		end, Config.ENTRY_TTL_SECONDS)
 	end)
 
 	if not ok then
-		return false, nil
+		return false, nil, nil
 	end
 
-	return didReserve, accessCode
+	return didReserve, accessCode, reservedPlaceId
 end
 
 local function releaseSlot(serverKey)
@@ -216,19 +308,19 @@ local function releaseSlot(serverKey)
 	end)
 end
 
-local function teleportToReservedServer(player, difficulty, matchId, accessCode)
+local function teleportToReservedServer(player, placeId, difficulty, matchId, accessCode)
 	if player.Parent ~= Players then
 		return false
 	end
 
-	if not isMatchPlaceConfigured() then
-		warn("[LobbyMatchmaker] MATCH_PLACE_ID is invalid. Teleport canceled.")
+	if not matchPlaceIdLookup[placeId] then
+		warn(("[LobbyMatchmaker] Target placeId %s is not in MATCH_PLACE_IDS. Teleport canceled."):format(tostring(placeId)))
 		return false
 	end
 
 	warn(("[LobbyMatchmaker] Teleporting %s -> placeId=%s difficulty=%s matchId=%s"):format(
 		player.Name,
-		tostring(matchPlaceId),
+		tostring(placeId),
 		tostring(difficulty),
 		tostring(matchId)
 	))
@@ -238,6 +330,7 @@ local function teleportToReservedServer(player, difficulty, matchId, accessCode)
 	options:SetTeleportData({
 		difficulty = difficulty,
 		matchId = matchId,
+		placeId = placeId,
 		fromPlaceId = game.PlaceId,
 		queuedAt = nowSeconds(),
 	})
@@ -245,7 +338,7 @@ local function teleportToReservedServer(player, difficulty, matchId, accessCode)
 	local retries = math.max(1, toNumber(Config.TELEPORT_RETRIES, 1))
 	for attempt = 1, retries do
 		local ok, err = pcall(function()
-			TeleportService:TeleportAsync(matchPlaceId, {player}, options)
+			TeleportService:TeleportAsync(placeId, {player}, options)
 		end)
 		if ok then
 			warn(("[LobbyMatchmaker] TeleportAsync succeeded for %s"):format(player.Name))
@@ -267,40 +360,47 @@ local function teleportToReservedServer(player, difficulty, matchId, accessCode)
 end
 
 local function createReservedServer(difficulty)
-	if not isMatchPlaceConfigured() then
-		warn("[LobbyMatchmaker] MATCH_PLACE_ID is invalid. Cannot reserve server.")
-		return nil, nil
+	if not hasConfiguredMatchPlaces() then
+		warn("[LobbyMatchmaker] MATCH_PLACE_IDS is empty. Cannot reserve server.")
+		return nil, nil, nil
+	end
+
+	local placeId = chooseRandomMatchPlaceId()
+	if placeId == nil then
+		warn("[LobbyMatchmaker] Could not choose a match place id.")
+		return nil, nil, nil
 	end
 
 	local maxPlayers = maxPlayersForDifficulty(difficulty)
 	if maxPlayers <= 0 then
 		warn(("[LobbyMatchmaker] Max players missing for difficulty '%s'"):format(tostring(difficulty)))
-		return nil, nil
+		return nil, nil, nil
 	end
 
 	local ok, accessCode, privateServerId = safeCall("ReserveServer", function()
 		if type(TeleportService.ReserveServerAsync) == "function" then
-			return TeleportService:ReserveServerAsync(matchPlaceId)
+			return TeleportService:ReserveServerAsync(placeId)
 		end
 
-		return TeleportService:ReserveServer(matchPlaceId)
+		return TeleportService:ReserveServer(placeId)
 	end)
 	if not ok then
-		return nil, nil
+		return nil, nil, nil
 	end
 
 	if type(accessCode) ~= "string" or accessCode == "" then
 		warn("[LobbyMatchmaker] ReserveServer returned an invalid access code.")
-		return nil, nil
+		return nil, nil, nil
 	end
 	if type(privateServerId) ~= "string" or privateServerId == "" then
 		warn("[LobbyMatchmaker] ReserveServer returned an invalid private server id.")
-		return nil, nil
+		return nil, nil, nil
 	end
 
 	local currentTime = nowSeconds()
 	local entry = {
 		difficulty = difficulty,
+		placeId = placeId,
 		accessCode = accessCode,
 		privateServerId = privateServerId,
 		playerCount = 0,
@@ -314,14 +414,14 @@ local function createReservedServer(difficulty)
 		matchServers:SetAsync(privateServerId, entry, Config.ENTRY_TTL_SECONDS, currentTime)
 	end)
 	if not setOk then
-		return nil, nil
+		return nil, nil, nil
 	end
 
-	return privateServerId, accessCode
+	return privateServerId, accessCode, placeId
 end
 
 local function sendPlayerToDifficulty(player, difficulty)
-	if not isMatchPlaceConfigured() then
+	if not hasConfiguredMatchPlaces() then
 		return false
 	end
 
@@ -332,9 +432,9 @@ local function sendPlayerToDifficulty(player, difficulty)
 	local candidates = fetchCandidateServers(difficulty)
 
 	for _, candidate in ipairs(candidates) do
-		local reserved, accessCode = reserveSlot(candidate.key, difficulty)
-		if reserved and accessCode then
-			local didTeleport = teleportToReservedServer(player, difficulty, candidate.key, accessCode)
+		local reserved, accessCode, placeId = reserveSlot(candidate.key, difficulty)
+		if reserved and accessCode and placeId then
+			local didTeleport = teleportToReservedServer(player, placeId, difficulty, candidate.key, accessCode)
 			if didTeleport then
 				return true
 			end
@@ -343,12 +443,12 @@ local function sendPlayerToDifficulty(player, difficulty)
 		end
 	end
 
-	local matchId, accessCode = createReservedServer(difficulty)
-	if not matchId or not accessCode then
+	local matchId, accessCode, placeId = createReservedServer(difficulty)
+	if not matchId or not accessCode or not placeId then
 		return false
 	end
 
-	local didTeleport = teleportToReservedServer(player, difficulty, matchId, accessCode)
+	local didTeleport = teleportToReservedServer(player, placeId, difficulty, matchId, accessCode)
 	if didTeleport then
 		return true
 	end

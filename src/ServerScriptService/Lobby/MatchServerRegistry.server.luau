@@ -36,6 +36,7 @@ if MATCH_KEY == "" then
 end
 
 Workspace:SetAttribute("MatchId", MATCH_KEY)
+Workspace:SetAttribute("MatchPlaceId", game.PlaceId)
 
 local difficultyLookup = {}
 for _, difficulty in ipairs(Config.DIFFICULTIES) do
@@ -100,11 +101,12 @@ local function readDifficultyFromJoinData(player)
 	local joinData = player:GetJoinData()
 	local teleportData = joinData and joinData.TeleportData
 	if type(teleportData) ~= "table" then
-		return nil, nil
+		return nil, nil, nil
 	end
 
 	local difficulty = teleportData.difficulty
 	local matchId = teleportData.matchId
+	local placeId = toNumber(teleportData.placeId, nil)
 
 	if not isDifficulty(difficulty) then
 		difficulty = nil
@@ -114,7 +116,7 @@ local function readDifficultyFromJoinData(player)
 		matchId = nil
 	end
 
-	return difficulty, matchId
+	return difficulty, matchId, placeId
 end
 
 local function loadDifficultyFromStore()
@@ -175,6 +177,7 @@ local function heartbeat()
 			end
 
 			entry.difficulty = activeDifficulty
+			entry.placeId = game.PlaceId
 			entry.privateServerId = MATCH_KEY
 			entry.serverJobId = game.JobId
 			entry.playerCount = currentPlayers
@@ -194,9 +197,16 @@ local function heartbeat()
 end
 
 local function onPlayerAdded(player)
-	local difficulty, matchId = readDifficultyFromJoinData(player)
+	local difficulty, matchId, placeId = readDifficultyFromJoinData(player)
 	if difficulty then
 		setActiveDifficulty(difficulty)
+	end
+
+	if placeId and placeId ~= game.PlaceId then
+		warn(("[MatchServerRegistry] JoinData placeId (%s) does not match current game.PlaceId (%s)."):format(
+			tostring(placeId),
+			tostring(game.PlaceId)
+		))
 	end
 
 	local userId = player.UserId
