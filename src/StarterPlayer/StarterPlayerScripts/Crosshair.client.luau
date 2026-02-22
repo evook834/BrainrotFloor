@@ -42,13 +42,16 @@ local currentTool = nil
 local characterConns = {}
 local toolConns = {}
 local lastAimSentAt = 0
+local lastAutoFireAt = -math.huge
 local aimUpdateInterval = 0.03
+local isPrimaryFireHeld = false
 local dualPoseCharacter = nil
 local dualPoseLeftShoulder = nil
 local dualPoseRightShoulder = nil
 local dualPoseLeftShoulders = {}
 local dualPoseLeftShoulderState = {}
 local dualPoseRightShoulderState = {}
+local dualPoseWeaponKey = nil
 local dualPoseRenderStepName = string.format("DualWieldPose_%d", player.UserId)
 local dualWieldWeaponIds = {}
 
@@ -294,11 +297,38 @@ local function clearDualWieldPose()
 	end
 
 	dualPoseCharacter = nil
+	dualPoseWeaponKey = nil
 	dualPoseLeftShoulder = nil
 	dualPoseRightShoulder = nil
 	table.clear(dualPoseLeftShoulders)
 	table.clear(dualPoseLeftShoulderState)
 	table.clear(dualPoseRightShoulderState)
+end
+
+local function getCurrentWeaponId()
+	if not currentTool then
+		return nil
+	end
+
+	local weaponId = currentTool:GetAttribute("WeaponId")
+	if type(weaponId) ~= "string" or weaponId == "" then
+		return nil
+	end
+
+	return weaponId
+end
+
+local function isCurrentToolDualWield(weaponId)
+	if not currentTool then
+		return false
+	end
+
+	local dualWield = currentTool:GetAttribute("DualWield")
+	if type(dualWield) == "boolean" then
+		return dualWield
+	end
+
+	return type(weaponId) == "string" and dualWieldWeaponIds[weaponId] == true
 end
 
 local function shouldApplyDualWieldPose()
@@ -309,13 +339,8 @@ local function shouldApplyDualWieldPose()
 		return false
 	end
 
-	local dualWield = currentTool:GetAttribute("DualWield")
-	if type(dualWield) == "boolean" then
-		return dualWield
-	end
-
-	local weaponId = currentTool:GetAttribute("WeaponId")
-	if type(weaponId) == "string" and dualWieldWeaponIds[weaponId] == true then
+	local weaponId = getCurrentWeaponId()
+	if isCurrentToolDualWield(weaponId) then
 		return true
 	end
 
@@ -440,9 +465,19 @@ local function applyDualWieldPose()
 		return
 	end
 
-	if dualPoseCharacter ~= currentCharacter or not dualPoseLeftShoulder or not dualPoseLeftShoulder.Parent then
+	local weaponId = getCurrentWeaponId()
+	local isDualWield = isCurrentToolDualWield(weaponId)
+	local poseWeaponKey = string.format("%s:%s", if isDualWield then "dual" else "single", weaponId or "")
+
+	if
+		dualPoseCharacter ~= currentCharacter
+		or dualPoseWeaponKey ~= poseWeaponKey
+		or not dualPoseLeftShoulder
+		or not dualPoseLeftShoulder.Parent
+	then
 		clearDualWieldPose()
 		dualPoseCharacter = currentCharacter
+		dualPoseWeaponKey = poseWeaponKey
 		dualPoseRightShoulder = findShoulderMotorBySide(currentCharacter, false) or findShoulderMotor(currentCharacter, false)
 		dualPoseLeftShoulder = findShoulderMotorBySide(currentCharacter, true) or findShoulderMotor(currentCharacter, true)
 		if not dualPoseLeftShoulder then
@@ -545,7 +580,8 @@ local function applyDualWieldPose()
 			local saved = dualPoseLeftShoulderState[shoulder]
 
 			if saved and typeof(saved.c0) == "CFrame" then
-				if typeof(saved.fallbackTransform) ~= "CFrame" then
+				if typeof(saved.fallbackTransform) ~= "CFrame" or saved.poseWeaponKey ~= poseWeaponKey then
+					saved.poseWeaponKey = poseWeaponKey
 					saved.fallbackTransform = chooseForwardFallbackTransform(shoulder, saved.c0, isR6)
 				end
 
@@ -658,15 +694,58 @@ local function sendFireRequest()
 	weaponFireRemote:FireServer(weaponId, hitPosition, lookDirection, cameraOrigin)
 end
 
+local function isCurrentWeaponAutoFireEnabled()
+	if not currentTool then
+		return false
+	end
+
+	return currentTool:GetAttribute("AutoFire") == true
+end
+
+local function tryAutoFire()
+	if not isPrimaryFireHeld then
+		return
+	end
+	if not isCurrentWeaponAutoFireEnabled() then
+		return
+	end
+	if UserInputService:GetFocusedTextBox() then
+		return
+	end
+	if isShopOpen() then
+		return
+	end
+	if not currentCharacter then
+		return
+	end
+
+	local humanoid = currentCharacter:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then
+		return
+	end
+
+	local cooldown = math.max(0.03, tonumber(currentTool:GetAttribute("Cooldown")) or 0.1)
+	local now = os.clock()
+	if now - lastAutoFireAt < cooldown then
+		return
+	end
+
+	lastAutoFireAt = now
+	sendAimUpdate(true)
+	sendFireRequest()
+end
+
 local function updateToolConnections(tool)
 	disconnectAll(toolConns)
 	currentTool = tool
+	lastAutoFireAt = -math.huge
 	if not currentTool then
 		clearDualWieldPose()
 		return
 	end
 
 	table.insert(toolConns, currentTool.Activated:Connect(function()
+		lastAutoFireAt = os.clock()
 		sendAimUpdate(true)
 		sendFireRequest()
 	end))
@@ -710,12 +789,28 @@ end
 
 player.CharacterAdded:Connect(bindCharacter)
 
+UserInputService.InputBegan:Connect(function(inputObject, gameProcessed)
+	if gameProcessed then
+		return
+	end
+	if inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
+		isPrimaryFireHeld = true
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(inputObject)
+	if inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
+		isPrimaryFireHeld = false
+	end
+end)
+
 RunService:BindToRenderStep(dualPoseRenderStepName, Enum.RenderPriority.Last.Value, function()
 	applyDualWieldPose()
 end)
 
 RunService.RenderStepped:Connect(function()
 	sendAimUpdate(false)
+	tryAutoFire()
 
 	local crosshairX, crosshairY = getCrosshairViewportPoint()
 	root.Position = UDim2.fromOffset(crosshairX, crosshairY)

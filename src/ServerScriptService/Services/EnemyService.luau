@@ -5,6 +5,7 @@ local Players = game:GetService("Players")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local EnemyAIService = require(script.Parent.EnemyAIService)
+local EnemyVfxService = require(script.Parent.EnemyVfxService)
 
 local EnemyService = {}
 
@@ -285,6 +286,7 @@ function EnemyService.spawnWave(enemyCount, waveNumber)
 					end)
 
 					humanoid.Died:Once(function()
+						EnemyVfxService.playDeathCloud(enemy)
 						task.delay(2, function()
 							if enemy and enemy.Parent then
 								enemy:Destroy()

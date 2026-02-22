@@ -83,6 +83,43 @@ local function getXpRequiredForNextLevel(classDef, level)
 	local baseXp = math.max(10, tonumber(progression.BaseXpToLevel) or 100)
 	local growth = math.clamp(tonumber(progression.XpGrowthPerLevel) or 0.05, 0, 1)
 	local requirement = baseXp * ((1 + growth) ^ math.max(0, level - 1))
+
+	local progressionCurve = getClassSystemConfig().ProgressionCurve or {}
+	local levelBandSize = math.max(1, math.floor(tonumber(progressionCurve.LevelBandSize) or 10))
+	local decadeStepMultiplier = math.max(1, tonumber(progressionCurve.DecadeStepMultiplier) or 1)
+	if decadeStepMultiplier > 1 then
+		local levelBandIndex = math.floor(math.max(0, level - 1) / levelBandSize)
+		requirement *= decadeStepMultiplier ^ levelBandIndex
+	end
+
+	local earlyLevelsFastUntil = math.max(1, math.floor(tonumber(progressionCurve.EarlyLevelsFastUntil) or 1))
+	local earlyLevelsMultiplier = math.clamp(tonumber(progressionCurve.EarlyLevelsMultiplier) or 1, 0.1, 1)
+	if earlyLevelsMultiplier < 1 and level <= earlyLevelsFastUntil then
+		local blendAlpha = 1
+		if earlyLevelsFastUntil > 1 then
+			blendAlpha = (level - 1) / (earlyLevelsFastUntil - 1)
+		end
+		local earlyScale = earlyLevelsMultiplier + ((1 - earlyLevelsMultiplier) * blendAlpha)
+		requirement *= earlyScale
+	end
+
+	local classXpRequirementMultiplier = math.max(0.001, tonumber(progression.XpRequirementMultiplier) or 1)
+	requirement *= classXpRequirementMultiplier
+
+	local earlyLevelXpRequirementMultiplier = math.max(0.001, tonumber(progression.EarlyLevelXpRequirementMultiplier) or 1)
+	if earlyLevelXpRequirementMultiplier ~= 1 then
+		local earlyLevelXpUntilLevel = math.max(
+			1,
+			math.floor(tonumber(progression.EarlyLevelXpUntilLevel) or earlyLevelsFastUntil)
+		)
+		if level <= earlyLevelXpUntilLevel then
+			requirement *= earlyLevelXpRequirementMultiplier
+		end
+	end
+
+	local xpRequirementMultiplier = math.max(0.001, tonumber(getClassSystemConfig().XpRequirementMultiplier) or 1)
+	requirement *= xpRequirementMultiplier
+
 	return math.max(1, math.floor(requirement + 0.5))
 end
 
@@ -107,6 +144,30 @@ local function getBonusesAtLevel(classDef, level)
 		0.85
 	)
 	local incomingDamageMultiplier = 1 - totalDamageReduction
+	local shopDiscount = math.clamp(
+		math.max(0, tonumber(bonuses.ShopDiscountPerLevel) or tonumber(bonuses.ShopCostReductionPerLevel) or 0) * bonusLevels,
+		0,
+		0.9
+	)
+	local magazineSizeMultiplier = 1
+		+ (
+			math.max(0, tonumber(bonuses.MagazineSizePerLevel) or tonumber(bonuses.MagSizePerLevel) or 0) * bonusLevels
+		)
+	local reloadSpeedBonus = math.max(0, tonumber(bonuses.ReloadSpeedPerLevel) or tonumber(bonuses.ReloadPerLevel) or 0)
+		* bonusLevels
+	local reloadTimeMultiplier = 1 / (1 + reloadSpeedBonus)
+	local spreadReduction = math.clamp(
+		math.max(
+			0,
+			tonumber(bonuses.BulletSpreadReductionPerLevel)
+				or tonumber(bonuses.SpreadReductionPerLevel)
+				or tonumber(bonuses.AccuracyPerLevel)
+				or 0
+		) * bonusLevels,
+		0,
+		0.8
+	)
+	local bulletSpreadMultiplier = 1 - spreadReduction
 
 	return {
 		damageMultiplier = math.max(0, damageMultiplier),
@@ -114,21 +175,36 @@ local function getBonusesAtLevel(classDef, level)
 		moveSpeedMultiplier = math.max(0.1, moveSpeedMultiplier),
 		meleeRangeMultiplier = math.max(0.1, meleeRangeMultiplier),
 		incomingDamageMultiplier = math.max(0.05, incomingDamageMultiplier),
+		shopCostMultiplier = math.max(0.1, 1 - shopDiscount),
+		shopDiscount = shopDiscount,
+		magazineSizeMultiplier = math.max(0.1, magazineSizeMultiplier),
+		reloadTimeMultiplier = math.max(0.1, reloadTimeMultiplier),
+		bulletSpreadMultiplier = math.max(0.2, bulletSpreadMultiplier),
 	}
 end
 
 local function summarizeBonuses(bonuses)
+	local reloadSpeedMultiplier = 1 / math.max(0.1, bonuses.reloadTimeMultiplier or 1)
 	return {
 		damageMultiplier = bonuses.damageMultiplier,
 		maxHealthMultiplier = bonuses.maxHealthMultiplier,
 		moveSpeedMultiplier = bonuses.moveSpeedMultiplier,
 		meleeRangeMultiplier = bonuses.meleeRangeMultiplier,
 		incomingDamageMultiplier = bonuses.incomingDamageMultiplier,
+		shopCostMultiplier = bonuses.shopCostMultiplier,
+		shopDiscount = bonuses.shopDiscount,
+		magazineSizeMultiplier = bonuses.magazineSizeMultiplier,
+		reloadTimeMultiplier = bonuses.reloadTimeMultiplier,
+		bulletSpreadMultiplier = bonuses.bulletSpreadMultiplier,
 		damagePct = (bonuses.damageMultiplier - 1) * 100,
 		maxHealthPct = (bonuses.maxHealthMultiplier - 1) * 100,
 		moveSpeedPct = (bonuses.moveSpeedMultiplier - 1) * 100,
 		meleeRangePct = (bonuses.meleeRangeMultiplier - 1) * 100,
 		damageReductionPct = (1 - bonuses.incomingDamageMultiplier) * 100,
+		shopDiscountPct = bonuses.shopDiscount * 100,
+		magazineSizePct = (bonuses.magazineSizeMultiplier - 1) * 100,
+		reloadSpeedPct = (reloadSpeedMultiplier - 1) * 100,
+		bulletSpreadReductionPct = (1 - bonuses.bulletSpreadMultiplier) * 100,
 	}
 end
 
@@ -388,6 +464,31 @@ local function buildPayloadForPlayer(player)
 				moveSpeedPct = math.max(0, tonumber(listedClass.Bonuses.MoveSpeedPerLevel) or 0) * 100,
 				meleeRangePct = math.max(0, tonumber(listedClass.Bonuses.MeleeRangePerLevel) or 0) * 100,
 				damageReductionPct = math.max(0, tonumber(listedClass.Bonuses.DamageReductionPerLevel) or 0) * 100,
+				shopDiscountPct = math.max(
+					0,
+					tonumber(listedClass.Bonuses.ShopDiscountPerLevel)
+						or tonumber(listedClass.Bonuses.ShopCostReductionPerLevel)
+						or 0
+				) * 100,
+				magazineSizePct = math.max(
+					0,
+					tonumber(listedClass.Bonuses.MagazineSizePerLevel)
+						or tonumber(listedClass.Bonuses.MagSizePerLevel)
+						or 0
+				) * 100,
+				reloadSpeedPct = math.max(
+					0,
+					tonumber(listedClass.Bonuses.ReloadSpeedPerLevel)
+						or tonumber(listedClass.Bonuses.ReloadPerLevel)
+						or 0
+				) * 100,
+				bulletSpreadReductionPct = math.max(
+					0,
+					tonumber(listedClass.Bonuses.BulletSpreadReductionPerLevel)
+						or tonumber(listedClass.Bonuses.SpreadReductionPerLevel)
+						or tonumber(listedClass.Bonuses.AccuracyPerLevel)
+						or 0
+				) * 100,
 			},
 		})
 	end
@@ -550,6 +651,91 @@ function ClassService.getMeleeRangeMultiplier(player, weaponDef)
 	local progress = getOrCreateClassProgress(state, classDef.Id)
 	local bonuses = getBonusesAtLevel(classDef, progress.level)
 	return math.max(0.1, bonuses.meleeRangeMultiplier)
+end
+
+local function getPlayerWeaponBonuses(player, weaponDef)
+	if not player or not player:IsA("Player") then
+		return nil
+	end
+	if type(weaponDef) ~= "table" then
+		return nil
+	end
+
+	local classDef = getPlayerClassDefinition(player)
+	if not classDef or not isWeaponAllowedForClass(classDef, weaponDef) then
+		return nil
+	end
+
+	local state = getOrCreatePlayerState(player)
+	local progress = getOrCreateClassProgress(state, classDef.Id)
+	return getBonusesAtLevel(classDef, progress.level)
+end
+
+function ClassService.getWeaponShopCost(player, weaponDef)
+	local baseCost = math.max(0, math.floor((tonumber(weaponDef and weaponDef.Cost) or 0) + 0.5))
+	if baseCost <= 0 then
+		return 0
+	end
+
+	local bonuses = getPlayerWeaponBonuses(player, weaponDef)
+	if not bonuses then
+		return baseCost
+	end
+
+	local adjustedCost = math.floor((baseCost * math.max(0.1, bonuses.shopCostMultiplier or 1)) + 0.5)
+	return math.max(1, adjustedCost)
+end
+
+function ClassService.getWeaponMagazineSize(player, weaponDef)
+	local baseMagazineSize = tonumber(weaponDef and weaponDef.MagazineSize)
+	if not baseMagazineSize then
+		return nil
+	end
+
+	baseMagazineSize = math.floor(baseMagazineSize + 0.5)
+	if baseMagazineSize <= 0 then
+		return nil
+	end
+
+	local bonuses = getPlayerWeaponBonuses(player, weaponDef)
+	if not bonuses then
+		return baseMagazineSize
+	end
+
+	local adjustedMagazineSize = math.floor((baseMagazineSize * math.max(0.1, bonuses.magazineSizeMultiplier or 1)) + 0.5)
+	return math.max(1, adjustedMagazineSize)
+end
+
+function ClassService.getWeaponReloadSeconds(player, weaponDef)
+	local configuredReload = tonumber(weaponDef and weaponDef.ReloadSeconds)
+	if not configuredReload then
+		return nil
+	end
+
+	local reloadSeconds = math.max(0.2, configuredReload)
+	local bonuses = getPlayerWeaponBonuses(player, weaponDef)
+	if not bonuses then
+		return reloadSeconds
+	end
+
+	return math.max(0.2, reloadSeconds * math.max(0.1, bonuses.reloadTimeMultiplier or 1))
+end
+
+function ClassService.getWeaponSpreadDegrees(player, weaponDef)
+	local baseSpreadDegrees = tonumber(weaponDef and weaponDef.SpreadDegrees)
+	if type(baseSpreadDegrees) ~= "number" then
+		return nil
+	end
+	if baseSpreadDegrees <= 0 then
+		return 0
+	end
+
+	local bonuses = getPlayerWeaponBonuses(player, weaponDef)
+	if not bonuses then
+		return baseSpreadDegrees
+	end
+
+	return math.max(0, baseSpreadDegrees * math.max(0.2, bonuses.bulletSpreadMultiplier or 1))
 end
 
 function ClassService.recordDamage(player, damage, weaponDef)

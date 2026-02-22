@@ -8,6 +8,7 @@ local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local ClassService = require(script.Parent.ClassService)
+local EnemyVfxService = require(script.Parent.EnemyVfxService)
 
 local ShopService = {}
 
@@ -387,6 +388,7 @@ local function applyDamageToEnemy(player, enemyModel, damage, weaponDef)
 			end
 		end
 		if previousHealth > 0 and currentHealth <= 0 then
+			EnemyVfxService.playDeathCloud(enemyModel)
 			rewardEnemyKill(player, enemyModel)
 		end
 		return
@@ -417,6 +419,7 @@ local function applyDamageToEnemy(player, enemyModel, damage, weaponDef)
 
 	if health <= 0 then
 		rewardEnemyKill(player, enemyModel)
+		EnemyVfxService.playDeathCloud(enemyModel)
 		enemyModel:Destroy()
 	end
 end
@@ -433,8 +436,14 @@ local function resolveWeaponClass(weaponDef)
 	return "Ranged"
 end
 
-local function getMagazineSize(weaponDef)
-	local magazineSize = tonumber(weaponDef.MagazineSize)
+local function getMagazineSize(weaponDef, player)
+	local magazineSize = nil
+	if player and player:IsA("Player") then
+		magazineSize = ClassService.getWeaponMagazineSize(player, weaponDef)
+	else
+		magazineSize = tonumber(weaponDef.MagazineSize)
+	end
+
 	if not magazineSize then
 		return nil
 	end
@@ -447,7 +456,33 @@ local function getMagazineSize(weaponDef)
 	return magazineSize
 end
 
-local function getToolState(tool, weaponDef)
+local function getReloadSeconds(weaponDef, player)
+	local reloadSeconds = nil
+	if player and player:IsA("Player") then
+		reloadSeconds = ClassService.getWeaponReloadSeconds(player, weaponDef)
+	else
+		reloadSeconds = tonumber(weaponDef.ReloadSeconds)
+	end
+
+	if type(reloadSeconds) ~= "number" then
+		return nil
+	end
+
+	return math.max(0.2, reloadSeconds)
+end
+
+local function syncToolCombatStats(tool, weaponDef, state, owner)
+	local magazineSize = getMagazineSize(weaponDef, owner)
+	local reloadSeconds = getReloadSeconds(weaponDef, owner)
+
+	state.magazineSize = magazineSize
+	state.reloadSeconds = reloadSeconds
+
+	tool:SetAttribute("MagazineSize", magazineSize)
+	tool:SetAttribute("ReloadSeconds", reloadSeconds)
+end
+
+local function getToolState(tool, weaponDef, owner)
 	local state = toolRuntimeState[tool]
 	if state then
 		return state
@@ -455,18 +490,21 @@ local function getToolState(tool, weaponDef)
 
 	state = {
 		lastActivatedAt = -math.huge,
-		ammo = getMagazineSize(weaponDef),
+		ammo = getMagazineSize(weaponDef, owner),
 		isReloading = false,
 		isBursting = false,
 		baseGrip = tool.Grip,
 		swingToken = 0,
+		magazineSize = getMagazineSize(weaponDef, owner),
+		reloadSeconds = getReloadSeconds(weaponDef, owner),
 	}
 	toolRuntimeState[tool] = state
 	return state
 end
 
-local function updateAmmoAttributes(tool, weaponDef, state)
-	local magazineSize = getMagazineSize(weaponDef)
+local function updateAmmoAttributes(tool, weaponDef, state, owner)
+	syncToolCombatStats(tool, weaponDef, state, owner)
+	local magazineSize = state.magazineSize
 	if not magazineSize then
 		tool:SetAttribute("MaxAmmo", nil)
 		tool:SetAttribute("CurrentAmmo", nil)
@@ -490,27 +528,33 @@ local function updateAmmoAttributes(tool, weaponDef, state)
 	end
 end
 
-local function startReload(tool, weaponDef, state)
-	local magazineSize = getMagazineSize(weaponDef)
+local function startReload(tool, weaponDef, state, owner)
+	syncToolCombatStats(tool, weaponDef, state, owner)
+	local magazineSize = state.magazineSize
 	if not magazineSize or state.isReloading then
 		return
 	end
 
 	state.isReloading = true
-	updateAmmoAttributes(tool, weaponDef, state)
+	updateAmmoAttributes(tool, weaponDef, state, owner)
 
-	local reloadSeconds = math.max(0.2, tonumber(weaponDef.ReloadSeconds) or 2)
+	local reloadSeconds = math.max(0.2, tonumber(state.reloadSeconds) or 2)
 	task.delay(reloadSeconds, function()
 		state.isReloading = false
-		state.ammo = magazineSize
+		syncToolCombatStats(tool, weaponDef, state, owner)
+		local refreshedMagazineSize = state.magazineSize
+		if refreshedMagazineSize then
+			state.ammo = refreshedMagazineSize
+		end
 		if tool.Parent then
-			updateAmmoAttributes(tool, weaponDef, state)
+			updateAmmoAttributes(tool, weaponDef, state, owner)
 		end
 	end)
 end
 
-local function tryConsumeAmmo(tool, weaponDef, state)
-	local magazineSize = getMagazineSize(weaponDef)
+local function tryConsumeAmmo(tool, weaponDef, state, owner)
+	syncToolCombatStats(tool, weaponDef, state, owner)
+	local magazineSize = state.magazineSize
 	if not magazineSize then
 		return true
 	end
@@ -524,15 +568,15 @@ local function tryConsumeAmmo(tool, weaponDef, state)
 	end
 
 	if state.ammo <= 0 then
-		startReload(tool, weaponDef, state)
+		startReload(tool, weaponDef, state, owner)
 		return false
 	end
 
 	state.ammo -= 1
-	updateAmmoAttributes(tool, weaponDef, state)
+	updateAmmoAttributes(tool, weaponDef, state, owner)
 
 	if state.ammo <= 0 then
-		startReload(tool, weaponDef, state)
+		startReload(tool, weaponDef, state, owner)
 	end
 
 	return true
@@ -1246,10 +1290,40 @@ local function playMeleeSwing(character, weaponDef, state)
 	end)
 end
 
+local function applyBulletSpread(direction, spreadDegrees)
+	local maxDegrees = math.max(0, tonumber(spreadDegrees) or 0)
+	if maxDegrees <= 0 then
+		return direction
+	end
+
+	local coneRadius = math.tan(math.rad(maxDegrees))
+	local theta = randomGenerator:NextNumber(0, math.pi * 2)
+	local radius = coneRadius * math.sqrt(randomGenerator:NextNumber())
+	local referenceUp = math.abs(direction:Dot(Vector3.yAxis)) > 0.98 and Vector3.xAxis or Vector3.yAxis
+	local right = direction:Cross(referenceUp)
+	if right.Magnitude <= 0.001 then
+		right = Vector3.xAxis
+	end
+	right = right.Unit
+	local up = right:Cross(direction).Unit
+	local offset = right * (math.cos(theta) * radius) + up * (math.sin(theta) * radius)
+	local spreadDirection = direction + offset
+	if spreadDirection.Magnitude <= 0.001 then
+		return direction
+	end
+
+	return spreadDirection.Unit
+end
+
 local function fireBulletShot(player, character, origin, direction, weaponDef, shotOrigin, shotDirection)
 	local range = math.max(1, tonumber(weaponDef.Range) or 40)
 	local rayOrigin = typeof(shotOrigin) == "Vector3" and shotOrigin or origin
 	local rayDirection = typeof(shotDirection) == "Vector3" and shotDirection.Unit or direction
+	local spreadDegrees = ClassService.getWeaponSpreadDegrees(player, weaponDef)
+	if type(spreadDegrees) ~= "number" then
+		spreadDegrees = weaponDef.SpreadDegrees
+	end
+	rayDirection = applyBulletSpread(rayDirection, spreadDegrees)
 	local raycastParams = buildWeaponRaycastParams(character, {})
 	local result = Workspace:Raycast(rayOrigin, rayDirection * range, raycastParams)
 	local hitPosition = rayOrigin + rayDirection * range
@@ -1892,6 +1966,25 @@ local function normalizeTemplateKey(value)
 	return string.lower((string.gsub(value, "[^%w]", "")))
 end
 
+local function keyMatches(candidateKey, queryKey)
+	if queryKey == "" then
+		return false
+	end
+	if candidateKey == queryKey then
+		return true
+	end
+	if not string.find(candidateKey, queryKey, 1, true) then
+		return false
+	end
+
+	-- Avoid false positives like matching "ak" inside "makarov".
+	if #queryKey <= 2 then
+		return string.sub(candidateKey, 1, #queryKey) == queryKey
+	end
+
+	return true
+end
+
 local function isTemplateCandidate(instance)
 	return instance:IsA("Tool") or instance:IsA("Model") or instance:IsA("BasePart")
 end
@@ -1913,17 +2006,17 @@ local function matchesTemplateCandidate(candidate, templateNameLower, templateNa
 	if templateNameLower ~= "" and candidateNameLower == templateNameLower then
 		return true
 	end
-	if templateNameKey ~= "" and (candidateKey == templateNameKey or string.find(candidateKey, templateNameKey, 1, true)) then
+	if keyMatches(candidateKey, templateNameKey) then
 		return true
 	end
 
 	if candidateNameLower == idLower or candidateNameLower == nameLower then
 		return true
 	end
-	if idKey ~= "" and (candidateKey == idKey or string.find(candidateKey, idKey, 1, true)) then
+	if keyMatches(candidateKey, idKey) then
 		return true
 	end
-	if nameKey ~= "" and (candidateKey == nameKey or string.find(candidateKey, nameKey, 1, true)) then
+	if keyMatches(candidateKey, nameKey) then
 		return true
 	end
 
@@ -2003,7 +2096,7 @@ local function createToolFromTemplate(weaponDef)
 	return nil
 end
 
-local function configureWeaponTool(tool, weaponDef)
+local function configureWeaponTool(tool, weaponDef, owner)
 	local weaponClass = resolveWeaponClass(weaponDef)
 	local dualWieldEnabled = isDualWieldWeapon(weaponDef)
 
@@ -2014,11 +2107,12 @@ local function configureWeaponTool(tool, weaponDef)
 	tool:SetAttribute("ClassTag", weaponDef.ClassTag)
 	tool:SetAttribute("RequiredClassId", weaponDef.ClassId)
 	tool:SetAttribute("DualWield", dualWieldEnabled)
+	tool:SetAttribute("AutoFire", weaponDef.AutoFire == true)
 	tool:SetAttribute("Damage", weaponDef.Damage)
 	tool:SetAttribute("Range", weaponDef.Range)
 	tool:SetAttribute("Cooldown", weaponDef.Cooldown)
-	tool:SetAttribute("MagazineSize", getMagazineSize(weaponDef))
-	tool:SetAttribute("ReloadSeconds", tonumber(weaponDef.ReloadSeconds))
+	tool:SetAttribute("MagazineSize", getMagazineSize(weaponDef, owner))
+	tool:SetAttribute("ReloadSeconds", getReloadSeconds(weaponDef, owner))
 
 	local handle = tool:FindFirstChild("Handle", true)
 	tool.RequiresHandle = handle ~= nil
@@ -2040,11 +2134,11 @@ local function configureWeaponTool(tool, weaponDef)
 	end
 	tool.Grip = grip
 
-	local state = getToolState(tool, weaponDef)
+	local state = getToolState(tool, weaponDef, owner)
 	state.baseGrip = tool.Grip
 	state.dualWieldEnabled = dualWieldEnabled
 	state.nextDualWieldShotLeft = false
-	updateAmmoAttributes(tool, weaponDef, state)
+	updateAmmoAttributes(tool, weaponDef, state, owner)
 
 	local function fireWeapon(owner, character, humanoid, rootPart, explicitShotOrigin, explicitShotDirection)
 		if not ClassService.canPlayerUseWeapon(owner, weaponDef) then
@@ -2066,7 +2160,7 @@ local function configureWeaponTool(tool, weaponDef)
 			return
 		end
 
-		if not tryConsumeAmmo(tool, weaponDef, state) then
+		if not tryConsumeAmmo(tool, weaponDef, state, owner) then
 			return
 		end
 
@@ -2182,13 +2276,13 @@ local function configureWeaponTool(tool, weaponDef)
 	end)
 end
 
-local function createWeaponTool(weaponDef)
+local function createWeaponTool(weaponDef, owner)
 	local tool = createToolFromTemplate(weaponDef)
 	if not tool then
 		tool = createFallbackWeaponTool(weaponDef)
 	end
 
-	configureWeaponTool(tool, weaponDef)
+	configureWeaponTool(tool, weaponDef, owner)
 	return tool
 end
 
@@ -2253,6 +2347,14 @@ local function canPlayerUseWeapon(player, weaponDef)
 	return ClassService.canPlayerUseWeapon(player, weaponDef)
 end
 
+local function getWeaponCostForPlayer(player, weaponDef)
+	if player and player:IsA("Player") then
+		return ClassService.getWeaponShopCost(player, weaponDef)
+	end
+
+	return math.max(0, math.floor((tonumber(weaponDef.Cost) or 0) + 0.5))
+end
+
 local function getClassRestrictionMessage(player)
 	local className = ClassService.getPlayerClassName(player)
 	return string.format("%s cannot buy this weapon.", className)
@@ -2271,12 +2373,12 @@ local function getCatalogForPlayer(player)
 			id = weaponDef.Id,
 			name = weaponDef.DisplayName,
 			weaponClass = resolveWeaponClass(weaponDef),
-			cost = weaponDef.Cost,
+			cost = getWeaponCostForPlayer(player, weaponDef),
 			damage = weaponDef.Damage,
 			range = weaponDef.Range,
 			cooldown = weaponDef.Cooldown,
-			magazineSize = getMagazineSize(weaponDef),
-			reloadSeconds = tonumber(weaponDef.ReloadSeconds),
+			magazineSize = getMagazineSize(weaponDef, player),
+			reloadSeconds = getReloadSeconds(weaponDef, player),
 			owned = playerOwnsWeapon(player, weaponDef.Id),
 		})
 	end
@@ -2301,7 +2403,7 @@ local function grantWeapon(player, weaponDef)
 	local backpack = player:FindFirstChildOfClass("Backpack")
 	local starterGear = player:FindFirstChild("StarterGear")
 
-	local toolForBackpack = createWeaponTool(weaponDef)
+	local toolForBackpack = createWeaponTool(weaponDef, player)
 	if backpack then
 		toolForBackpack.Parent = backpack
 
@@ -2317,7 +2419,7 @@ local function grantWeapon(player, weaponDef)
 	end
 
 	if starterGear then
-		local toolForStarterGear = createWeaponTool(weaponDef)
+		local toolForStarterGear = createWeaponTool(weaponDef, player)
 		toolForStarterGear.Parent = starterGear
 	end
 
@@ -2363,26 +2465,33 @@ local function buyWeapon(player, weaponId)
 		}
 	end
 
-	if moneyValue.Value < weaponDef.Cost then
+	local weaponCost = getWeaponCostForPlayer(player, weaponDef)
+	if moneyValue.Value < weaponCost then
 		return {
 			success = false,
 			message = "Not enough money.",
 		}
 	end
 
-	moneyValue.Value -= weaponDef.Cost
+	moneyValue.Value -= weaponCost
 	local granted, grantError = grantWeapon(player, weaponDef)
 	if not granted then
-		moneyValue.Value += weaponDef.Cost
+		moneyValue.Value += weaponCost
 		return {
 			success = false,
 			message = grantError or "Could not grant weapon.",
 		}
 	end
 
+	local baseCost = math.max(0, math.floor((tonumber(weaponDef.Cost) or 0) + 0.5))
+	local purchaseMessage = string.format("Bought %s for $%d", weaponDef.DisplayName, weaponCost)
+	if weaponCost < baseCost then
+		purchaseMessage = string.format("Bought %s for $%d (class discount)", weaponDef.DisplayName, weaponCost)
+	end
+
 	return {
 		success = true,
-		message = string.format("Bought %s for $%d", weaponDef.DisplayName, weaponDef.Cost),
+		message = purchaseMessage,
 	}
 end
 
