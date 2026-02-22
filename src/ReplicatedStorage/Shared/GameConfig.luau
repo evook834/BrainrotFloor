@@ -67,6 +67,23 @@ local Config = {
 			},
 		},
 	},
+	Difficulty = {
+		Default = "Normal",
+		Settings = {
+			Easy = {
+				EnemyHealthMultiplier = 0.8,
+				EnemyDamageMultiplier = 0.9,
+			},
+			Normal = {
+				EnemyHealthMultiplier = 1.0,
+				EnemyDamageMultiplier = 1.0,
+			},
+			Hard = {
+				EnemyHealthMultiplier = 1.35,
+				EnemyDamageMultiplier = 1.2,
+			},
+		},
+	},
 	Remotes = {
 		Folder = "Remotes",
 		WaveState = "WaveState",

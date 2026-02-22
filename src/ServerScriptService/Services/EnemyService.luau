@@ -5,6 +5,7 @@ local Players = game:GetService("Players")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local EnemyAIService = require(script.Parent.EnemyAIService)
+local DifficultyService = require(script.Parent.DifficultyService)
 local EnemyVfxService = require(script.Parent.EnemyVfxService)
 local ModelRootResolver = require(script.Parent.ModelRootResolver)
 
@@ -205,6 +206,24 @@ local function getDelayUntilNextBurst(spawnedCount, enemyCount, waveNumber, cade
 	return interval
 end
 
+local function getEnemyHealthMultiplierForDifficulty(difficulty)
+	local multiplier = tonumber(DifficultyService.getNumberSetting("EnemyHealthMultiplier", 1, difficulty)) or 1
+	if multiplier <= 0 then
+		return 1
+	end
+
+	return multiplier
+end
+
+local function getEnemyDamageMultiplierForDifficulty(difficulty)
+	local multiplier = tonumber(DifficultyService.getNumberSetting("EnemyDamageMultiplier", 1, difficulty)) or 1
+	if multiplier < 0 then
+		return 0
+	end
+
+	return multiplier
+end
+
 function EnemyService.spawnWave(enemyCount, waveNumber)
 	local templates = getEnemyTemplates()
 	local spawnPoints = getSpawnPoints()
@@ -223,6 +242,9 @@ function EnemyService.spawnWave(enemyCount, waveNumber)
 	local spawned = 0
 	local cadence = getSpawnCadence()
 	local activeWaveNumber = waveNumber or 1
+	local activeDifficulty = DifficultyService.getCurrentDifficulty()
+	local enemyHealthMultiplier = getEnemyHealthMultiplierForDifficulty(activeDifficulty)
+	local enemyDamageMultiplier = getEnemyDamageMultiplierForDifficulty(activeDifficulty)
 
 	if enemyCount > 0 and cadence.InitialDelaySeconds > 0 then
 		task.wait(cadence.InitialDelaySeconds)
@@ -251,6 +273,9 @@ function EnemyService.spawnWave(enemyCount, waveNumber)
 				enemy:PivotTo(spawnPoint.CFrame + Vector3.new(0, spawnOffsetY, 0))
 				enemy.Parent = container
 				enemy:SetAttribute("IsEnemy", true)
+				enemy:SetAttribute("Difficulty", activeDifficulty)
+				enemy:SetAttribute("EnemyHealthMultiplier", enemyHealthMultiplier)
+				enemy:SetAttribute("EnemyDamageMultiplier", enemyDamageMultiplier)
 				enemy:SetAttribute("EnemyType", templateName)
 				enemy:SetAttribute(
 					"Bounty",
@@ -260,6 +285,11 @@ function EnemyService.spawnWave(enemyCount, waveNumber)
 				EnemyAIService.start(enemy, templateName)
 
 				if humanoid then
+					local baseMaxHealth = math.max(1, humanoid.MaxHealth)
+					local healthRatio = math.clamp(humanoid.Health / baseMaxHealth, 0, 1)
+					local scaledMaxHealth = math.max(1, baseMaxHealth * enemyHealthMultiplier)
+					humanoid.MaxHealth = scaledMaxHealth
+					humanoid.Health = scaledMaxHealth * healthRatio
 					enemy:SetAttribute("EnemyMaxHealth", humanoid.MaxHealth)
 					enemy:SetAttribute("EnemyHealth", humanoid.Health)
 					humanoid.HealthChanged:Connect(function(newHealth)
@@ -275,7 +305,7 @@ function EnemyService.spawnWave(enemyCount, waveNumber)
 						end)
 					end)
 				else
-					local nonHumanoidHealth = Config.Enemy.NonHumanoidMaxHealth or 120
+					local nonHumanoidHealth = math.max(1, (Config.Enemy.NonHumanoidMaxHealth or 120) * enemyHealthMultiplier)
 					enemy:SetAttribute("EnemyMaxHealth", nonHumanoidHealth)
 					enemy:SetAttribute("EnemyHealth", nonHumanoidHealth)
 				end
@@ -300,7 +330,7 @@ function EnemyService.spawnWave(enemyCount, waveNumber)
 		if nextDelay > 0 then
 			task.wait(nextDelay)
 		end
-	end 
+	end
 
 	return spawned
 end

@@ -7,6 +7,7 @@ local Config = require(ReplicatedStorage.Shared.GameConfig)
 local WaveService = require(script.Parent.Services.WaveService)
 local ShopService = require(script.Parent.Services.ShopService)
 local ClassService = require(script.Parent.Services.ClassService)
+local DifficultyService = require(script.Parent.Services.DifficultyService)
 
 local function ensureFolder(parent, name)
 	local folder = parent:FindFirstChild(name)
@@ -120,6 +121,15 @@ end
 
 local pendingRespawnByPlayer = {}
 
+local function ensureDifficultyAttribute()
+	local currentDifficulty = Workspace:GetAttribute("Difficulty")
+	if type(currentDifficulty) == "string" and currentDifficulty ~= "" then
+		return
+	end
+
+	Workspace:SetAttribute("Difficulty", DifficultyService.getCurrentDifficulty())
+end
+
 local function scheduleRespawn(player)
 	local respawnDelaySeconds = (Config.Player and Config.Player.RespawnDelaySeconds) or 60
 	local respawnToken = (pendingRespawnByPlayer[player] or 0) + 1
@@ -179,6 +189,7 @@ local spawnFolder = ensureFolder(Workspace, Config.Enemy.SpawnFolderName)
 ensureFolder(Workspace, Config.Enemy.ContainerName)
 ensureTempEnemyTemplate(templateFolder)
 ensureTempSpawnPoint(spawnFolder)
+ensureDifficultyAttribute()
 
 Players.CharacterAutoLoads = false
 Players.PlayerAdded:Connect(bindPlayerSystems)

@@ -4,6 +4,7 @@ local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local ClassService = require(script.Parent.ClassService)
+local DifficultyService = require(script.Parent.DifficultyService)
 local ModelRootResolver = require(script.Parent.ModelRootResolver)
 
 local EnemyAIService = {}
@@ -263,6 +264,21 @@ local function stopTrack(track)
 	end
 end
 
+local function getEnemyDamageMultiplier(enemyModel)
+	local fromAttribute = tonumber(enemyModel:GetAttribute("EnemyDamageMultiplier"))
+	if fromAttribute ~= nil then
+		return math.max(0, fromAttribute)
+	end
+
+	local difficulty = enemyModel:GetAttribute("Difficulty")
+	local fromDifficulty = tonumber(DifficultyService.getNumberSetting("EnemyDamageMultiplier", 1, difficulty))
+	if fromDifficulty == nil then
+		return 1
+	end
+
+	return math.max(0, fromDifficulty)
+end
+
 function EnemyAIService.start(enemyModel, templateName)
 	local rootPart = ModelRootResolver.resolveRootPart(enemyModel)
 	if not rootPart then
@@ -271,6 +287,7 @@ function EnemyAIService.start(enemyModel, templateName)
 
 	local humanoid = enemyModel:FindFirstChildOfClass("Humanoid")
 	local profile = mergeProfile(templateName)
+	local enemyDamageMultiplier = getEnemyDamageMultiplier(enemyModel)
 	local facingOffsetCFrame = getFacingOffsetCFrame(profile)
 	local hasFacingOffset = facingOffsetCFrame ~= CFrame.new()
 
@@ -351,7 +368,8 @@ function EnemyAIService.start(enemyModel, templateName)
 							if attackDistance <= profile.AttackRange + 1.5 and targetHumanoid.Health > 0 then
 								local targetPlayer = Players:GetPlayerFromCharacter(targetHumanoid.Parent)
 								local damageMultiplier = targetPlayer and ClassService.getIncomingDamageMultiplier(targetPlayer) or 1
-								local finalDamage = math.max(0, (tonumber(profile.AttackDamage) or 0) * damageMultiplier)
+								local baseDamage = (tonumber(profile.AttackDamage) or 0) * enemyDamageMultiplier
+								local finalDamage = math.max(0, baseDamage * damageMultiplier)
 								if finalDamage > 0 then
 									targetHumanoid:TakeDamage(finalDamage)
 								end

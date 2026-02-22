@@ -15,6 +15,7 @@
 - Wave loop with intermission and scaling enemy count.
 - Enemy spawner that clones models from `ServerStorage/EnemyTemplates`.
 - Client HUD that shows wave state.
+- Difficulty modifiers for enemy stats (configured in `GameConfig`).
 
 ## What to add in Studio
 1. Add enemy models (with `Humanoid` and `HumanoidRootPart`) under `ServerStorage > EnemyTemplates`.
@@ -24,6 +25,13 @@
 ## Existing place file
 Your existing place file (`Brainrot  Floor.rbxlx`) is untouched.
 Rojo sync uses `default.project.json` and `src/` going forward.
+
+## Difficulty tuning
+Gameplay difficulty modifiers live in `src/ReplicatedStorage/Shared/GameConfig.luau` under `Difficulty.Settings`.
+
+Current server systems use:
+- `EnemyHealthMultiplier` for spawned enemy max health
+- `EnemyDamageMultiplier` for enemy melee attack damage
 
 ## Lobby script placement
 Use these exact paths when syncing with Rojo:
