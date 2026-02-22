@@ -6,6 +6,7 @@ local Players = game:GetService("Players")
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local WaveService = require(script.Parent.Services.WaveService)
 local ShopService = require(script.Parent.Services.ShopService)
+local ClassService = require(script.Parent.Services.ClassService)
 
 local function ensureFolder(parent, name)
 	local folder = parent:FindFirstChild(name)
@@ -188,5 +189,6 @@ for _, player in Players:GetPlayers() do
 	bindPlayerSystems(player)
 end
 
+ClassService.start()
 ShopService.start()
 WaveService.start()

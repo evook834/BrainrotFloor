@@ -125,6 +125,7 @@ local shopOpenRemote = remotesFolder:WaitForChild(Config.Remotes.ShopOpen, 15)
 local shopGetCatalogFunction = remotesFolder:WaitForChild(Config.Remotes.ShopGetCatalog, 15)
 local shopBuyWeaponFunction = remotesFolder:WaitForChild(Config.Remotes.ShopBuyWeapon, 15)
 local waveStateRemote = remotesFolder:FindFirstChild(Config.Remotes.WaveState)
+local classStateRemote = remotesFolder:FindFirstChild(Config.Remotes.ClassState)
 
 if not shopOpenRemote or not shopGetCatalogFunction or not shopBuyWeaponFunction then
 	warn("ShopUi is missing one or more shop remotes")
@@ -164,7 +165,10 @@ local function renderCatalog(catalog)
 		subtitle.TextColor3 = Color3.fromRGB(245, 155, 155)
 	end
 
+	local renderedCount = 0
 	for index, weapon in ipairs(catalog.weapons or {}) do
+		renderedCount += 1
+
 		local row = Instance.new("Frame")
 		row.Name = "WeaponRow_" .. tostring(index)
 		row.Size = UDim2.new(1, -4, 0, 64)
@@ -261,6 +265,10 @@ local function renderCatalog(catalog)
 			end)
 		end
 	end
+
+	if renderedCount == 0 then
+		setStatus("No weapons available for your current class.", Color3.fromRGB(235, 195, 140))
+	end
 end
 
 refreshCatalog = function()
@@ -314,6 +322,14 @@ if waveStateRemote and waveStateRemote:IsA("RemoteEvent") then
 			return
 		end
 
+		if panel.Visible then
+			refreshCatalog()
+		end
+	end)
+end
+
+if classStateRemote and classStateRemote:IsA("RemoteEvent") then
+	classStateRemote.OnClientEvent:Connect(function()
 		if panel.Visible then
 			refreshCatalog()
 		end

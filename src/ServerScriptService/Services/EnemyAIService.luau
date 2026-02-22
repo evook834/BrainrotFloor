@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
+local ClassService = require(script.Parent.ClassService)
 
 local EnemyAIService = {}
 
@@ -367,7 +368,12 @@ function EnemyAIService.start(enemyModel, templateName)
 
 							local attackDistance = (liveTargetRoot.Position - liveRootPart.Position).Magnitude
 							if attackDistance <= profile.AttackRange + 1.5 and targetHumanoid.Health > 0 then
-								targetHumanoid:TakeDamage(profile.AttackDamage)
+								local targetPlayer = Players:GetPlayerFromCharacter(targetHumanoid.Parent)
+								local damageMultiplier = targetPlayer and ClassService.getIncomingDamageMultiplier(targetPlayer) or 1
+								local finalDamage = math.max(0, (tonumber(profile.AttackDamage) or 0) * damageMultiplier)
+								if finalDamage > 0 then
+									targetHumanoid:TakeDamage(finalDamage)
+								end
 							end
 						end)
 					end

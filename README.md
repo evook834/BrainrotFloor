@@ -23,3 +23,16 @@
 ## Existing place file
 Your existing place file (`Brainrot  Floor.rbxlx`) is untouched.
 Rojo sync uses `default.project.json` and `src/` going forward.
+
+## Automatic local backups
+- Backup script: `scripts/auto_backup_place.ps1`
+- Task registration: `scripts/register_auto_backup_task.ps1`
+- Scheduled task name: `BrainrotFloorAutoBackup`
+
+Commands:
+- Register auto-backup task:
+  `powershell -ExecutionPolicy Bypass -File .\scripts\register_auto_backup_task.ps1`
+- Run one backup immediately:
+  `powershell -ExecutionPolicy Bypass -File .\scripts\auto_backup_place.ps1`
+- Remove task later if needed:
+  `Unregister-ScheduledTask -TaskName BrainrotFloorAutoBackup -Confirm:$false`

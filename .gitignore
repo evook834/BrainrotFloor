@@ -1,3 +1,5 @@
 sourcemap.json
 BrainrotFloor.rojo.rbxlx
 *.rbxlx.lock
+local_saves/
+.backup_state/

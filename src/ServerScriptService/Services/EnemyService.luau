@@ -76,6 +76,15 @@ local function chooseRandom(list)
 	return list[math.random(1, #list)]
 end
 
+local function getTemplateProfile(templateName)
+	local templateProfile = (Config.Enemy.TemplateProfiles or {})[templateName]
+	if type(templateProfile) == "table" then
+		return templateProfile
+	end
+
+	return nil
+end
+
 local function getSpawnOffsetY(enemyModel, templateName, spawnPoint)
 	local halfHeight = 2
 	local ok, _, size = pcall(function()
@@ -85,7 +94,7 @@ local function getSpawnOffsetY(enemyModel, templateName, spawnPoint)
 		halfHeight = size.Y * 0.5
 	end
 
-	local templateProfile = (Config.Enemy.TemplateProfiles or {})[templateName]
+	local templateProfile = getTemplateProfile(templateName)
 	local profileOffsetY = 0
 	if type(templateProfile) == "table" and type(templateProfile.SpawnOffsetY) == "number" then
 		profileOffsetY = templateProfile.SpawnOffsetY
@@ -97,6 +106,51 @@ local function getSpawnOffsetY(enemyModel, templateName, spawnPoint)
 	end
 
 	return spawnPartHalfHeight + halfHeight + (Config.Enemy.SpawnPaddingY or 0.1) + profileOffsetY
+end
+
+local function addTemplateHitboxProxy(enemyModel, templateName, rootPart)
+	local templateProfile = getTemplateProfile(templateName)
+	if not templateProfile then
+		return
+	end
+
+	local hitboxScale = tonumber(templateProfile.HitboxScale) or 1
+	local hitboxPadding = tonumber(templateProfile.HitboxPadding) or 0
+	if hitboxScale <= 1 and hitboxPadding <= 0 then
+		return
+	end
+
+	local scaledSize = rootPart.Size * math.max(0.1, hitboxScale)
+	local totalPadding = math.max(0, hitboxPadding) * 2
+	local proxySize = Vector3.new(
+		math.max(0.2, scaledSize.X + totalPadding),
+		math.max(0.2, scaledSize.Y + totalPadding),
+		math.max(0.2, scaledSize.Z + totalPadding)
+	)
+
+	local existingProxy = enemyModel:FindFirstChild("HitboxProxy")
+	if existingProxy and existingProxy:IsA("BasePart") then
+		existingProxy:Destroy()
+	end
+
+	local proxy = Instance.new("Part")
+	proxy.Name = "HitboxProxy"
+	proxy.Size = proxySize
+	proxy.CFrame = rootPart.CFrame
+	proxy.Transparency = 1
+	proxy.Anchored = false
+	proxy.CanCollide = false
+	proxy.CanTouch = false
+	proxy.CanQuery = true
+	proxy.CastShadow = false
+	proxy.Massless = true
+	proxy.Parent = enemyModel
+
+	local weld = Instance.new("WeldConstraint")
+	weld.Name = "HitboxProxyWeld"
+	weld.Part0 = proxy
+	weld.Part1 = rootPart
+	weld.Parent = proxy
 end
 
 local function getSpawnCadence()
@@ -209,39 +263,40 @@ function EnemyService.spawnWave(enemyCount, waveNumber)
 			local humanoid = enemy:FindFirstChildOfClass("Humanoid")
 			local root = resolveRootPart(enemy)
 
-		if root then
-			local spawnOffsetY = getSpawnOffsetY(enemy, templateName, spawnPoint)
-			enemy:PivotTo(spawnPoint.CFrame + Vector3.new(0, spawnOffsetY, 0))
-			enemy.Parent = container
-			enemy:SetAttribute("IsEnemy", true)
-			enemy:SetAttribute("EnemyType", templateName)
-			enemy:SetAttribute(
-				"Bounty",
-				(Config.Enemy.BaseBounty or 25) + math.max(0, activeWaveNumber - 1) * (Config.Enemy.BountyPerWave or 4)
-			)
-			spawned += 1
-			EnemyAIService.start(enemy, templateName)
+			if root then
+				addTemplateHitboxProxy(enemy, templateName, root)
+				local spawnOffsetY = getSpawnOffsetY(enemy, templateName, spawnPoint)
+				enemy:PivotTo(spawnPoint.CFrame + Vector3.new(0, spawnOffsetY, 0))
+				enemy.Parent = container
+				enemy:SetAttribute("IsEnemy", true)
+				enemy:SetAttribute("EnemyType", templateName)
+				enemy:SetAttribute(
+					"Bounty",
+					(Config.Enemy.BaseBounty or 25) + math.max(0, activeWaveNumber - 1) * (Config.Enemy.BountyPerWave or 4)
+				)
+				spawned += 1
+				EnemyAIService.start(enemy, templateName)
 
-			if humanoid then
-				enemy:SetAttribute("EnemyMaxHealth", humanoid.MaxHealth)
-				enemy:SetAttribute("EnemyHealth", humanoid.Health)
-				humanoid.HealthChanged:Connect(function(newHealth)
-					enemy:SetAttribute("EnemyHealth", newHealth)
-				end)
-
-				humanoid.Died:Once(function()
-					task.delay(2, function()
-						if enemy and enemy.Parent then
-							enemy:Destroy()
-						end
+				if humanoid then
+					enemy:SetAttribute("EnemyMaxHealth", humanoid.MaxHealth)
+					enemy:SetAttribute("EnemyHealth", humanoid.Health)
+					humanoid.HealthChanged:Connect(function(newHealth)
+						enemy:SetAttribute("EnemyHealth", newHealth)
 					end)
-				end)
+
+					humanoid.Died:Once(function()
+						task.delay(2, function()
+							if enemy and enemy.Parent then
+								enemy:Destroy()
+							end
+						end)
+					end)
+				else
+					local nonHumanoidHealth = Config.Enemy.NonHumanoidMaxHealth or 120
+					enemy:SetAttribute("EnemyMaxHealth", nonHumanoidHealth)
+					enemy:SetAttribute("EnemyHealth", nonHumanoidHealth)
+				end
 			else
-				local nonHumanoidHealth = Config.Enemy.NonHumanoidMaxHealth or 120
-				enemy:SetAttribute("EnemyMaxHealth", nonHumanoidHealth)
-				enemy:SetAttribute("EnemyHealth", nonHumanoidHealth)
-			end
-		else
 				warn(string.format("Template %s has no BasePart to spawn from", template:GetFullName()))
 				enemy:Destroy()
 			end

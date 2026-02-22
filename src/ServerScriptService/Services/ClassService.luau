@@ -1,0 +1,677 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.GameConfig)
+
+local ClassService = {}
+
+local started = false
+local remotesFolder = nil
+local classGetDataFunction = nil
+local classSelectFunction = nil
+local classStateRemote = nil
+local classById = {}
+local classOrder = {}
+local weaponById = {}
+local playerStateByPlayer = {}
+local pushThrottleByPlayer = {}
+local characterConnectionByPlayer = {}
+
+local function ensureRemote(parent, className, name)
+	local instance = parent:FindFirstChild(name)
+	if instance and instance.ClassName == className then
+		return instance
+	end
+
+	if instance then
+		instance:Destroy()
+	end
+
+	instance = Instance.new(className)
+	instance.Name = name
+	instance.Parent = parent
+	return instance
+end
+
+local function normalizeToken(value)
+	if type(value) ~= "string" then
+		return ""
+	end
+
+	return string.lower((string.gsub(value, "[^%w]", "")))
+end
+
+local function getClassSystemConfig()
+	return Config.ClassSystem or {}
+end
+
+local function getMaxLevel()
+	local maxLevel = math.floor(tonumber(getClassSystemConfig().MaxLevel) or 200)
+	if maxLevel < 1 then
+		maxLevel = 1
+	end
+	return maxLevel
+end
+
+local function getClassDefinition(classId)
+	return classById[normalizeToken(classId)]
+end
+
+local function getDefaultClassId()
+	local configured = normalizeToken(getClassSystemConfig().DefaultClassId)
+	if configured ~= "" and classById[configured] then
+		return configured
+	end
+
+	local firstClass = classOrder[1]
+	if firstClass then
+		return firstClass.Id
+	end
+
+	return ""
+end
+
+local function getXpRequiredForNextLevel(classDef, level)
+	if not classDef then
+		return nil
+	end
+	if level >= getMaxLevel() then
+		return nil
+	end
+
+	local progression = classDef.Progression
+	local baseXp = math.max(10, tonumber(progression.BaseXpToLevel) or 100)
+	local growth = math.clamp(tonumber(progression.XpGrowthPerLevel) or 0.05, 0, 1)
+	local requirement = baseXp * ((1 + growth) ^ math.max(0, level - 1))
+	return math.max(1, math.floor(requirement + 0.5))
+end
+
+local function getBonusesAtLevel(classDef, level)
+	local levelIndex = math.max(1, math.floor(tonumber(level) or 1))
+	local bonusLevels = levelIndex - 1
+	local bonuses = classDef and classDef.Bonuses or {}
+
+	local damagePerLevel = math.max(
+		0,
+		tonumber(bonuses.DamagePerLevel)
+			or tonumber(bonuses.WeaponDamagePerLevel)
+			or 0
+	)
+	local damageMultiplier = 1 + (damagePerLevel * bonusLevels)
+	local maxHealthMultiplier = 1 + (math.max(0, tonumber(bonuses.MaxHealthPerLevel) or 0) * bonusLevels)
+	local moveSpeedMultiplier = 1 + (math.max(0, tonumber(bonuses.MoveSpeedPerLevel) or 0) * bonusLevels)
+	local meleeRangeMultiplier = 1 + (math.max(0, tonumber(bonuses.MeleeRangePerLevel) or 0) * bonusLevels)
+	local totalDamageReduction = math.clamp(
+		math.max(0, tonumber(bonuses.DamageReductionPerLevel) or 0) * bonusLevels,
+		0,
+		0.85
+	)
+	local incomingDamageMultiplier = 1 - totalDamageReduction
+
+	return {
+		damageMultiplier = math.max(0, damageMultiplier),
+		maxHealthMultiplier = math.max(0.1, maxHealthMultiplier),
+		moveSpeedMultiplier = math.max(0.1, moveSpeedMultiplier),
+		meleeRangeMultiplier = math.max(0.1, meleeRangeMultiplier),
+		incomingDamageMultiplier = math.max(0.05, incomingDamageMultiplier),
+	}
+end
+
+local function summarizeBonuses(bonuses)
+	return {
+		damageMultiplier = bonuses.damageMultiplier,
+		maxHealthMultiplier = bonuses.maxHealthMultiplier,
+		moveSpeedMultiplier = bonuses.moveSpeedMultiplier,
+		meleeRangeMultiplier = bonuses.meleeRangeMultiplier,
+		incomingDamageMultiplier = bonuses.incomingDamageMultiplier,
+		damagePct = (bonuses.damageMultiplier - 1) * 100,
+		maxHealthPct = (bonuses.maxHealthMultiplier - 1) * 100,
+		moveSpeedPct = (bonuses.moveSpeedMultiplier - 1) * 100,
+		meleeRangePct = (bonuses.meleeRangeMultiplier - 1) * 100,
+		damageReductionPct = (1 - bonuses.incomingDamageMultiplier) * 100,
+	}
+end
+
+local function buildClassRegistry()
+	table.clear(classById)
+	table.clear(classOrder)
+
+	for _, rawClass in ipairs(getClassSystemConfig().Classes or {}) do
+		if type(rawClass) == "table" then
+			local id = normalizeToken(rawClass.Id)
+			if id ~= "" then
+				local classDef = {
+					Id = id,
+					DisplayName = tostring(rawClass.DisplayName or rawClass.Id),
+					Description = tostring(rawClass.Description or ""),
+					WeaponTag = tostring(rawClass.WeaponTag or rawClass.Id),
+					Progression = rawClass.Progression or {},
+					Bonuses = rawClass.Bonuses or {},
+				}
+				classById[id] = classDef
+				table.insert(classOrder, classDef)
+			end
+		end
+	end
+end
+
+local function buildWeaponRegistry()
+	table.clear(weaponById)
+	for _, weaponDef in ipairs((Config.Shop and Config.Shop.Weapons) or {}) do
+		if type(weaponDef.Id) == "string" and weaponDef.Id ~= "" then
+			weaponById[weaponDef.Id] = weaponDef
+		end
+	end
+end
+
+local function getOrCreatePlayerState(player)
+	local state = playerStateByPlayer[player]
+	if state then
+		return state
+	end
+
+	local selectedClassId = getDefaultClassId()
+	state = {
+		selectedClassId = selectedClassId,
+		progressByClassId = {},
+	}
+	playerStateByPlayer[player] = state
+	return state
+end
+
+local function getOrCreateClassProgress(state, classId)
+	local progress = state.progressByClassId[classId]
+	if progress then
+		return progress
+	end
+
+	progress = {
+		level = 1,
+		xp = 0,
+	}
+	state.progressByClassId[classId] = progress
+	return progress
+end
+
+local function resolveWaveState()
+	if not remotesFolder then
+		return "Unknown"
+	end
+
+	local waveState = remotesFolder:GetAttribute("CurrentWaveState")
+	if type(waveState) ~= "string" then
+		return "Unknown"
+	end
+	return waveState
+end
+
+local function canSwitchClassNow()
+	local waveState = resolveWaveState()
+	local allowedStates = getClassSystemConfig().SwitchAllowedStates or {}
+	if type(allowedStates[waveState]) == "boolean" then
+		return allowedStates[waveState], waveState
+	end
+
+	return waveState ~= "InProgress", waveState
+end
+
+local function isWeaponAllowedForClass(classDef, weaponDef)
+	if not classDef or type(weaponDef) ~= "table" then
+		return false
+	end
+
+	local classIdToken = normalizeToken(classDef.Id)
+	local classWeaponTagToken = normalizeToken(classDef.WeaponTag)
+
+	local requiredClassIdToken = normalizeToken(weaponDef.ClassId)
+	if requiredClassIdToken ~= "" then
+		return requiredClassIdToken == classIdToken
+	end
+
+	local weaponTagToken = normalizeToken(weaponDef.ClassTag)
+	if weaponTagToken ~= "" then
+		if classWeaponTagToken ~= "" and weaponTagToken == classWeaponTagToken then
+			return true
+		end
+		return weaponTagToken == classIdToken
+	end
+
+	return false
+end
+
+local function getPlayerClassDefinition(player)
+	local state = getOrCreatePlayerState(player)
+	local classDef = getClassDefinition(state.selectedClassId)
+	if classDef then
+		return classDef
+	end
+
+	local fallbackId = getDefaultClassId()
+	state.selectedClassId = fallbackId
+	return getClassDefinition(fallbackId)
+end
+
+local function applyHumanoidClassBonus(humanoid, maxHealthMultiplier)
+	if not humanoid or not humanoid:IsA("Humanoid") then
+		return
+	end
+
+	local baseMaxHealth = humanoid:GetAttribute("ClassBaseMaxHealth")
+	if type(baseMaxHealth) ~= "number" or baseMaxHealth <= 0 then
+		baseMaxHealth = humanoid.MaxHealth
+		humanoid:SetAttribute("ClassBaseMaxHealth", baseMaxHealth)
+	end
+
+	local previousMaxHealth = humanoid.MaxHealth
+	local previousHealth = humanoid.Health
+	local desiredMaxHealth = math.max(1, math.floor((baseMaxHealth * maxHealthMultiplier) + 0.5))
+	if math.abs(desiredMaxHealth - previousMaxHealth) < 0.01 then
+		return
+	end
+
+	local healthRatio = 1
+	if previousMaxHealth > 0 then
+		healthRatio = math.clamp(previousHealth / previousMaxHealth, 0, 1)
+	end
+
+	humanoid.MaxHealth = desiredMaxHealth
+	humanoid.Health = math.clamp(desiredMaxHealth * healthRatio, 0, desiredMaxHealth)
+end
+
+local function applyHumanoidMoveSpeedBonus(humanoid, moveSpeedMultiplier)
+	if not humanoid or not humanoid:IsA("Humanoid") then
+		return
+	end
+
+	local baseWalkSpeed = humanoid:GetAttribute("ClassBaseWalkSpeed")
+	if type(baseWalkSpeed) ~= "number" or baseWalkSpeed <= 0 then
+		baseWalkSpeed = humanoid.WalkSpeed
+		humanoid:SetAttribute("ClassBaseWalkSpeed", baseWalkSpeed)
+	end
+
+	local desiredWalkSpeed = math.max(1, baseWalkSpeed * moveSpeedMultiplier)
+	if math.abs(desiredWalkSpeed - humanoid.WalkSpeed) < 0.01 then
+		return
+	end
+
+	humanoid.WalkSpeed = desiredWalkSpeed
+end
+
+local function applyCharacterClassBonuses(player, character)
+	local classDef = getPlayerClassDefinition(player)
+	if not classDef then
+		return
+	end
+
+	local state = getOrCreatePlayerState(player)
+	local progress = getOrCreateClassProgress(state, classDef.Id)
+	local bonuses = getBonusesAtLevel(classDef, progress.level)
+
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		applyHumanoidClassBonus(humanoid, bonuses.maxHealthMultiplier)
+		applyHumanoidMoveSpeedBonus(humanoid, bonuses.moveSpeedMultiplier)
+	end
+end
+
+local function enforceContainerLoadout(player, container)
+	if not container then
+		return
+	end
+
+	local classDef = getPlayerClassDefinition(player)
+	if not classDef then
+		return
+	end
+
+	for _, child in ipairs(container:GetChildren()) do
+		if child:IsA("Tool") then
+			local weaponId = child:GetAttribute("WeaponId")
+			if type(weaponId) ~= "string" or weaponId == "" then
+				continue
+			end
+
+			local weaponDef = weaponById[weaponId]
+			if weaponDef and not isWeaponAllowedForClass(classDef, weaponDef) then
+				child:Destroy()
+			end
+		end
+	end
+end
+
+local function enforcePlayerLoadout(player)
+	enforceContainerLoadout(player, player:FindFirstChildOfClass("Backpack"))
+	enforceContainerLoadout(player, player:FindFirstChild("StarterGear"))
+	enforceContainerLoadout(player, player.Character)
+end
+
+local function buildPayloadForPlayer(player)
+	local state = getOrCreatePlayerState(player)
+	local classDef = getPlayerClassDefinition(player)
+	if not classDef then
+		return {
+			success = false,
+			message = "No classes configured.",
+		}
+	end
+
+	local canSwitch, waveState = canSwitchClassNow()
+	local currentProgress = getOrCreateClassProgress(state, classDef.Id)
+	local currentBonuses = summarizeBonuses(getBonusesAtLevel(classDef, currentProgress.level))
+
+	local classes = {}
+	for _, listedClass in ipairs(classOrder) do
+		local progress = getOrCreateClassProgress(state, listedClass.Id)
+		local level = math.clamp(math.floor(tonumber(progress.level) or 1), 1, getMaxLevel())
+		local xp = math.max(0, tonumber(progress.xp) or 0)
+		local xpToNext = getXpRequiredForNextLevel(listedClass, level)
+		local classBonuses = getBonusesAtLevel(listedClass, level)
+
+		table.insert(classes, {
+			id = listedClass.Id,
+			name = listedClass.DisplayName,
+			description = listedClass.Description,
+			weaponTag = listedClass.WeaponTag,
+			level = level,
+			xp = xp,
+			xpToNext = xpToNext,
+			isCurrent = listedClass.Id == state.selectedClassId,
+			currentBonuses = summarizeBonuses(classBonuses),
+			perLevelBonuses = {
+				damagePct = math.max(
+					0,
+					tonumber(listedClass.Bonuses.DamagePerLevel)
+						or tonumber(listedClass.Bonuses.WeaponDamagePerLevel)
+						or 0
+				) * 100,
+				maxHealthPct = math.max(0, tonumber(listedClass.Bonuses.MaxHealthPerLevel) or 0) * 100,
+				moveSpeedPct = math.max(0, tonumber(listedClass.Bonuses.MoveSpeedPerLevel) or 0) * 100,
+				meleeRangePct = math.max(0, tonumber(listedClass.Bonuses.MeleeRangePerLevel) or 0) * 100,
+				damageReductionPct = math.max(0, tonumber(listedClass.Bonuses.DamageReductionPerLevel) or 0) * 100,
+			},
+		})
+	end
+
+	return {
+		success = true,
+		canSwitch = canSwitch,
+		waveState = waveState,
+		maxLevel = getMaxLevel(),
+		currentClassId = classDef.Id,
+		currentClassName = classDef.DisplayName,
+		currentBonuses = currentBonuses,
+		classes = classes,
+	}
+end
+
+local function pushPlayerState(player, reason, force)
+	if not classStateRemote or player.Parent ~= Players then
+		return
+	end
+
+	local now = os.clock()
+	if not force then
+		local nextPushAt = pushThrottleByPlayer[player] or 0
+		if now < nextPushAt then
+			return
+		end
+	end
+	pushThrottleByPlayer[player] = now + 0.2
+
+	local payload = buildPayloadForPlayer(player)
+	payload.reason = reason
+	classStateRemote:FireClient(player, payload)
+end
+
+local function selectClass(player, classId)
+	local classDef = getClassDefinition(classId)
+	if not classDef then
+		return {
+			success = false,
+			message = "Unknown class.",
+		}
+	end
+
+	local canSwitch, waveState = canSwitchClassNow()
+	if not canSwitch then
+		return {
+			success = false,
+			message = string.format("Class switch is blocked while wave is active (%s).", waveState),
+			waveState = waveState,
+		}
+	end
+
+	local state = getOrCreatePlayerState(player)
+	if state.selectedClassId == classDef.Id then
+		return {
+			success = true,
+			message = string.format("%s is already selected.", classDef.DisplayName),
+			state = buildPayloadForPlayer(player),
+		}
+	end
+
+	state.selectedClassId = classDef.Id
+	getOrCreateClassProgress(state, classDef.Id)
+
+	if player.Character then
+		applyCharacterClassBonuses(player, player.Character)
+	end
+	enforcePlayerLoadout(player)
+	pushPlayerState(player, "ClassChanged", true)
+
+	return {
+		success = true,
+		message = string.format("Selected class: %s", classDef.DisplayName),
+		state = buildPayloadForPlayer(player),
+	}
+end
+
+local function bindPlayer(player)
+	getOrCreatePlayerState(player)
+
+	if characterConnectionByPlayer[player] then
+		characterConnectionByPlayer[player]:Disconnect()
+		characterConnectionByPlayer[player] = nil
+	end
+
+	characterConnectionByPlayer[player] = player.CharacterAdded:Connect(function(character)
+		task.defer(function()
+			applyCharacterClassBonuses(player, character)
+			enforcePlayerLoadout(player)
+		end)
+	end)
+
+	if player.Character then
+		task.defer(function()
+			applyCharacterClassBonuses(player, player.Character)
+			enforcePlayerLoadout(player)
+		end)
+	end
+
+	pushPlayerState(player, "Init", true)
+end
+
+function ClassService.getPlayerClassId(player)
+	local classDef = getPlayerClassDefinition(player)
+	return classDef and classDef.Id or ""
+end
+
+function ClassService.getPlayerClassName(player)
+	local classDef = getPlayerClassDefinition(player)
+	return classDef and classDef.DisplayName or "Unknown"
+end
+
+function ClassService.canPlayerUseWeapon(player, weaponDef)
+	if not player or not player:IsA("Player") then
+		return false
+	end
+	if type(weaponDef) ~= "table" then
+		return false
+	end
+
+	local classDef = getPlayerClassDefinition(player)
+	return isWeaponAllowedForClass(classDef, weaponDef)
+end
+
+function ClassService.getWeaponDamageMultiplier(player, weaponDef)
+	if not ClassService.canPlayerUseWeapon(player, weaponDef) then
+		return 0
+	end
+
+	local classDef = getPlayerClassDefinition(player)
+	local state = getOrCreatePlayerState(player)
+	local progress = getOrCreateClassProgress(state, classDef.Id)
+	local bonuses = getBonusesAtLevel(classDef, progress.level)
+	return math.max(0, bonuses.damageMultiplier)
+end
+
+function ClassService.getIncomingDamageMultiplier(player)
+	if not player or not player:IsA("Player") then
+		return 1
+	end
+
+	local classDef = getPlayerClassDefinition(player)
+	local state = getOrCreatePlayerState(player)
+	local progress = getOrCreateClassProgress(state, classDef.Id)
+	local bonuses = getBonusesAtLevel(classDef, progress.level)
+	return math.max(0.05, bonuses.incomingDamageMultiplier)
+end
+
+function ClassService.getMeleeRangeMultiplier(player, weaponDef)
+	if not player or not player:IsA("Player") then
+		return 1
+	end
+	if weaponDef and type(weaponDef) == "table" and not ClassService.canPlayerUseWeapon(player, weaponDef) then
+		return 1
+	end
+
+	local classDef = getPlayerClassDefinition(player)
+	local state = getOrCreatePlayerState(player)
+	local progress = getOrCreateClassProgress(state, classDef.Id)
+	local bonuses = getBonusesAtLevel(classDef, progress.level)
+	return math.max(0.1, bonuses.meleeRangeMultiplier)
+end
+
+function ClassService.recordDamage(player, damage, weaponDef)
+	if not player or not player:IsA("Player") then
+		return
+	end
+	if weaponDef and not ClassService.canPlayerUseWeapon(player, weaponDef) then
+		return
+	end
+
+	local xpGain = math.max(0, tonumber(damage) or 0)
+	if xpGain <= 0 then
+		return
+	end
+
+	xpGain *= math.max(0, tonumber(getClassSystemConfig().DamageToXpScale) or 1)
+	if xpGain <= 0 then
+		return
+	end
+
+	local classDef = getPlayerClassDefinition(player)
+	if not classDef then
+		return
+	end
+
+	local state = getOrCreatePlayerState(player)
+	local progress = getOrCreateClassProgress(state, classDef.Id)
+	local maxLevel = getMaxLevel()
+	local leveledUp = false
+
+	while xpGain > 0 and progress.level < maxLevel do
+		local xpToNext = getXpRequiredForNextLevel(classDef, progress.level)
+		if not xpToNext then
+			break
+		end
+
+		local missingXp = math.max(0, xpToNext - progress.xp)
+		if xpGain >= missingXp then
+			xpGain -= missingXp
+			progress.level += 1
+			progress.xp = 0
+			leveledUp = true
+		else
+			progress.xp += xpGain
+			xpGain = 0
+		end
+	end
+
+	if progress.level >= maxLevel then
+		progress.level = maxLevel
+		progress.xp = 0
+	end
+
+	if leveledUp and player.Character then
+		applyCharacterClassBonuses(player, player.Character)
+	end
+
+	pushPlayerState(player, leveledUp and "LevelUp" or "XpGained", leveledUp)
+end
+
+function ClassService.enforcePlayerLoadout(player)
+	if not player or not player:IsA("Player") then
+		return
+	end
+
+	enforcePlayerLoadout(player)
+end
+
+function ClassService.start()
+	if started then
+		return
+	end
+	started = true
+
+	buildClassRegistry()
+	buildWeaponRegistry()
+
+	if #classOrder == 0 then
+		warn("ClassService could not start: no classes configured in Config.ClassSystem.Classes")
+		return
+	end
+
+	remotesFolder = ReplicatedStorage:FindFirstChild(Config.Remotes.Folder)
+	if not remotesFolder then
+		remotesFolder = Instance.new("Folder")
+		remotesFolder.Name = Config.Remotes.Folder
+		remotesFolder.Parent = ReplicatedStorage
+	end
+
+	classGetDataFunction = ensureRemote(remotesFolder, "RemoteFunction", Config.Remotes.ClassGetData)
+	classSelectFunction = ensureRemote(remotesFolder, "RemoteFunction", Config.Remotes.ClassSelect)
+	classStateRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.ClassState)
+
+	classGetDataFunction.OnServerInvoke = function(player)
+		return buildPayloadForPlayer(player)
+	end
+
+	classSelectFunction.OnServerInvoke = function(player, classId)
+		if type(classId) ~= "string" then
+			return {
+				success = false,
+				message = "Invalid class selection.",
+			}
+		end
+
+		return selectClass(player, classId)
+	end
+
+	Players.PlayerAdded:Connect(bindPlayer)
+	Players.PlayerRemoving:Connect(function(player)
+		playerStateByPlayer[player] = nil
+		pushThrottleByPlayer[player] = nil
+
+		if characterConnectionByPlayer[player] then
+			characterConnectionByPlayer[player]:Disconnect()
+			characterConnectionByPlayer[player] = nil
+		end
+	end)
+
+	for _, player in Players:GetPlayers() do
+		bindPlayer(player)
+	end
+end
+
+return ClassService

@@ -4,21 +4,49 @@
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
-      "$path": "src/ReplicatedStorage"
+      "$className": "ReplicatedStorage",
+      "$ignoreUnknownInstances": true,
+      "Shared": {
+        "$path": "src/ReplicatedStorage/Shared",
+        "$ignoreUnknownInstances": true
+      }
     },
     "ServerScriptService": {
-      "$path": "src/ServerScriptService"
+      "$path": "src/ServerScriptService",
+      "$ignoreUnknownInstances": true
     },
     "ServerStorage": {
-      "$path": "src/ServerStorage"
+      "$className": "ServerStorage",
+      "$ignoreUnknownInstances": true,
+      "EnemyTemplates": {
+        "$path": "src/ServerStorage/EnemyTemplates",
+        "$ignoreUnknownInstances": true
+      },
+      "ShopItems": {
+        "$path": "src/ServerStorage/ShopItems",
+        "$ignoreUnknownInstances": true
+      }
     },
     "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "$ignoreUnknownInstances": true,
       "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "$ignoreUnknownInstances": true,
         "$path": "src/StarterPlayer/StarterPlayerScripts"
       }
     },
     "Workspace": {
-      "$path": "src/Workspace"
+      "$className": "Workspace",
+      "$ignoreUnknownInstances": true,
+      "EnemyContainer": {
+        "$path": "src/Workspace/EnemyContainer",
+        "$ignoreUnknownInstances": true
+      },
+      "SpawnPoints": {
+        "$path": "src/Workspace/SpawnPoints",
+        "$ignoreUnknownInstances": true
+      }
     }
   }
 }
