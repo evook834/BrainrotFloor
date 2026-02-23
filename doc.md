@@ -128,3 +128,79 @@ Player = {
   - Hitting `0` stamina disables sprint until stamina reaches `SprintStaminaMinToSprint`.
 - UI:
   - Creates `ScreenGui` named `SprintStaminaHud` with a percentage fill bar above the XP bar.
+
+---
+
+# Enemy HP Scales With Difficulty
+
+## What changed
+
+Enemy HP is difficulty-scaled in match servers.
+
+- `Easy` uses lower enemy HP.
+- `Normal` uses baseline enemy HP.
+- `Hard` uses higher enemy HP.
+
+## Current HP multipliers
+
+Configured in:
+
+- `src/ReplicatedStorage/Shared/GameConfig.luau`
+- `Config.Difficulty.Settings.<Difficulty>.EnemyHealthMultiplier`
+
+Current values:
+
+- `Easy`: `0.8`
+- `Normal`: `1.0`
+- `Hard`: `1.35`
+
+## Implementation notes
+
+- Difficulty is read from the active match difficulty via `DifficultyService`.
+- Enemy HP multiplier is applied in:
+  - `src/ServerScriptService/Match/Services/EnemyService.luau`
+  - `getEnemyHealthMultiplierForDifficulty(...)`
+- On enemy spawn:
+  - Humanoid enemies have `Humanoid.MaxHealth` and `Humanoid.Health` scaled by difficulty.
+  - Non-humanoid enemies set scaled `EnemyMaxHealth` based on `Config.Enemy.NonHumanoidMaxHealth`.
+
+---
+
+# Match Game Over When All Players Die
+
+## What changed
+
+A game-over flow was added for **match servers only** (not lobby).
+
+- When all alive players die at the same time window, the match enters `GameOver`.
+- Once `GameOver` is triggered, player respawns are cancelled/disabled.
+- A full-screen game-over overlay is shown to clients.
+
+## Match-only guard
+
+The game-over trigger is protected by the existing place-role check:
+
+- `PlaceRole.shouldRunMatchSystems()`
+
+This ensures the logic only runs where match systems are active.
+
+## Implementation notes
+
+- Server death/respawn + game-over detection:
+  - `src/ServerScriptService/Match/GameBootstrap.server.luau`
+  - Adds living-player check on death and triggers game over when none remain alive.
+  - Cancels all pending respawn tokens so scheduled respawns no longer fire.
+  - Sets `Workspace` attribute `GameOver = true`.
+
+- Wave state terminal mode:
+  - `src/ServerScriptService/Match/Services/WaveService.luau`
+  - Adds `WaveService.gameOver(...)` to broadcast terminal state:
+    - `CurrentWaveState = "GameOver"`
+    - Remote payload `state = "GameOver"` with reason `AllPlayersDead`.
+  - Stops wave loop progression after game over.
+
+- Client HUD game-over screen:
+  - `src/StarterPlayer/StarterPlayerScripts/WaveHud.client.luau`
+  - Adds `GameOverOverlay` with `GAME OVER` title and reason text.
+  - Listens for wave state `GameOver` and displays overlay.
+  - Hides/suppresses intermission and respawn countdown UI once game over is active.

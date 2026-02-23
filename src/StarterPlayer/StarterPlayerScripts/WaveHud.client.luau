@@ -62,6 +62,43 @@ respawnTimerStroke.Transparency = 0.1
 respawnTimerStroke.Thickness = 1
 respawnTimerStroke.Parent = respawnTimer
 
+local gameOverOverlay = Instance.new("Frame")
+gameOverOverlay.Name = "GameOverOverlay"
+gameOverOverlay.Size = UDim2.fromScale(1, 1)
+gameOverOverlay.BackgroundColor3 = Color3.fromRGB(8, 8, 10)
+gameOverOverlay.BackgroundTransparency = 0.28
+gameOverOverlay.BorderSizePixel = 0
+gameOverOverlay.Visible = false
+gameOverOverlay.ZIndex = 20
+gameOverOverlay.Parent = gui
+
+local gameOverTitle = Instance.new("TextLabel")
+gameOverTitle.Name = "GameOverTitle"
+gameOverTitle.Size = UDim2.fromOffset(680, 90)
+gameOverTitle.Position = UDim2.fromScale(0.5, 0.44)
+gameOverTitle.AnchorPoint = Vector2.new(0.5, 1)
+gameOverTitle.BackgroundTransparency = 1
+gameOverTitle.Text = "GAME OVER"
+gameOverTitle.TextColor3 = Color3.fromRGB(255, 112, 112)
+gameOverTitle.Font = Enum.Font.GothamBlack
+gameOverTitle.TextSize = 72
+gameOverTitle.ZIndex = 21
+gameOverTitle.Parent = gameOverOverlay
+
+local gameOverMessage = Instance.new("TextLabel")
+gameOverMessage.Name = "GameOverMessage"
+gameOverMessage.Size = UDim2.fromOffset(760, 80)
+gameOverMessage.Position = UDim2.fromScale(0.5, 0.46)
+gameOverMessage.AnchorPoint = Vector2.new(0.5, 0)
+gameOverMessage.BackgroundTransparency = 1
+gameOverMessage.Text = ""
+gameOverMessage.TextWrapped = true
+gameOverMessage.TextColor3 = Color3.fromRGB(245, 230, 230)
+gameOverMessage.Font = Enum.Font.GothamSemibold
+gameOverMessage.TextSize = 28
+gameOverMessage.ZIndex = 21
+gameOverMessage.Parent = gameOverOverlay
+
 local frame = Instance.new("Frame")
 frame.Name = "StatsPanel"
 frame.Size = UDim2.fromOffset(300, 148)
@@ -141,6 +178,7 @@ local intermissionCountdownState = {
 local respawnCountdownState = {
 	token = 0,
 }
+local gameOverActive = false
 
 local function render()
 	hpLine.Text = string.format("HP: %d / %d", math.max(0, math.floor(uiState.hp + 0.5)), math.max(1, math.floor(uiState.maxHp + 0.5)))
@@ -227,6 +265,28 @@ local function hideRespawnCountdown()
 	cancelCountdown(respawnCountdownState, respawnTimer)
 end
 
+local function getGameOverMessage(reason)
+	if reason == "AllPlayersDead" then
+		return "All players were eliminated at the same time. Respawning is disabled."
+	end
+
+	return "The match has ended."
+end
+
+local function setGameOverActive(active, reason)
+	gameOverActive = active
+	gameOverOverlay.Visible = active
+
+	if active then
+		hideCountdown()
+		hideRespawnCountdown()
+		gameOverMessage.Text = getGameOverMessage(reason)
+		return
+	end
+
+	gameOverMessage.Text = ""
+end
+
 local remotesFolder = ReplicatedStorage:WaitForChild(Config.Remotes.Folder, 15)
 if not remotesFolder then
 	warn("WaveHud could not find ReplicatedStorage/Remotes")
@@ -242,11 +302,23 @@ local function applyWaveState(payload)
 		return
 	end
 
+	local stateName = payload.state
+	if gameOverActive and stateName ~= "GameOver" then
+		return
+	end
+
 	uiState.wave = payload.wave or uiState.wave
-	uiState.waveState = payload.state or uiState.waveState
+	uiState.waveState = stateName or uiState.waveState
 	render()
 
-	if payload.state == "Preparing" then
+	if stateName == "GameOver" then
+		setGameOverActive(true, payload.reason)
+		return
+	end
+
+	setGameOverActive(false)
+
+	if stateName == "Preparing" then
 		startIntermissionCountdown(
 			payload.intermission or Config.Wave.IntermissionSeconds,
 			uiState.wave,
@@ -275,6 +347,10 @@ local function bindCharacter(character)
 	humanoid.HealthChanged:Connect(updateHp)
 	humanoid:GetPropertyChangedSignal("MaxHealth"):Connect(updateHp)
 	humanoid.Died:Connect(function()
+		if gameOverActive then
+			return
+		end
+
 		startRespawnCountdown((Config.Player and Config.Player.RespawnDelaySeconds) or 60)
 	end)
 end

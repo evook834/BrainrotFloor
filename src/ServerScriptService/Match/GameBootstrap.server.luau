@@ -130,6 +130,46 @@ local function disableHumanoidRegen(humanoid)
 end
 
 local pendingRespawnByPlayer = {}
+local gameOverTriggered = false
+
+local function invalidateRespawn(player)
+	pendingRespawnByPlayer[player] = (pendingRespawnByPlayer[player] or 0) + 1
+end
+
+local function hasAnyLivingPlayers()
+	for _, player in Players:GetPlayers() do
+		local character = player.Character
+		if character then
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			if humanoid and humanoid.Health > 0 and humanoid:GetState() ~= Enum.HumanoidStateType.Dead then
+				return true
+			end
+		end
+	end
+
+	return false
+end
+
+local function cancelAllPendingRespawns()
+	for _, player in Players:GetPlayers() do
+		invalidateRespawn(player)
+	end
+end
+
+local function triggerGameOver()
+	if gameOverTriggered then
+		return
+	end
+
+	if not PlaceRole.shouldRunMatchSystems() then
+		return
+	end
+
+	gameOverTriggered = true
+	Workspace:SetAttribute("GameOver", true)
+	cancelAllPendingRespawns()
+	WaveService.gameOver("AllPlayersDead")
+end
 
 local function ensureDifficultyAttribute()
 	local currentDifficulty = Workspace:GetAttribute("Difficulty")
@@ -141,6 +181,10 @@ local function ensureDifficultyAttribute()
 end
 
 local function scheduleRespawn(player)
+	if gameOverTriggered then
+		return
+	end
+
 	local respawnDelaySeconds = (Config.Player and Config.Player.RespawnDelaySeconds) or 60
 	local respawnToken = (pendingRespawnByPlayer[player] or 0) + 1
 	pendingRespawnByPlayer[player] = respawnToken
@@ -155,6 +199,10 @@ local function scheduleRespawn(player)
 			return
 		end
 
+		if gameOverTriggered then
+			return
+		end
+
 		player:LoadCharacter()
 	end)
 end
@@ -163,7 +211,7 @@ local function bindPlayerSystems(player)
 	ensureLeaderstats(player)
 
 	local function onCharacter(character)
-		pendingRespawnByPlayer[player] = (pendingRespawnByPlayer[player] or 0) + 1
+		invalidateRespawn(player)
 
 		local humanoid = character:WaitForChild("Humanoid", 10)
 		if not humanoid then
@@ -175,14 +223,25 @@ local function bindPlayerSystems(player)
 		end
 
 		humanoid.Died:Connect(function()
-			scheduleRespawn(player)
+			task.defer(function()
+				if gameOverTriggered then
+					return
+				end
+
+				if hasAnyLivingPlayers() then
+					scheduleRespawn(player)
+					return
+				end
+
+				triggerGameOver()
+			end)
 		end)
 	end
 
 	player.CharacterAdded:Connect(onCharacter)
 	if player.Character then
 		task.spawn(onCharacter, player.Character)
-	else
+	elseif not gameOverTriggered then
 		player:LoadCharacter()
 	end
 end
@@ -200,6 +259,7 @@ ensureFolder(Workspace, Config.Enemy.ContainerName)
 ensureTempEnemyTemplate(templateFolder)
 ensureTempSpawnPoint(spawnFolder)
 ensureDifficultyAttribute()
+Workspace:SetAttribute("GameOver", false)
 
 Players.CharacterAutoLoads = false
 Players.PlayerAdded:Connect(bindPlayerSystems)

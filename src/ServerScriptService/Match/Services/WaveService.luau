@@ -9,6 +9,7 @@ local WaveService = {}
 local running = false
 local waveNumber = 0
 local waveStateRemote = nil
+local terminalState = nil
 
 local function resolveWaveStateRemote()
 	local remotesFolder = ReplicatedStorage:FindFirstChild(Config.Remotes.Folder)
@@ -48,6 +49,10 @@ local function waitForWaveClear(timeoutSeconds)
 	local enemyContainer = Workspace:FindFirstChild(Config.Enemy.ContainerName)
 
 	while true do
+		if not running then
+			return false
+		end
+
 		enemyContainer = enemyContainer or Workspace:FindFirstChild(Config.Enemy.ContainerName)
 		local remaining = enemyContainer and #enemyContainer:GetChildren() or 0
 		if remaining <= 0 then
@@ -65,6 +70,11 @@ end
 function WaveService.start()
 	if running then
 		warn("WaveService is already running")
+		return
+	end
+
+	if terminalState == "GameOver" then
+		warn("WaveService cannot start after game over")
 		return
 	end
 
@@ -86,6 +96,9 @@ function WaveService.start()
 			intermissionEndsAt = Workspace:GetServerTimeNow() + Config.Wave.IntermissionSeconds,
 		})
 		task.wait(Config.Wave.IntermissionSeconds)
+		if not running then
+			break
+		end
 
 		broadcastState("InProgress", {
 			enemies = enemiesToSpawn,
@@ -102,6 +115,10 @@ function WaveService.start()
 		end
 
 		waitForWaveClear()
+		if not running then
+			break
+		end
+
 		broadcastState("Cleared", {
 			enemies = spawned,
 		})
@@ -111,6 +128,23 @@ end
 
 function WaveService.stop()
 	running = false
+end
+
+function WaveService.gameOver(reason)
+	if terminalState == "GameOver" then
+		return
+	end
+
+	terminalState = "GameOver"
+	running = false
+
+	if not waveStateRemote then
+		waveStateRemote = resolveWaveStateRemote()
+	end
+
+	broadcastState("GameOver", {
+		reason = reason or "AllPlayersDead",
+	})
 end
 
 return WaveService
