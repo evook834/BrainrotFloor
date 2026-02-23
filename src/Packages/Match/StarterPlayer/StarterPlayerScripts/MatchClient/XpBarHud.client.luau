@@ -7,6 +7,11 @@ local Config = require(ReplicatedStorage.Shared.GameConfig)
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
+local existingGui = playerGui:FindFirstChild("ClassXpBarHud")
+if existingGui then
+	existingGui:Destroy()
+end
+
 local function formatWholeNumber(value)
 	local numericValue = math.max(0, math.floor((tonumber(value) or 0) + 0.5))
 	local text = tostring(numericValue)
@@ -236,6 +241,20 @@ local baseBarFillColor = Color3.fromRGB(78, 176, 255)
 local pulseStrokeColor = Color3.fromRGB(132, 206, 255)
 local pulseBarFillColor = Color3.fromRGB(140, 221, 255)
 local levelUpPulseToken = 0
+local hudScaleMultiplier = 1
+
+local function refreshHudScaleMultiplier()
+	local attributeScale = container:GetAttribute("HudScaleMultiplier")
+	if type(attributeScale) == "number" then
+		hudScaleMultiplier = math.clamp(attributeScale, 0.6, 1.45)
+	else
+		hudScaleMultiplier = 1
+	end
+	containerScale.Scale = hudScaleMultiplier
+end
+
+container:GetAttributeChangedSignal("HudScaleMultiplier"):Connect(refreshHudScaleMultiplier)
+refreshHudScaleMultiplier()
 
 local remotesFolder = ReplicatedStorage:WaitForChild(Config.Remotes.Folder, 15)
 if not remotesFolder then
@@ -258,7 +277,7 @@ local function playLevelUpPulse()
 	TweenService:Create(
 		containerScale,
 		TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-		{ Scale = 1.03 }
+		{ Scale = hudScaleMultiplier * 1.03 }
 	):Play()
 	TweenService:Create(
 		container,
@@ -288,7 +307,7 @@ local function playLevelUpPulse()
 		TweenService:Create(
 			containerScale,
 			TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-			{ Scale = 1 }
+			{ Scale = hudScaleMultiplier }
 		):Play()
 		TweenService:Create(
 			container,

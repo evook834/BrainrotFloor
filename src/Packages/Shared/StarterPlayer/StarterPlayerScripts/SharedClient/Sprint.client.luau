@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterGui = game:GetService("StarterGui")
 local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
@@ -22,24 +23,28 @@ if existingGui then
 	existingGui:Destroy()
 end
 
+pcall(function()
+	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Health, false)
+end)
+
 local gui = Instance.new("ScreenGui")
 gui.Name = "SprintStaminaHud"
 gui.ResetOnSpawn = false
-gui.DisplayOrder = 24
+gui.DisplayOrder = 26
 gui.Parent = playerGui
 
 local container = Instance.new("Frame")
-container.Name = "StaminaContainer"
-container.Size = UDim2.new(0.34, 0, 0, 36)
+container.Name = "VitalsContainer"
+container.Size = UDim2.new(0.36, 0, 0, 78)
 container.Position = UDim2.new(0.5, 0, 1, -168)
 container.AnchorPoint = Vector2.new(0.5, 1)
 container.BackgroundColor3 = Color3.fromRGB(16, 20, 28)
-container.BackgroundTransparency = 0.12
+container.BackgroundTransparency = 0.1
 container.BorderSizePixel = 0
 container.Parent = gui
 
 local containerCorner = Instance.new("UICorner")
-containerCorner.CornerRadius = UDim.new(0, 8)
+containerCorner.CornerRadius = UDim.new(0, 10)
 containerCorner.Parent = container
 
 local containerStroke = Instance.new("UIStroke")
@@ -49,55 +54,86 @@ containerStroke.Thickness = 1
 containerStroke.Parent = container
 
 local containerSizeConstraint = Instance.new("UISizeConstraint")
-containerSizeConstraint.MinSize = Vector2.new(230, 36)
-containerSizeConstraint.MaxSize = Vector2.new(420, 36)
+containerSizeConstraint.MinSize = Vector2.new(250, 78)
+containerSizeConstraint.MaxSize = Vector2.new(500, 92)
 containerSizeConstraint.Parent = container
 
-local titleLabel = Instance.new("TextLabel")
-titleLabel.Name = "Title"
-titleLabel.Size = UDim2.new(0, 92, 1, 0)
-titleLabel.Position = UDim2.fromOffset(8, 0)
-titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "STAMINA"
-titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-titleLabel.TextYAlignment = Enum.TextYAlignment.Center
-titleLabel.TextColor3 = Color3.fromRGB(214, 232, 255)
-titleLabel.Font = Enum.Font.GothamBold
-titleLabel.TextSize = 12
-titleLabel.Parent = container
+local containerPadding = Instance.new("UIPadding")
+containerPadding.PaddingTop = UDim.new(0, 8)
+containerPadding.PaddingBottom = UDim.new(0, 8)
+containerPadding.PaddingLeft = UDim.new(0, 10)
+containerPadding.PaddingRight = UDim.new(0, 10)
+containerPadding.Parent = container
 
-local barBackground = Instance.new("Frame")
-barBackground.Name = "BarBackground"
-barBackground.Size = UDim2.new(1, -112, 0, 14)
-barBackground.Position = UDim2.new(0, 98, 0.5, -7)
-barBackground.BackgroundColor3 = Color3.fromRGB(33, 40, 52)
-barBackground.BorderSizePixel = 0
-barBackground.Parent = container
+local containerLayout = Instance.new("UIListLayout")
+containerLayout.FillDirection = Enum.FillDirection.Vertical
+containerLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+containerLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+containerLayout.Padding = UDim.new(0, 8)
+containerLayout.SortOrder = Enum.SortOrder.LayoutOrder
+containerLayout.Parent = container
 
-local barBackgroundCorner = Instance.new("UICorner")
-barBackgroundCorner.CornerRadius = UDim.new(0, 5)
-barBackgroundCorner.Parent = barBackground
+local function createVitalsRow(name, labelText, initialFillColor)
+	local row = Instance.new("Frame")
+	row.Name = name
+	row.Size = UDim2.new(1, 0, 0, 27)
+	row.BackgroundTransparency = 1
+	row.Parent = container
 
-local barFill = Instance.new("Frame")
-barFill.Name = "BarFill"
-barFill.Size = UDim2.fromScale(1, 1)
-barFill.BackgroundColor3 = Color3.fromRGB(84, 206, 160)
-barFill.BorderSizePixel = 0
-barFill.Parent = barBackground
+	local label = Instance.new("TextLabel")
+	label.Name = "Label"
+	label.Size = UDim2.fromOffset(70, 27)
+	label.BackgroundTransparency = 1
+	label.Text = labelText
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.TextYAlignment = Enum.TextYAlignment.Center
+	label.TextColor3 = Color3.fromRGB(214, 232, 255)
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 12
+	label.Parent = row
 
-local barFillCorner = Instance.new("UICorner")
-barFillCorner.CornerRadius = UDim.new(0, 5)
-barFillCorner.Parent = barFill
+	local barBackground = Instance.new("Frame")
+	barBackground.Name = "BarBackground"
+	barBackground.Size = UDim2.new(1, -78, 0, 14)
+	barBackground.Position = UDim2.new(0, 78, 0.5, -7)
+	barBackground.BackgroundColor3 = Color3.fromRGB(33, 40, 52)
+	barBackground.BorderSizePixel = 0
+	barBackground.Parent = row
 
-local barLabel = Instance.new("TextLabel")
-barLabel.Name = "BarLabel"
-barLabel.Size = UDim2.fromScale(1, 1)
-barLabel.BackgroundTransparency = 1
-barLabel.Text = "100%"
-barLabel.TextColor3 = Color3.fromRGB(17, 24, 34)
-barLabel.Font = Enum.Font.GothamBold
-barLabel.TextSize = 11
-barLabel.Parent = barBackground
+	local barBackgroundCorner = Instance.new("UICorner")
+	barBackgroundCorner.CornerRadius = UDim.new(0, 5)
+	barBackgroundCorner.Parent = barBackground
+
+	local barFill = Instance.new("Frame")
+	barFill.Name = "BarFill"
+	barFill.Size = UDim2.fromScale(1, 1)
+	barFill.BackgroundColor3 = initialFillColor
+	barFill.BorderSizePixel = 0
+	barFill.Parent = barBackground
+
+	local barFillCorner = Instance.new("UICorner")
+	barFillCorner.CornerRadius = UDim.new(0, 5)
+	barFillCorner.Parent = barFill
+
+	local barLabel = Instance.new("TextLabel")
+	barLabel.Name = "BarLabel"
+	barLabel.Size = UDim2.fromScale(1, 1)
+	barLabel.BackgroundTransparency = 1
+	barLabel.Text = "100 / 100"
+	barLabel.TextColor3 = Color3.fromRGB(17, 24, 34)
+	barLabel.Font = Enum.Font.GothamBold
+	barLabel.TextSize = 11
+	barLabel.Parent = barBackground
+
+	return {
+		label = label,
+		fill = barFill,
+		value = barLabel,
+	}
+end
+
+local healthRow = createVitalsRow("HealthRow", "HEALTH", Color3.fromRGB(84, 206, 160))
+local staminaRow = createVitalsRow("StaminaRow", "STAMINA", Color3.fromRGB(84, 206, 160))
 
 local isSprintHeld = false
 local isSprintActive = false
@@ -114,23 +150,59 @@ local function getStaminaRatio()
 	return math.clamp(currentStamina / staminaMax, 0, 1)
 end
 
-local function renderStaminaBar()
-	local ratio = getStaminaRatio()
-	barFill.Size = UDim2.fromScale(ratio, 1)
-	barLabel.Text = string.format("%d%%", math.floor((ratio * 100) + 0.5))
+local function getHealthRatio()
+	if not humanoid then
+		return 1
+	end
+
+	local maxHealth = math.max(1, humanoid.MaxHealth)
+	return math.clamp(humanoid.Health / maxHealth, 0, 1)
+end
+
+local function renderHealthBar()
+	local maxHealth = 100
+	local health = 100
+	if humanoid then
+		maxHealth = math.max(1, humanoid.MaxHealth)
+		health = math.clamp(humanoid.Health, 0, maxHealth)
+	end
+
+	local ratio = getHealthRatio()
+	healthRow.fill.Size = UDim2.fromScale(ratio, 1)
+	healthRow.value.Text = string.format("%d / %d", math.floor(health + 0.5), math.floor(maxHealth + 0.5))
 
 	if ratio <= 0.2 then
-		barFill.BackgroundColor3 = Color3.fromRGB(230, 87, 87)
-		barLabel.TextColor3 = Color3.fromRGB(44, 14, 14)
-		titleLabel.TextColor3 = Color3.fromRGB(255, 170, 170)
+		healthRow.fill.BackgroundColor3 = Color3.fromRGB(230, 87, 87)
+		healthRow.value.TextColor3 = Color3.fromRGB(44, 14, 14)
+		healthRow.label.TextColor3 = Color3.fromRGB(255, 170, 170)
 	elseif ratio <= 0.5 then
-		barFill.BackgroundColor3 = Color3.fromRGB(235, 168, 88)
-		barLabel.TextColor3 = Color3.fromRGB(52, 32, 10)
-		titleLabel.TextColor3 = Color3.fromRGB(255, 214, 168)
+		healthRow.fill.BackgroundColor3 = Color3.fromRGB(235, 168, 88)
+		healthRow.value.TextColor3 = Color3.fromRGB(52, 32, 10)
+		healthRow.label.TextColor3 = Color3.fromRGB(255, 214, 168)
 	else
-		barFill.BackgroundColor3 = Color3.fromRGB(84, 206, 160)
-		barLabel.TextColor3 = Color3.fromRGB(17, 24, 34)
-		titleLabel.TextColor3 = Color3.fromRGB(214, 232, 255)
+		healthRow.fill.BackgroundColor3 = Color3.fromRGB(84, 206, 160)
+		healthRow.value.TextColor3 = Color3.fromRGB(17, 24, 34)
+		healthRow.label.TextColor3 = Color3.fromRGB(214, 232, 255)
+	end
+end
+
+local function renderStaminaBar()
+	local ratio = getStaminaRatio()
+	staminaRow.fill.Size = UDim2.fromScale(ratio, 1)
+	staminaRow.value.Text = string.format("%d / %d", math.floor(currentStamina + 0.5), math.floor(staminaMax + 0.5))
+
+	if ratio <= 0.2 then
+		staminaRow.fill.BackgroundColor3 = Color3.fromRGB(230, 87, 87)
+		staminaRow.value.TextColor3 = Color3.fromRGB(44, 14, 14)
+		staminaRow.label.TextColor3 = Color3.fromRGB(255, 170, 170)
+	elseif ratio <= 0.5 then
+		staminaRow.fill.BackgroundColor3 = Color3.fromRGB(235, 168, 88)
+		staminaRow.value.TextColor3 = Color3.fromRGB(52, 32, 10)
+		staminaRow.label.TextColor3 = Color3.fromRGB(255, 214, 168)
+	else
+		staminaRow.fill.BackgroundColor3 = Color3.fromRGB(84, 206, 160)
+		staminaRow.value.TextColor3 = Color3.fromRGB(17, 24, 34)
+		staminaRow.label.TextColor3 = Color3.fromRGB(214, 232, 255)
 	end
 end
 
@@ -188,11 +260,16 @@ local function bindCharacter(character)
 		return
 	end
 
+	pcall(function()
+		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Health, false)
+	end)
+
 	normalWalkSpeed = humanoid.WalkSpeed
 	currentStamina = staminaMax
 	isSprintActive = false
 	isExhausted = false
 	lastDrainAt = -math.huge
+	renderHealthBar()
 	renderStaminaBar()
 
 	walkSpeedConnection = humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(onWalkSpeedChanged)
@@ -245,6 +322,7 @@ end)
 
 RunService.Heartbeat:Connect(function(deltaTime)
 	if not humanoid then
+		renderHealthBar()
 		return
 	end
 
@@ -279,9 +357,11 @@ RunService.Heartbeat:Connect(function(deltaTime)
 	end
 
 	applySpeed()
+	renderHealthBar()
 	renderStaminaBar()
 end)
 
+renderHealthBar()
 renderStaminaBar()
 
 if player.Character then

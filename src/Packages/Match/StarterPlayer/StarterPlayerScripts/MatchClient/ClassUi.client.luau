@@ -326,6 +326,10 @@ local function buildBonusInfoText(classData)
 
 		local total = tonumber(totalValue) or 0
 		local perLevel = tonumber(perLevelValue) or 0
+		if math.abs(total) < 0.005 and math.abs(perLevel) < 0.005 then
+			return
+		end
+
 		if hasPerLevel then
 			table.insert(
 				lines,

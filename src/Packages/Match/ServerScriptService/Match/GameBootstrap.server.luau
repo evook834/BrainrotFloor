@@ -13,6 +13,7 @@ local WaveService = require(script.Parent.Services.WaveService)
 local ShopService = require(script.Parent.Services.ShopService)
 local ClassService = require(script.Parent.Services.ClassService)
 local DifficultyService = require(script.Parent.Services.DifficultyService)
+local SettingsService = require(script.Parent.Services.SettingsService)
 
 local PLACEHOLDER_PLACE_ID = 1234567890
 
@@ -856,5 +857,6 @@ for _, player in Players:GetPlayers() do
 end
 
 ClassService.start()
+SettingsService.start()
 ShopService.start()
 WaveService.start()

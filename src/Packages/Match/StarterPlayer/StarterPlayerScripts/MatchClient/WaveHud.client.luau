@@ -9,6 +9,11 @@ local Config = require(ReplicatedStorage.Shared.GameConfig)
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
+local existingGui = playerGui:FindFirstChild("BrainrotHud")
+if existingGui then
+	existingGui:Destroy()
+end
+
 local gui = Instance.new("ScreenGui")
 gui.Name = "BrainrotHud"
 gui.ResetOnSpawn = false

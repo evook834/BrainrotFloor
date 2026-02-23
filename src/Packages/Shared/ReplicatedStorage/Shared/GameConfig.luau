@@ -98,6 +98,8 @@ local Config = {
 		ClassGetData = "ClassGetData",
 		ClassSelect = "ClassSelect",
 		ClassState = "ClassState",
+		SettingsGet = "SettingsGet",
+		SettingsSave = "SettingsSave",
 	},
 	Player = {
 		StartingMoney = 5000,
