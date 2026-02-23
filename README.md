@@ -68,6 +68,7 @@ Publish targets manifest:
   - `lobby` -> uses `game/places/lobby/default.project.json` + `artifacts/lobby-place.rbxlx`
   - `match` -> uses `game/places/match/default.project.json` + `artifacts/match-place.rbxlx`
 - You can override defaults per target with optional `projectFile` and `buildArtifact`.
+- The default manifest in this repo pins `projectFile` to `scripts/ci/projects/*-compat.project.json` for `src/Packages` layout compatibility.
 - When map content changes in Studio, re-export that place's `baseSnapshot` file and commit it once.
 
 Required GitHub environment secrets (`staging` and/or `production`):

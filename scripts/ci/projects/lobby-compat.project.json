@@ -1,0 +1,47 @@
+{
+  "name": "Brainrot Floor Lobby",
+  "servePort": 34872,
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "$ignoreUnknownInstances": true,
+      "Shared": {
+        "$path": "src/Packages/Shared/ReplicatedStorage/Shared",
+        "$ignoreUnknownInstances": true
+      }
+    },
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "$ignoreUnknownInstances": true,
+      "Shared": {
+        "$path": "src/Packages/Shared/ServerScriptService/Shared",
+        "$ignoreUnknownInstances": true
+      },
+      "Lobby": {
+        "$path": "src/Packages/Lobby/ServerScriptService/Lobby",
+        "$ignoreUnknownInstances": true
+      }
+    },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "$ignoreUnknownInstances": true,
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "$ignoreUnknownInstances": true,
+        "SharedClient": {
+          "$path": "src/Packages/Shared/StarterPlayer/StarterPlayerScripts/SharedClient",
+          "$ignoreUnknownInstances": true
+        }
+      }
+    },
+    "Workspace": {
+      "$className": "Workspace",
+      "$ignoreUnknownInstances": true,
+      "DifficultyButtons": {
+        "$path": "src/Packages/Lobby/Workspace/DifficultyButtons",
+        "$ignoreUnknownInstances": true
+      }
+    }
+  }
+}
