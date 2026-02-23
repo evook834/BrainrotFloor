@@ -10,10 +10,10 @@ local playerGui = player:WaitForChild("PlayerGui")
 local sprintKey = Enum.KeyCode.LeftShift
 local playerConfig = Config.Player or {}
 
-local sprintMultiplier = math.max(1, tonumber(playerConfig.SprintSpeedMultiplier) or 2.5)
+local sprintMultiplier = math.max(1, tonumber(playerConfig.SprintSpeedMultiplier) or 2.2)
 local staminaMax = math.max(1, tonumber(playerConfig.SprintStaminaMax) or 100)
 local staminaDrainPerSecond = math.max(0, tonumber(playerConfig.SprintStaminaDrainPerSecond) or 35)
-local staminaRegenPerSecond = math.max(0, tonumber(playerConfig.SprintStaminaRegenPerSecond) or 22)
+local staminaRegenPerSecond = math.max(0, tonumber(playerConfig.SprintStaminaRegenPerSecond) or 10)
 local staminaRegenDelaySeconds = math.max(0, tonumber(playerConfig.SprintStaminaRegenDelaySeconds) or 0.45)
 local staminaMinToSprint = math.clamp(tonumber(playerConfig.SprintStaminaMinToSprint) or 15, 0, staminaMax)
 
