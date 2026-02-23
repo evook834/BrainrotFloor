@@ -1,0 +1,16 @@
+{
+  "targets": [
+    {
+      "name": "lobby",
+      "role": "lobby",
+      "placeId": 110355050239948,
+      "baseSnapshot": "release-artifacts/lobby-place.rbxlx"
+    },
+    {
+      "name": "match-main",
+      "role": "match",
+      "placeId": 117308283626623,
+      "baseSnapshot": "release-artifacts/match-place.rbxlx"
+    }
+  ]
+}

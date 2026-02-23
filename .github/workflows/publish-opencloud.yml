@@ -1,4 +1,4 @@
-name: Publish Places (Open Cloud Snapshot)
+name: Publish Places (Open Cloud Merge)
 
 on:
   workflow_dispatch:
@@ -11,25 +11,10 @@ on:
         options:
           - staging
           - production
-      publish_lobby:
-        description: Publish lobby place artifact
+      targets_manifest_path:
+        description: Repository path to publish targets manifest JSON
         required: true
-        default: true
-        type: boolean
-      publish_match:
-        description: Publish match place artifact
-        required: true
-        default: true
-        type: boolean
-      lobby_artifact_path:
-        description: Repository path to lobby snapshot .rbxlx
-        required: true
-        default: release-artifacts/lobby-place.rbxlx
-        type: string
-      match_artifact_path:
-        description: Repository path to match snapshot .rbxlx
-        required: true
-        default: release-artifacts/match-place.rbxlx
+        default: release-artifacts/publish-targets.json
         type: string
 
 permissions:
@@ -43,19 +28,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install toolchain
+        run: scripts/ci/install_toolchain.sh
+
+      - name: Build and validate place code artifacts
+        run: scripts/ci/build_and_validate_places.sh
+
       - name: Validate required Open Cloud secrets
         env:
           ROBLOX_OPEN_CLOUD_API_KEY: ${{ secrets.ROBLOX_OPEN_CLOUD_API_KEY }}
           ROBLOX_UNIVERSE_ID: ${{ secrets.ROBLOX_UNIVERSE_ID }}
-          ROBLOX_LOBBY_PLACE_ID: ${{ secrets.ROBLOX_LOBBY_PLACE_ID }}
-          ROBLOX_MATCH_PLACE_ID: ${{ secrets.ROBLOX_MATCH_PLACE_ID }}
         run: |
           set -euo pipefail
           required_vars=(
             ROBLOX_OPEN_CLOUD_API_KEY
             ROBLOX_UNIVERSE_ID
-            ROBLOX_LOBBY_PLACE_ID
-            ROBLOX_MATCH_PLACE_ID
           )
 
           for var_name in "${required_vars[@]}"; do
@@ -65,125 +52,22 @@ jobs:
             fi
           done
 
-      - name: Validate selected place artifacts
-        env:
-          PUBLISH_LOBBY: ${{ inputs.publish_lobby }}
-          PUBLISH_MATCH: ${{ inputs.publish_match }}
-          LOBBY_ARTIFACT_PATH: ${{ inputs.lobby_artifact_path }}
-          MATCH_ARTIFACT_PATH: ${{ inputs.match_artifact_path }}
+      - name: Prepare merged publish artifacts
         run: |
           set -euo pipefail
+          python3 scripts/ci/prepare_place_publish.py \
+            --manifest "${{ inputs.targets_manifest_path }}" \
+            --output-dir artifacts/publish \
+            --prepared-manifest artifacts/publish/targets.prepared.json
 
-          if [ "$PUBLISH_LOBBY" = "true" ] && [ ! -f "$LOBBY_ARTIFACT_PATH" ]; then
-            echo "Missing lobby artifact: $LOBBY_ARTIFACT_PATH"
-            exit 1
-          fi
-
-          if [ "$PUBLISH_MATCH" = "true" ] && [ ! -f "$MATCH_ARTIFACT_PATH" ]; then
-            echo "Missing match artifact: $MATCH_ARTIFACT_PATH"
-            exit 1
-          fi
-
-      - name: Publish lobby place
-        if: ${{ inputs.publish_lobby }}
+      - name: Publish merged artifacts to all target places
         env:
           ROBLOX_OPEN_CLOUD_API_KEY: ${{ secrets.ROBLOX_OPEN_CLOUD_API_KEY }}
           ROBLOX_UNIVERSE_ID: ${{ secrets.ROBLOX_UNIVERSE_ID }}
-          ROBLOX_LOBBY_PLACE_ID: ${{ secrets.ROBLOX_LOBBY_PLACE_ID }}
-          LOBBY_ARTIFACT_PATH: ${{ inputs.lobby_artifact_path }}
         run: |
           set -euo pipefail
-          max_attempts=6
-          attempt=1
-          while [ "$attempt" -le "$max_attempts" ]; do
-            response_file="$(mktemp)"
-            http_code="$(
-              curl --silent --show-error --location \
-                --request POST \
-                "https://apis.roblox.com/universes/v1/${ROBLOX_UNIVERSE_ID}/places/${ROBLOX_LOBBY_PLACE_ID}/versions?versionType=Published" \
-                --header "x-api-key: ${ROBLOX_OPEN_CLOUD_API_KEY}" \
-                --header "Content-Type: application/xml" \
-                --data-binary "@${LOBBY_ARTIFACT_PATH}" \
-                --output "$response_file" \
-                --write-out "%{http_code}" \
-                || true
-            )"
-            response="$(cat "$response_file")"
-            rm -f "$response_file"
-
-            if [ "$http_code" = "200" ]; then
-              version_number="$(printf '%s' "$response" | sed -nE 's/.*"versionNumber"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p')"
-              if [ -n "$version_number" ]; then
-                echo "Published lobby place ${ROBLOX_LOBBY_PLACE_ID} to version ${version_number} from ${LOBBY_ARTIFACT_PATH}."
-              else
-                echo "Published lobby place ${ROBLOX_LOBBY_PLACE_ID} from ${LOBBY_ARTIFACT_PATH}."
-                echo "Response: $response"
-              fi
-              exit 0
-            fi
-
-            if [ "$http_code" = "409" ] && [ "$attempt" -lt "$max_attempts" ]; then
-              wait_seconds=$((attempt * 20))
-              echo "Lobby publish conflict (HTTP 409). Attempt ${attempt}/${max_attempts}. Retrying in ${wait_seconds}s..."
-              echo "Response: $response"
-              sleep "$wait_seconds"
-              attempt=$((attempt + 1))
-              continue
-            fi
-
-            echo "Lobby publish failed (HTTP ${http_code}) on attempt ${attempt}/${max_attempts}."
-            echo "Response: $response"
-            exit 1
-          done
-
-      - name: Publish match place
-        if: ${{ inputs.publish_match }}
-        env:
-          ROBLOX_OPEN_CLOUD_API_KEY: ${{ secrets.ROBLOX_OPEN_CLOUD_API_KEY }}
-          ROBLOX_UNIVERSE_ID: ${{ secrets.ROBLOX_UNIVERSE_ID }}
-          ROBLOX_MATCH_PLACE_ID: ${{ secrets.ROBLOX_MATCH_PLACE_ID }}
-          MATCH_ARTIFACT_PATH: ${{ inputs.match_artifact_path }}
-        run: |
-          set -euo pipefail
-          max_attempts=6
-          attempt=1
-          while [ "$attempt" -le "$max_attempts" ]; do
-            response_file="$(mktemp)"
-            http_code="$(
-              curl --silent --show-error --location \
-                --request POST \
-                "https://apis.roblox.com/universes/v1/${ROBLOX_UNIVERSE_ID}/places/${ROBLOX_MATCH_PLACE_ID}/versions?versionType=Published" \
-                --header "x-api-key: ${ROBLOX_OPEN_CLOUD_API_KEY}" \
-                --header "Content-Type: application/xml" \
-                --data-binary "@${MATCH_ARTIFACT_PATH}" \
-                --output "$response_file" \
-                --write-out "%{http_code}" \
-                || true
-            )"
-            response="$(cat "$response_file")"
-            rm -f "$response_file"
-
-            if [ "$http_code" = "200" ]; then
-              version_number="$(printf '%s' "$response" | sed -nE 's/.*"versionNumber"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p')"
-              if [ -n "$version_number" ]; then
-                echo "Published match place ${ROBLOX_MATCH_PLACE_ID} to version ${version_number} from ${MATCH_ARTIFACT_PATH}."
-              else
-                echo "Published match place ${ROBLOX_MATCH_PLACE_ID} from ${MATCH_ARTIFACT_PATH}."
-                echo "Response: $response"
-              fi
-              exit 0
-            fi
-
-            if [ "$http_code" = "409" ] && [ "$attempt" -lt "$max_attempts" ]; then
-              wait_seconds=$((attempt * 20))
-              echo "Match publish conflict (HTTP 409). Attempt ${attempt}/${max_attempts}. Retrying in ${wait_seconds}s..."
-              echo "Response: $response"
-              sleep "$wait_seconds"
-              attempt=$((attempt + 1))
-              continue
-            fi
-
-            echo "Match publish failed (HTTP ${http_code}) on attempt ${attempt}/${max_attempts}."
-            echo "Response: $response"
-            exit 1
-          done
+          python3 scripts/ci/publish_opencloud_targets.py \
+            --manifest artifacts/publish/targets.prepared.json \
+            --universe-id "${ROBLOX_UNIVERSE_ID}" \
+            --api-key "${ROBLOX_OPEN_CLOUD_API_KEY}" \
+            --max-attempts 6

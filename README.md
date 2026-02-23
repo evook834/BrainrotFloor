@@ -48,27 +48,31 @@ Publish workflow:
 - Trigger:
   - `workflow_dispatch` only (manual gate), with inputs:
     - `environment`: `staging` or `production`
-    - `publish_lobby`: boolean
-    - `publish_match`: boolean
-    - `lobby_artifact_path`: repo path to lobby `.rbxlx` snapshot (default `release-artifacts/lobby-place.rbxlx`)
-    - `match_artifact_path`: repo path to match `.rbxlx` snapshot (default `release-artifacts/match-place.rbxlx`)
+    - `targets_manifest_path`: repo path to place target manifest (default `release-artifacts/publish-targets.json`)
 - Strategy:
-  1. Export full place snapshots from Studio (`.rbxlx`) for lobby and match.
-  2. Commit snapshots to the repo (for example under `release-artifacts/`).
-  3. Let CI (`ci-places.yml`) pass on the commit you want to ship.
+  1. Keep one base snapshot `.rbxlx` per place in `release-artifacts/`.
+  2. Define all publish targets (lobby and every match map place) in `release-artifacts/publish-targets.json`.
+  3. Push code changes.
   4. Run `publish-opencloud.yml` manually against that commit.
   5. Select the target environment (`staging` or `production`) so environment-scoped secrets are used.
-  6. Choose whether to publish lobby, match, or both.
 - Behavior:
-  - Validates required secrets and selected snapshot file paths.
-  - Publishes selected `.rbxlx` snapshots directly to Roblox using Open Cloud Place Publishing API.
-  - Does not run `rojo build`, preventing map data loss from partial source trees.
+  - Runs `rojo build` for lobby and match code artifacts.
+  - Merges Rojo-managed paths from each project into each place's base snapshot, preserving map geometry and non-managed objects.
+  - Publishes every merged target in the manifest with retry on Open Cloud conflict responses (`HTTP 409`).
+
+Publish targets manifest:
+- File: `release-artifacts/publish-targets.json`
+- Example target:
+  - `{ "name": "match-c", "role": "match", "placeId": 1234567890, "baseSnapshot": "release-artifacts/match-c.rbxlx" }`
+- `role` values:
+  - `lobby` -> uses `game/places/lobby/default.project.json` + `artifacts/lobby-place.rbxlx`
+  - `match` -> uses `game/places/match/default.project.json` + `artifacts/match-place.rbxlx`
+- You can override defaults per target with optional `projectFile` and `buildArtifact`.
+- When map content changes in Studio, re-export that place's `baseSnapshot` file and commit it once.
 
 Required GitHub environment secrets (`staging` and/or `production`):
 - `ROBLOX_OPEN_CLOUD_API_KEY`
 - `ROBLOX_UNIVERSE_ID`
-- `ROBLOX_LOBBY_PLACE_ID`
-- `ROBLOX_MATCH_PLACE_ID`
 
 ## Local CI-equivalent commands
 
