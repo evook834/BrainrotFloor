@@ -17,7 +17,7 @@ Speed stays normal (no boost) when:
 
 `2.0` is configured here:
 
-- `src/ReplicatedStorage/Shared/GameConfig.luau`
+- `game/shared/replicated/src/Shared/GameConfig.luau`
 - Field: `Config.Player.OutOfWaveMoveSpeedMultiplier`
 
 ```luau
@@ -32,7 +32,7 @@ Player = {
 ## Implementation notes
 
 - Speed calculation is applied in:
-  - `src/ServerScriptService/Match/Services/ClassService.luau`
+  - `game/places/match/src/ServerScriptService/Match/Services/ClassService.luau`
   - `applyHumanoidMoveSpeedBonus(...)`
 - Wave state changes trigger an immediate refresh of all players’ movement speed through:
   - `remotesFolder:GetAttributeChangedSignal("CurrentWaveState")`
@@ -55,7 +55,7 @@ The sprint logic is client-side and shared because it lives in `StarterPlayerScr
 
 `2.5` is configured here:
 
-- `src/ReplicatedStorage/Shared/GameConfig.luau`
+- `game/shared/replicated/src/Shared/GameConfig.luau`
 - Field: `Config.Player.SprintSpeedMultiplier`
 
 ```luau
@@ -71,7 +71,7 @@ Player = {
 ## Implementation notes
 
 - Sprint script:
-  - `src/StarterPlayer/StarterPlayerScripts/Sprint.client.luau`
+  - `game/shared/client/src/SharedClient/Sprint.client.luau`
 - Key handling:
   - `UserInputService.InputBegan` + `InputEnded` for `Enum.KeyCode.LeftShift`
 - Character handling:
@@ -98,7 +98,7 @@ Like sprint, this system is shared for both Lobby and Match because it is implem
 
 Configured in:
 
-- `src/ReplicatedStorage/Shared/GameConfig.luau`
+- `game/shared/replicated/src/Shared/GameConfig.luau`
 - Fields under `Config.Player`:
 
 ```luau
@@ -119,7 +119,7 @@ Player = {
 ## Implementation notes
 
 - Script location:
-  - `src/StarterPlayer/StarterPlayerScripts/Sprint.client.luau`
+  - `game/shared/client/src/SharedClient/Sprint.client.luau`
 - Update loop:
   - Uses `RunService.Heartbeat` to process stamina drain/regen each frame.
 - Sprint condition:
@@ -145,7 +145,7 @@ Enemy HP is difficulty-scaled in match servers.
 
 Configured in:
 
-- `src/ReplicatedStorage/Shared/GameConfig.luau`
+- `game/shared/replicated/src/Shared/GameConfig.luau`
 - `Config.Difficulty.Settings.<Difficulty>.EnemyHealthMultiplier`
 
 Current values:
@@ -158,7 +158,7 @@ Current values:
 
 - Difficulty is read from the active match difficulty via `DifficultyService`.
 - Enemy HP multiplier is applied in:
-  - `src/ServerScriptService/Match/Services/EnemyService.luau`
+  - `game/places/match/src/ServerScriptService/Match/Services/EnemyService.luau`
   - `getEnemyHealthMultiplierForDifficulty(...)`
 - On enemy spawn:
   - Humanoid enemies have `Humanoid.MaxHealth` and `Humanoid.Health` scaled by difficulty.
@@ -207,28 +207,28 @@ This ensures the logic only runs where match systems are active.
 ## Implementation notes
 
 - Server death/respawn + game-over detection:
-  - `src/ServerScriptService/Match/GameBootstrap.server.luau`
+  - `game/places/match/src/ServerScriptService/Match/GameBootstrap.server.luau`
   - Adds living-player check on death and triggers game over when none remain alive.
   - Cancels all pending respawn tokens so scheduled respawns no longer fire.
   - Sets `Workspace` attribute `GameOver = true`.
 
 - Wave state terminal mode:
-  - `src/ServerScriptService/Match/Services/WaveService.luau`
+  - `game/places/match/src/ServerScriptService/Match/Services/WaveService.luau`
   - Adds `WaveService.gameOver(...)` to broadcast terminal state:
     - `CurrentWaveState = "GameOver"`
     - Remote payload `state = "GameOver"` with reason `AllPlayersDead`.
   - Stops wave loop progression after game over.
 
 - Client HUD game-over screen:
-  - `src/StarterPlayer/StarterPlayerScripts/WaveHud.client.luau`
+  - `game/places/match/src/StarterPlayer/StarterPlayerScripts/MatchClient/WaveHud.client.luau`
   - Adds `GameOverOverlay` with `GAME OVER` title and reason text.
   - Listens for wave state `GameOver` and displays overlay.
   - Hides/suppresses intermission and respawn countdown UI once game over is active.
 
 - Return-to-lobby remote + server teleport:
-  - `src/ReplicatedStorage/Shared/GameConfig.luau`
+  - `game/shared/replicated/src/Shared/GameConfig.luau`
   - Adds remote name `Config.Remotes.ReturnToLobby`.
-  - `src/ServerScriptService/Match/GameBootstrap.server.luau`
+  - `game/places/match/src/ServerScriptService/Match/GameBootstrap.server.luau`
   - Creates/binds `Remotes/ReturnToLobby` (`RemoteEvent`).
   - On request, validates that:
     - match systems are active
@@ -237,9 +237,9 @@ This ensures the logic only runs where match systems are active.
   - Includes retry logic and per-player cooldown/in-flight guards.
 
 - Map vote remote + winner routing:
-  - `src/ReplicatedStorage/Shared/GameConfig.luau`
+  - `game/shared/replicated/src/Shared/GameConfig.luau`
   - Adds remote name `Config.Remotes.MapVote`.
-  - `src/ServerScriptService/Match/GameBootstrap.server.luau`
+  - `game/places/match/src/ServerScriptService/Match/GameBootstrap.server.luau`
   - Creates/binds `Remotes/MapVote` (`RemoteEvent`).
   - Starts vote flow after game over:
     - waits reveal delay
@@ -255,7 +255,7 @@ This ensures the logic only runs where match systems are active.
     - `reason = "MapVoteWinner"`
 
 - Game-over mouse/camera input fix (button clickability):
-  - `src/StarterPlayer/StarterPlayerScripts/WaveHud.client.luau`
+  - `game/places/match/src/StarterPlayer/StarterPlayerScripts/MatchClient/WaveHud.client.luau`
   - While game over is active:
     - forces `UserInputService.MouseBehavior = Enum.MouseBehavior.Default`
     - forces `UserInputService.MouseIconEnabled = true`
@@ -264,7 +264,7 @@ This ensures the logic only runs where match systems are active.
   - Restores previous camera mode when game-over UI is dismissed.
 
 - Client map-vote HUD:
-  - `src/StarterPlayer/StarterPlayerScripts/WaveHud.client.luau`
+  - `game/places/match/src/StarterPlayer/StarterPlayerScripts/MatchClient/WaveHud.client.luau`
   - Adds `MapVotePanel` to the game-over overlay.
   - Displays:
     - live vote options with vote counts

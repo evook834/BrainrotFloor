@@ -1,13 +1,17 @@
 {
-  "name": "Brainrot Floor",
+  "name": "Brainrot Floor Match",
   "servePort": 34872,
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
       "$ignoreUnknownInstances": true,
+      "Packages": {
+        "$path": "Packages",
+        "$ignoreUnknownInstances": true
+      },
       "Shared": {
-        "$path": "game/shared/replicated/src/Shared",
+        "$path": "../../shared/replicated/src/Shared",
         "$ignoreUnknownInstances": true
       }
     },
@@ -15,15 +19,11 @@
       "$className": "ServerScriptService",
       "$ignoreUnknownInstances": true,
       "Shared": {
-        "$path": "game/shared/server/src/Shared",
-        "$ignoreUnknownInstances": true
-      },
-      "Lobby": {
-        "$path": "game/places/lobby/src/ServerScriptService/Lobby",
+        "$path": "../../shared/server/src/Shared",
         "$ignoreUnknownInstances": true
       },
       "Match": {
-        "$path": "game/places/match/src/ServerScriptService/Match",
+        "$path": "src/ServerScriptService/Match",
         "$ignoreUnknownInstances": true
       }
     },
@@ -31,11 +31,11 @@
       "$className": "ServerStorage",
       "$ignoreUnknownInstances": true,
       "EnemyTemplates": {
-        "$path": "game/places/match/src/ServerStorage/EnemyTemplates",
+        "$path": "src/ServerStorage/EnemyTemplates",
         "$ignoreUnknownInstances": true
       },
       "ShopItems": {
-        "$path": "game/places/match/src/ServerStorage/ShopItems",
+        "$path": "src/ServerStorage/ShopItems",
         "$ignoreUnknownInstances": true
       }
     },
@@ -46,11 +46,11 @@
         "$className": "StarterPlayerScripts",
         "$ignoreUnknownInstances": true,
         "SharedClient": {
-          "$path": "game/shared/client/src/SharedClient",
+          "$path": "../../shared/client/src/SharedClient",
           "$ignoreUnknownInstances": true
         },
         "MatchClient": {
-          "$path": "game/places/match/src/StarterPlayer/StarterPlayerScripts/MatchClient",
+          "$path": "src/StarterPlayer/StarterPlayerScripts/MatchClient",
           "$ignoreUnknownInstances": true
         }
       }
@@ -58,16 +58,12 @@
     "Workspace": {
       "$className": "Workspace",
       "$ignoreUnknownInstances": true,
-      "DifficultyButtons": {
-        "$path": "game/places/lobby/src/Workspace/DifficultyButtons",
-        "$ignoreUnknownInstances": true
-      },
       "EnemyContainer": {
-        "$path": "game/places/match/src/Workspace/EnemyContainer",
+        "$path": "src/Workspace/EnemyContainer",
         "$ignoreUnknownInstances": true
       },
       "SpawnPoints": {
-        "$path": "game/places/match/src/Workspace/SpawnPoints",
+        "$path": "src/Workspace/SpawnPoints",
         "$ignoreUnknownInstances": true
       }
     }

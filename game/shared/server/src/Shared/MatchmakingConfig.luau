@@ -5,20 +5,17 @@ local Config = {}
 Config.FORCE_PLACE_ROLE = nil
 
 -- Public lobby place where players choose difficulty before teleport.
-Config.LOBBY_PLACE_ID = 105950482922657
+Config.LOBBY_PLACE_ID = 110355050239948
 
 -- Shared map place IDs used by all difficulties.
 -- If no suitable server is already running for a chosen difficulty,
 -- the lobby creates a reserved server on a random place from this list.
 Config.MATCH_PLACE_IDS = {
-	--85990388071078,
-	--117569264354652,
-	--93216049725715,
-	124937386174828,
+	117308283626623
 }
 
 -- Legacy single-place fallback (kept for compatibility).
-Config.MATCH_PLACE_ID = 85990388071078
+Config.MATCH_PLACE_ID = 117308283626623
 
 -- Shared MemoryStore key used by all lobby and match servers.
 Config.MEMORYSTORE_MAP_NAME = "KF_MatchServers_v1"

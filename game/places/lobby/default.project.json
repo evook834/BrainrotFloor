@@ -7,11 +7,11 @@
       "$className": "ReplicatedStorage",
       "$ignoreUnknownInstances": true,
       "Packages": {
-        "$path": "game/places/lobby/Packages",
+        "$path": "Packages",
         "$ignoreUnknownInstances": true
       },
       "Shared": {
-        "$path": "game/shared/replicated/src/Shared",
+        "$path": "../../shared/replicated/src/Shared",
         "$ignoreUnknownInstances": true
       }
     },
@@ -19,11 +19,11 @@
       "$className": "ServerScriptService",
       "$ignoreUnknownInstances": true,
       "Shared": {
-        "$path": "game/shared/server/src/Shared",
+        "$path": "../../shared/server/src/Shared",
         "$ignoreUnknownInstances": true
       },
       "Lobby": {
-        "$path": "game/places/lobby/src/ServerScriptService/Lobby",
+        "$path": "src/ServerScriptService/Lobby",
         "$ignoreUnknownInstances": true
       }
     },
@@ -34,7 +34,7 @@
         "$className": "StarterPlayerScripts",
         "$ignoreUnknownInstances": true,
         "SharedClient": {
-          "$path": "game/shared/client/src/SharedClient",
+          "$path": "../../shared/client/src/SharedClient",
           "$ignoreUnknownInstances": true
         }
       }
@@ -43,7 +43,7 @@
       "$className": "Workspace",
       "$ignoreUnknownInstances": true,
       "DifficultyButtons": {
-        "$path": "game/places/lobby/src/Workspace/DifficultyButtons",
+        "$path": "src/Workspace/DifficultyButtons",
         "$ignoreUnknownInstances": true
       }
     }

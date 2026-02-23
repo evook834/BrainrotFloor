@@ -6,8 +6,12 @@
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
       "$ignoreUnknownInstances": true,
+      "Packages": {
+        "$path": "game/places/match/Packages",
+        "$ignoreUnknownInstances": true
+      },
       "Shared": {
-        "$path": "src/ReplicatedStorage/Shared",
+        "$path": "game/shared/replicated/src/Shared",
         "$ignoreUnknownInstances": true
       }
     },
@@ -15,11 +19,11 @@
       "$className": "ServerScriptService",
       "$ignoreUnknownInstances": true,
       "Shared": {
-        "$path": "src/ServerScriptService/Shared",
+        "$path": "game/shared/server/src/Shared",
         "$ignoreUnknownInstances": true
       },
       "Match": {
-        "$path": "src/ServerScriptService/Match",
+        "$path": "game/places/match/src/ServerScriptService/Match",
         "$ignoreUnknownInstances": true
       }
     },
@@ -27,11 +31,11 @@
       "$className": "ServerStorage",
       "$ignoreUnknownInstances": true,
       "EnemyTemplates": {
-        "$path": "src/ServerStorage/EnemyTemplates",
+        "$path": "game/places/match/src/ServerStorage/EnemyTemplates",
         "$ignoreUnknownInstances": true
       },
       "ShopItems": {
-        "$path": "src/ServerStorage/ShopItems",
+        "$path": "game/places/match/src/ServerStorage/ShopItems",
         "$ignoreUnknownInstances": true
       }
     },
@@ -41,18 +45,25 @@
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
         "$ignoreUnknownInstances": true,
-        "$path": "src/StarterPlayer/StarterPlayerScripts"
+        "SharedClient": {
+          "$path": "game/shared/client/src/SharedClient",
+          "$ignoreUnknownInstances": true
+        },
+        "MatchClient": {
+          "$path": "game/places/match/src/StarterPlayer/StarterPlayerScripts/MatchClient",
+          "$ignoreUnknownInstances": true
+        }
       }
     },
     "Workspace": {
       "$className": "Workspace",
       "$ignoreUnknownInstances": true,
       "EnemyContainer": {
-        "$path": "src/Workspace/Match/EnemyContainer",
+        "$path": "game/places/match/src/Workspace/EnemyContainer",
         "$ignoreUnknownInstances": true
       },
       "SpawnPoints": {
-        "$path": "src/Workspace/Match/SpawnPoints",
+        "$path": "game/places/match/src/Workspace/SpawnPoints",
         "$ignoreUnknownInstances": true
       }
     }
