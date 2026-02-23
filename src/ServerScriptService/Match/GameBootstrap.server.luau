@@ -1,9 +1,10 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
 
-local PlaceRole = require(script.Parent.Lobby.PlaceRole)
+local PlaceRole = require(ServerScriptService.Shared.PlaceRole)
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local WaveService = require(script.Parent.Services.WaveService)
 local ShopService = require(script.Parent.Services.ShopService)

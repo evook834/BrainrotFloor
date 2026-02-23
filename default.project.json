@@ -12,8 +12,20 @@
       }
     },
     "ServerScriptService": {
-      "$path": "src/ServerScriptService",
-      "$ignoreUnknownInstances": true
+      "$className": "ServerScriptService",
+      "$ignoreUnknownInstances": true,
+      "Shared": {
+        "$path": "src/ServerScriptService/Shared",
+        "$ignoreUnknownInstances": true
+      },
+      "Lobby": {
+        "$path": "src/ServerScriptService/Lobby",
+        "$ignoreUnknownInstances": true
+      },
+      "Match": {
+        "$path": "src/ServerScriptService/Match",
+        "$ignoreUnknownInstances": true
+      }
     },
     "ServerStorage": {
       "$className": "ServerStorage",
@@ -39,12 +51,16 @@
     "Workspace": {
       "$className": "Workspace",
       "$ignoreUnknownInstances": true,
+      "DifficultyButtons": {
+        "$path": "src/Workspace/Lobby/DifficultyButtons",
+        "$ignoreUnknownInstances": true
+      },
       "EnemyContainer": {
-        "$path": "src/Workspace/EnemyContainer",
+        "$path": "src/Workspace/Match/EnemyContainer",
         "$ignoreUnknownInstances": true
       },
       "SpawnPoints": {
-        "$path": "src/Workspace/SpawnPoints",
+        "$path": "src/Workspace/Match/SpawnPoints",
         "$ignoreUnknownInstances": true
       }
     }

@@ -12,8 +12,16 @@
       }
     },
     "ServerScriptService": {
-      "$path": "src/ServerScriptService",
-      "$ignoreUnknownInstances": true
+      "$className": "ServerScriptService",
+      "$ignoreUnknownInstances": true,
+      "Shared": {
+        "$path": "src/ServerScriptService/Shared",
+        "$ignoreUnknownInstances": true
+      },
+      "Lobby": {
+        "$path": "src/ServerScriptService/Lobby",
+        "$ignoreUnknownInstances": true
+      }
     },
     "ServerStorage": {
       "$className": "ServerStorage",
@@ -40,7 +48,7 @@
       "$className": "Workspace",
       "$ignoreUnknownInstances": true,
       "DifficultyButtons": {
-        "$path": "src/Workspace/DifficultyButtons",
+        "$path": "src/Workspace/Lobby/DifficultyButtons",
         "$ignoreUnknownInstances": true
       }
     }

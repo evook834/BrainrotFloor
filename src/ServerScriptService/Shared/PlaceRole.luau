@@ -1,35 +1,10 @@
-local ServerScriptService = game:GetService("ServerScriptService")
-
 local PLACEHOLDER_PLACE_ID = 1234567890
 local VALID_ROLES = {
 	Lobby = true,
 	Match = true,
 }
 
-local function resolveConfigModule()
-	local localConfig = script.Parent:FindFirstChild("MatchmakingConfig")
-	if localConfig and localConfig:IsA("ModuleScript") then
-		return localConfig
-	end
-
-	local fallbackConfig = ServerScriptService:FindFirstChild("MatchmakingConfig")
-	if fallbackConfig and fallbackConfig:IsA("ModuleScript") then
-		return fallbackConfig
-	end
-
-	return nil
-end
-
-local function requireConfig()
-	local configInstance = resolveConfigModule()
-	if not configInstance then
-		error("[PlaceRole] Missing MatchmakingConfig ModuleScript. Expected Lobby/MatchmakingConfig.")
-	end
-
-	return require(configInstance)
-end
-
-local Config = requireConfig()
+local Config = require(script.Parent:WaitForChild("MatchmakingConfig"))
 
 local function toNumber(value, defaultValue)
 	local n = tonumber(value)

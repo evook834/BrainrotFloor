@@ -5,32 +5,9 @@ local TeleportService = game:GetService("TeleportService")
 local Workspace = game:GetService("Workspace")
 
 local PLACEHOLDER_PLACE_ID = 1234567890
-local PlaceRole = require(script.Parent.PlaceRole)
-
-local function resolveConfigModule()
-	local localConfig = script.Parent:FindFirstChild("MatchmakingConfig")
-	if localConfig and localConfig:IsA("ModuleScript") then
-		return localConfig
-	end
-
-	local fallbackConfig = ServerScriptService:FindFirstChild("MatchmakingConfig")
-	if fallbackConfig and fallbackConfig:IsA("ModuleScript") then
-		return fallbackConfig
-	end
-
-	return nil
-end
-
-local function requireConfig()
-	local configInstance = resolveConfigModule()
-	if not configInstance then
-		error("[LobbyMatchmaker] Missing MatchmakingConfig ModuleScript. Expected Lobby/MatchmakingConfig.")
-	end
-
-	return require(configInstance)
-end
-
-local Config = requireConfig()
+local Shared = ServerScriptService:WaitForChild("Shared")
+local PlaceRole = require(Shared:WaitForChild("PlaceRole"))
+local Config = require(Shared:WaitForChild("MatchmakingConfig"))
 local matchServers = MemoryStoreService:GetSortedMap(Config.MEMORYSTORE_MAP_NAME)
 local randomGenerator = Random.new()
 

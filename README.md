@@ -12,7 +12,7 @@
    - `rojo serve default.project.json` for the legacy single-project setup
 3. In Roblox Studio, install and open the Rojo plugin.
 4. Connect to `localhost:34872` and sync the project.
-5. If you use lobby matchmaking, set `LOBBY_PLACE_ID` and `MATCH_PLACE_IDS` in `src/ServerScriptService/Lobby/MatchmakingConfig.luau`.
+5. If you use lobby matchmaking, set `LOBBY_PLACE_ID` and `MATCH_PLACE_IDS` in `src/ServerScriptService/Shared/MatchmakingConfig.luau`.
 
 ## Game scaffold included
 - Wave loop with intermission and scaling enemy count.
@@ -30,7 +30,7 @@ Your existing place file (`Brainrot  Floor.rbxlx`) is untouched.
 Rojo sync can use `default.project.json`, `lobby.project.json`, or `match.project.json`.
 
 ## Multi-place runtime routing
-Role selection is centralized in `src/ServerScriptService/Lobby/MatchmakingConfig.luau`:
+Role selection is centralized in `src/ServerScriptService/Shared/MatchmakingConfig.luau`:
 - `LOBBY_PLACE_ID`: public lobby place id
 - `MATCH_PLACE_IDS`: map/match place id list used for teleport + reserved servers
 - `FORCE_PLACE_ROLE`: optional override (`"Lobby"` or `"Match"`) for testing only
@@ -40,7 +40,16 @@ Runtime behavior:
 - `LobbyMatchmaker` runs only in lobby places
 - `MatchServerRegistry` runs only in match places (and only with `PrivateServerId`)
 
-This lets you keep one shared script tree without manually adding each new script to every map place.
+## Ownership layout
+- Shared code: `src/ServerScriptService/Shared/*`
+- Lobby-only code: `src/ServerScriptService/Lobby/*`
+- Match-only code: `src/ServerScriptService/Match/*`
+- Lobby workspace sync source: `src/Workspace/Lobby/*`
+- Match workspace sync source: `src/Workspace/Match/*`
+
+Place-specific Rojo mappings:
+- `lobby.project.json` mounts only `ServerScriptService/Shared` and `ServerScriptService/Lobby`.
+- `match.project.json` mounts only `ServerScriptService/Shared` and `ServerScriptService/Match`.
 
 ## Difficulty tuning
 Gameplay difficulty modifiers live in `src/ReplicatedStorage/Shared/GameConfig.luau` under `Difficulty.Settings`.
@@ -49,25 +58,31 @@ Current server systems use:
 - `EnemyHealthMultiplier` for spawned enemy max health
 - `EnemyDamageMultiplier` for enemy melee attack damage
 
-## Lobby script placement
+## Server script placement
 Use these exact paths when syncing with Rojo:
 
-1. `src/ServerScriptService/Lobby/MatchmakingConfig.luau`
-   - Studio location: `ServerScriptService > Lobby > MatchmakingConfig` (`ModuleScript`)
-2. `src/ServerScriptService/Lobby/LobbyMatchmaker.server.luau`
+1. `src/ServerScriptService/Shared/MatchmakingConfig.luau`
+   - Studio location: `ServerScriptService > Shared > MatchmakingConfig` (`ModuleScript`)
+2. `src/ServerScriptService/Shared/PlaceRole.luau`
+   - Studio location: `ServerScriptService > Shared > PlaceRole` (`ModuleScript`)
+   - Central place-role resolver used by startup scripts.
+3. `src/ServerScriptService/Lobby/LobbyMatchmaker.server.luau`
    - Studio location: `ServerScriptService > Lobby > LobbyMatchmaker` (`Script`)
    - Runs in the lobby place (public server). Handles difficulty button prompts and teleports.
-3. `src/ServerScriptService/Lobby/MatchServerRegistry.server.luau`
-   - Studio location: `ServerScriptService > Lobby > MatchServerRegistry` (`Script`)
+4. `src/ServerScriptService/Match/GameBootstrap.server.luau`
+   - Studio location: `ServerScriptService > Match > GameBootstrap` (`Script`)
+   - Runs core wave/combat systems for match places.
+5. `src/ServerScriptService/Match/MatchServerRegistry.server.luau`
+   - Studio location: `ServerScriptService > Match > MatchServerRegistry` (`Script`)
    - Runs in reserved match servers. Publishes heartbeat/player slot state to MemoryStore.
-4. `src/ServerScriptService/Lobby/PlaceRole.luau`
-   - Studio location: `ServerScriptService > Lobby > PlaceRole` (`ModuleScript`)
-   - Central place-role resolver used by startup scripts.
+6. `src/ServerScriptService/Match/Services/*`
+   - Studio location: `ServerScriptService > Match > Services > ...` (`ModuleScript`s)
+   - Shared by match runtime systems only.
 
 Required lobby workspace setup:
 - `Workspace > DifficultyButtons` folder with button `BasePart` instances.
 - Each button maps to a difficulty (`Easy`, `Normal`, `Hard`) by part name, or by a `Difficulty` attribute.
-- Set `MATCH_PLACE_IDS` in `src/ServerScriptService/Lobby/MatchmakingConfig.luau` to the shared map pool used for all difficulties.
+- Set `MATCH_PLACE_IDS` in `src/ServerScriptService/Shared/MatchmakingConfig.luau` to the shared map pool used for all difficulties.
 - Matchmaking reuses existing servers first; if none exist for that difficulty, it reserves a server on a random place from `MATCH_PLACE_IDS`.
 
 ## Automatic local backups
