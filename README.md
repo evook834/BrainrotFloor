@@ -33,6 +33,9 @@ Validation/build workflow:
 - Behavior:
   - Installs toolchain using `scripts/ci/install_toolchain.sh` (`aftman` + tools from `aftman.toml`)
   - Runs optional per-place `wally install` when network is reachable
+  - Auto-selects project files:
+    - prefers `game/places/<place>/default.project.json`
+    - falls back to `<place>.project.json` when place project files are not yet in the branch
   - Validates place mappings with `rojo sourcemap`
   - Builds:
     - `game/places/lobby/default.project.json` -> `artifacts/lobby-place.rbxlx`

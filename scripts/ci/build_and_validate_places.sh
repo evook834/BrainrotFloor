@@ -78,10 +78,36 @@ install_place_dependencies() {
 
 ensure_packages_dir() {
     local place_dir="$1"
+    if [ ! -d "$place_dir" ]; then
+        return
+    fi
+
     local packages_dir="$place_dir/Packages"
     mkdir -p "$packages_dir"
     # Wally may delete Packages when no dependencies exist; keep path stable for Rojo.
     : >"$packages_dir/.gitkeep"
+}
+
+resolve_project_file() {
+    local place_name="$1"
+    local place_project="$ROOT_DIR/game/places/${place_name}/default.project.json"
+    local root_project="$ROOT_DIR/${place_name}.project.json"
+
+    if [ -f "$place_project" ]; then
+        echo "$place_project"
+        return 0
+    fi
+
+    if [ -f "$root_project" ]; then
+        echo "$root_project"
+        return 0
+    fi
+
+    echo "Could not find a project file for '${place_name}'." >&2
+    echo "Checked:" >&2
+    echo "  - $place_project" >&2
+    echo "  - $root_project" >&2
+    return 1
 }
 
 if [ "${SKIP_WALLY_INSTALL:-0}" = "1" ]; then
@@ -96,6 +122,12 @@ fi
 ensure_packages_dir "$ROOT_DIR/game/places/lobby"
 ensure_packages_dir "$ROOT_DIR/game/places/match"
 
+LOBBY_PROJECT_FILE="$(resolve_project_file "lobby")"
+MATCH_PROJECT_FILE="$(resolve_project_file "match")"
+
+echo "Lobby project: $LOBBY_PROJECT_FILE"
+echo "Match project: $MATCH_PROJECT_FILE"
+
 build_place_artifact() {
     local project_file="$1"
     local output_prefix="$2"
@@ -109,8 +141,8 @@ build_place_artifact() {
     run_with_timeout "$ROJO_TIMEOUT_SECONDS" rojo build "$project_file" --output "$build_output"
 }
 
-build_place_artifact "$ROOT_DIR/game/places/lobby/default.project.json" "lobby-place"
-build_place_artifact "$ROOT_DIR/game/places/match/default.project.json" "match-place"
+build_place_artifact "$LOBBY_PROJECT_FILE" "lobby-place"
+build_place_artifact "$MATCH_PROJECT_FILE" "match-place"
 
 echo "Prepared artifacts:"
 ls -lah "$ARTIFACT_DIR"
