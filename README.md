@@ -35,6 +35,7 @@ Validation/build workflow:
   - Runs optional per-place `wally install` when network is reachable
   - Auto-selects project files:
     - prefers `game/places/<place>/default.project.json`
+    - if `src/Packages` exists, generates temporary compatibility place project files at repo root for that CI run
     - falls back to `<place>.project.json` when place project files are not yet in the branch
   - Validates place mappings with `rojo sourcemap`
   - Builds:
