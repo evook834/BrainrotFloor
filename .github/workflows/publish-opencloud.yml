@@ -93,21 +93,48 @@ jobs:
           LOBBY_ARTIFACT_PATH: ${{ inputs.lobby_artifact_path }}
         run: |
           set -euo pipefail
-          response="$(
-            curl --silent --show-error --fail-with-body --location \
-              --request POST \
-              "https://apis.roblox.com/universes/v1/${ROBLOX_UNIVERSE_ID}/places/${ROBLOX_LOBBY_PLACE_ID}/versions?versionType=Published" \
-              --header "x-api-key: ${ROBLOX_OPEN_CLOUD_API_KEY}" \
-              --header "Content-Type: application/xml" \
-              --data-binary "@${LOBBY_ARTIFACT_PATH}"
-          )"
-          version_number="$(printf '%s' "$response" | sed -nE 's/.*"versionNumber"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p')"
-          if [ -z "$version_number" ]; then
-            echo "Publish succeeded but versionNumber was not found in response:"
-            echo "$response"
+          max_attempts=6
+          attempt=1
+          while [ "$attempt" -le "$max_attempts" ]; do
+            response_file="$(mktemp)"
+            http_code="$(
+              curl --silent --show-error --location \
+                --request POST \
+                "https://apis.roblox.com/universes/v1/${ROBLOX_UNIVERSE_ID}/places/${ROBLOX_LOBBY_PLACE_ID}/versions?versionType=Published" \
+                --header "x-api-key: ${ROBLOX_OPEN_CLOUD_API_KEY}" \
+                --header "Content-Type: application/xml" \
+                --data-binary "@${LOBBY_ARTIFACT_PATH}" \
+                --output "$response_file" \
+                --write-out "%{http_code}" \
+                || true
+            )"
+            response="$(cat "$response_file")"
+            rm -f "$response_file"
+
+            if [ "$http_code" = "200" ]; then
+              version_number="$(printf '%s' "$response" | sed -nE 's/.*"versionNumber"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p')"
+              if [ -n "$version_number" ]; then
+                echo "Published lobby place ${ROBLOX_LOBBY_PLACE_ID} to version ${version_number} from ${LOBBY_ARTIFACT_PATH}."
+              else
+                echo "Published lobby place ${ROBLOX_LOBBY_PLACE_ID} from ${LOBBY_ARTIFACT_PATH}."
+                echo "Response: $response"
+              fi
+              exit 0
+            fi
+
+            if [ "$http_code" = "409" ] && [ "$attempt" -lt "$max_attempts" ]; then
+              wait_seconds=$((attempt * 20))
+              echo "Lobby publish conflict (HTTP 409). Attempt ${attempt}/${max_attempts}. Retrying in ${wait_seconds}s..."
+              echo "Response: $response"
+              sleep "$wait_seconds"
+              attempt=$((attempt + 1))
+              continue
+            fi
+
+            echo "Lobby publish failed (HTTP ${http_code}) on attempt ${attempt}/${max_attempts}."
+            echo "Response: $response"
             exit 1
-          fi
-          echo "Published lobby place ${ROBLOX_LOBBY_PLACE_ID} to version ${version_number} from ${LOBBY_ARTIFACT_PATH}."
+          done
 
       - name: Publish match place
         if: ${{ inputs.publish_match }}
@@ -118,18 +145,45 @@ jobs:
           MATCH_ARTIFACT_PATH: ${{ inputs.match_artifact_path }}
         run: |
           set -euo pipefail
-          response="$(
-            curl --silent --show-error --fail-with-body --location \
-              --request POST \
-              "https://apis.roblox.com/universes/v1/${ROBLOX_UNIVERSE_ID}/places/${ROBLOX_MATCH_PLACE_ID}/versions?versionType=Published" \
-              --header "x-api-key: ${ROBLOX_OPEN_CLOUD_API_KEY}" \
-              --header "Content-Type: application/xml" \
-              --data-binary "@${MATCH_ARTIFACT_PATH}"
-          )"
-          version_number="$(printf '%s' "$response" | sed -nE 's/.*"versionNumber"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p')"
-          if [ -z "$version_number" ]; then
-            echo "Publish succeeded but versionNumber was not found in response:"
-            echo "$response"
+          max_attempts=6
+          attempt=1
+          while [ "$attempt" -le "$max_attempts" ]; do
+            response_file="$(mktemp)"
+            http_code="$(
+              curl --silent --show-error --location \
+                --request POST \
+                "https://apis.roblox.com/universes/v1/${ROBLOX_UNIVERSE_ID}/places/${ROBLOX_MATCH_PLACE_ID}/versions?versionType=Published" \
+                --header "x-api-key: ${ROBLOX_OPEN_CLOUD_API_KEY}" \
+                --header "Content-Type: application/xml" \
+                --data-binary "@${MATCH_ARTIFACT_PATH}" \
+                --output "$response_file" \
+                --write-out "%{http_code}" \
+                || true
+            )"
+            response="$(cat "$response_file")"
+            rm -f "$response_file"
+
+            if [ "$http_code" = "200" ]; then
+              version_number="$(printf '%s' "$response" | sed -nE 's/.*"versionNumber"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p')"
+              if [ -n "$version_number" ]; then
+                echo "Published match place ${ROBLOX_MATCH_PLACE_ID} to version ${version_number} from ${MATCH_ARTIFACT_PATH}."
+              else
+                echo "Published match place ${ROBLOX_MATCH_PLACE_ID} from ${MATCH_ARTIFACT_PATH}."
+                echo "Response: $response"
+              fi
+              exit 0
+            fi
+
+            if [ "$http_code" = "409" ] && [ "$attempt" -lt "$max_attempts" ]; then
+              wait_seconds=$((attempt * 20))
+              echo "Match publish conflict (HTTP 409). Attempt ${attempt}/${max_attempts}. Retrying in ${wait_seconds}s..."
+              echo "Response: $response"
+              sleep "$wait_seconds"
+              attempt=$((attempt + 1))
+              continue
+            fi
+
+            echo "Match publish failed (HTTP ${http_code}) on attempt ${attempt}/${max_attempts}."
+            echo "Response: $response"
             exit 1
-          fi
-          echo "Published match place ${ROBLOX_MATCH_PLACE_ID} to version ${version_number} from ${MATCH_ARTIFACT_PATH}."
+          done
