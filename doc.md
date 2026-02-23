@@ -78,3 +78,53 @@ Player = {
   - Rebinds on `CharacterAdded` so sprint still works after respawn
 - Compatibility:
   - Tracks external `Humanoid.WalkSpeed` updates and reapplies sprint multiplier on top of the latest normal speed
+
+---
+
+# Sprint Stamina System (Lobby + Match)
+
+## What changed
+
+Sprint now uses stamina and includes a stamina HUD bar.
+
+- While sprinting, stamina drains over time.
+- When not sprinting, stamina regenerates after a short delay.
+- If stamina reaches `0`, sprint is exhausted and disabled until stamina recovers to a minimum threshold.
+- A bottom-center stamina bar shows current stamina percent and changes color at low stamina.
+
+Like sprint, this system is shared for both Lobby and Match because it is implemented in `StarterPlayerScripts`.
+
+## Current stamina tuning values
+
+Configured in:
+
+- `src/ReplicatedStorage/Shared/GameConfig.luau`
+- Fields under `Config.Player`:
+
+```luau
+Player = {
+    StartingMoney = 5000,
+    DisableHealthRegen = true,
+    RespawnDelaySeconds = 60,
+    OutOfWaveMoveSpeedMultiplier = 2.0,
+    SprintSpeedMultiplier = 2.5,
+    SprintStaminaMax = 100,
+    SprintStaminaDrainPerSecond = 35,
+    SprintStaminaRegenPerSecond = 22,
+    SprintStaminaRegenDelaySeconds = 0.45,
+    SprintStaminaMinToSprint = 15,
+},
+```
+
+## Implementation notes
+
+- Script location:
+  - `src/StarterPlayer/StarterPlayerScripts/Sprint.client.luau`
+- Update loop:
+  - Uses `RunService.Heartbeat` to process stamina drain/regen each frame.
+- Sprint condition:
+  - Sprint only applies while `LeftShift` is held, the player is moving, alive, and stamina allows sprint.
+- Exhaustion handling:
+  - Hitting `0` stamina disables sprint until stamina reaches `SprintStaminaMinToSprint`.
+- UI:
+  - Creates `ScreenGui` named `SprintStaminaHud` with a percentage fill bar above the XP bar.

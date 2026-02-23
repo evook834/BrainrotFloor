@@ -103,6 +103,11 @@ local Config = {
 		RespawnDelaySeconds = 60,
 		OutOfWaveMoveSpeedMultiplier = 2.0,
 		SprintSpeedMultiplier = 2.5,
+		SprintStaminaMax = 100,
+		SprintStaminaDrainPerSecond = 35,
+		SprintStaminaRegenPerSecond = 22,
+		SprintStaminaRegenDelaySeconds = 0.45,
+		SprintStaminaMinToSprint = 15,
 	},
 	ClassSystem = {
 		MaxLevel = 200,
