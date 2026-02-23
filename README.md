@@ -50,14 +50,19 @@ Publish workflow:
     - `environment`: `staging` or `production`
     - `publish_lobby`: boolean
     - `publish_match`: boolean
+    - `lobby_artifact_path`: repo path to lobby `.rbxlx` snapshot (default `release-artifacts/lobby-place.rbxlx`)
+    - `match_artifact_path`: repo path to match `.rbxlx` snapshot (default `release-artifacts/match-place.rbxlx`)
 - Strategy:
-  1. Let CI (`ci-places.yml`) pass on the commit you want to ship.
-  2. Run `publish-opencloud.yml` manually against that commit.
-  3. Select the target environment (`staging` or `production`) so environment-scoped secrets are used.
-  4. Choose whether to publish lobby, match, or both.
+  1. Export full place snapshots from Studio (`.rbxlx`) for lobby and match.
+  2. Commit snapshots to the repo (for example under `release-artifacts/`).
+  3. Let CI (`ci-places.yml`) pass on the commit you want to ship.
+  4. Run `publish-opencloud.yml` manually against that commit.
+  5. Select the target environment (`staging` or `production`) so environment-scoped secrets are used.
+  6. Choose whether to publish lobby, match, or both.
 - Behavior:
-  - The workflow builds fresh artifacts and validates required secrets.
-  - Publishes selected `.rbxlx` artifacts to Roblox using Open Cloud Place Publishing API.
+  - Validates required secrets and selected snapshot file paths.
+  - Publishes selected `.rbxlx` snapshots directly to Roblox using Open Cloud Place Publishing API.
+  - Does not run `rojo build`, preventing map data loss from partial source trees.
 
 Required GitHub environment secrets (`staging` and/or `production`):
 - `ROBLOX_OPEN_CLOUD_API_KEY`

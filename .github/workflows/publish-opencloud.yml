@@ -1,4 +1,4 @@
-name: Publish Places (Open Cloud)
+name: Publish Places (Open Cloud Snapshot)
 
 on:
   workflow_dispatch:
@@ -21,40 +21,27 @@ on:
         required: true
         default: true
         type: boolean
+      lobby_artifact_path:
+        description: Repository path to lobby snapshot .rbxlx
+        required: true
+        default: release-artifacts/lobby-place.rbxlx
+        type: string
+      match_artifact_path:
+        description: Repository path to match snapshot .rbxlx
+        required: true
+        default: release-artifacts/match-place.rbxlx
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  build-artifacts:
+  publish:
     runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Install toolchain
-        run: scripts/ci/install_toolchain.sh
-
-      - name: Build and validate places
-        run: scripts/ci/build_and_validate_places.sh
-
-      - name: Upload place artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: place-build-artifacts
-          path: artifacts
-          if-no-files-found: error
-
-  publish:
-    runs-on: ubuntu-latest
-    needs: build-artifacts
-    environment: ${{ inputs.environment }}
-    steps:
-      - name: Download place artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: place-build-artifacts
-          path: artifacts
 
       - name: Validate required Open Cloud secrets
         env:
@@ -78,22 +65,41 @@ jobs:
             fi
           done
 
+      - name: Validate selected place artifacts
+        env:
+          PUBLISH_LOBBY: ${{ inputs.publish_lobby }}
+          PUBLISH_MATCH: ${{ inputs.publish_match }}
+          LOBBY_ARTIFACT_PATH: ${{ inputs.lobby_artifact_path }}
+          MATCH_ARTIFACT_PATH: ${{ inputs.match_artifact_path }}
+        run: |
+          set -euo pipefail
+
+          if [ "$PUBLISH_LOBBY" = "true" ] && [ ! -f "$LOBBY_ARTIFACT_PATH" ]; then
+            echo "Missing lobby artifact: $LOBBY_ARTIFACT_PATH"
+            exit 1
+          fi
+
+          if [ "$PUBLISH_MATCH" = "true" ] && [ ! -f "$MATCH_ARTIFACT_PATH" ]; then
+            echo "Missing match artifact: $MATCH_ARTIFACT_PATH"
+            exit 1
+          fi
+
       - name: Publish lobby place
         if: ${{ inputs.publish_lobby }}
         env:
           ROBLOX_OPEN_CLOUD_API_KEY: ${{ secrets.ROBLOX_OPEN_CLOUD_API_KEY }}
           ROBLOX_UNIVERSE_ID: ${{ secrets.ROBLOX_UNIVERSE_ID }}
           ROBLOX_LOBBY_PLACE_ID: ${{ secrets.ROBLOX_LOBBY_PLACE_ID }}
+          LOBBY_ARTIFACT_PATH: ${{ inputs.lobby_artifact_path }}
         run: |
           set -euo pipefail
-          test -f artifacts/lobby-place.rbxlx
           response="$(
             curl --silent --show-error --fail-with-body --location \
               --request POST \
               "https://apis.roblox.com/universes/v1/${ROBLOX_UNIVERSE_ID}/places/${ROBLOX_LOBBY_PLACE_ID}/versions?versionType=Published" \
               --header "x-api-key: ${ROBLOX_OPEN_CLOUD_API_KEY}" \
               --header "Content-Type: application/xml" \
-              --data-binary "@artifacts/lobby-place.rbxlx"
+              --data-binary "@${LOBBY_ARTIFACT_PATH}"
           )"
           version_number="$(printf '%s' "$response" | sed -nE 's/.*"versionNumber"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p')"
           if [ -z "$version_number" ]; then
@@ -101,7 +107,7 @@ jobs:
             echo "$response"
             exit 1
           fi
-          echo "Published lobby place ${ROBLOX_LOBBY_PLACE_ID} to version ${version_number}."
+          echo "Published lobby place ${ROBLOX_LOBBY_PLACE_ID} to version ${version_number} from ${LOBBY_ARTIFACT_PATH}."
 
       - name: Publish match place
         if: ${{ inputs.publish_match }}
@@ -109,16 +115,16 @@ jobs:
           ROBLOX_OPEN_CLOUD_API_KEY: ${{ secrets.ROBLOX_OPEN_CLOUD_API_KEY }}
           ROBLOX_UNIVERSE_ID: ${{ secrets.ROBLOX_UNIVERSE_ID }}
           ROBLOX_MATCH_PLACE_ID: ${{ secrets.ROBLOX_MATCH_PLACE_ID }}
+          MATCH_ARTIFACT_PATH: ${{ inputs.match_artifact_path }}
         run: |
           set -euo pipefail
-          test -f artifacts/match-place.rbxlx
           response="$(
             curl --silent --show-error --fail-with-body --location \
               --request POST \
               "https://apis.roblox.com/universes/v1/${ROBLOX_UNIVERSE_ID}/places/${ROBLOX_MATCH_PLACE_ID}/versions?versionType=Published" \
               --header "x-api-key: ${ROBLOX_OPEN_CLOUD_API_KEY}" \
               --header "Content-Type: application/xml" \
-              --data-binary "@artifacts/match-place.rbxlx"
+              --data-binary "@${MATCH_ARTIFACT_PATH}"
           )"
           version_number="$(printf '%s' "$response" | sed -nE 's/.*"versionNumber"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p')"
           if [ -z "$version_number" ]; then
@@ -126,4 +132,4 @@ jobs:
             echo "$response"
             exit 1
           fi
-          echo "Published match place ${ROBLOX_MATCH_PLACE_ID} to version ${version_number}."
+          echo "Published match place ${ROBLOX_MATCH_PLACE_ID} to version ${version_number} from ${MATCH_ARTIFACT_PATH}."
