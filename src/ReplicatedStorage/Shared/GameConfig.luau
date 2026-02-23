@@ -101,6 +101,7 @@ local Config = {
 		StartingMoney = 5000,
 		DisableHealthRegen = true,
 		RespawnDelaySeconds = 60,
+		OutOfWaveMoveSpeedMultiplier = 2.0,
 	},
 	ClassSystem = {
 		MaxLevel = 200,

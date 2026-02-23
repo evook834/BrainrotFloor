@@ -281,6 +281,24 @@ local function resolveWaveState()
 	return waveState
 end
 
+local function getOutOfWaveMoveSpeedMultiplier()
+	local configuredMultiplier = tonumber((Config.Player and Config.Player.OutOfWaveMoveSpeedMultiplier) or 1)
+	if not configuredMultiplier then
+		return 1
+	end
+
+	return math.max(0, configuredMultiplier)
+end
+
+local function getWaveMoveSpeedMultiplier()
+	local waveState = resolveWaveState()
+	if waveState == "InProgress" or waveState == "Blocked" then
+		return 1
+	end
+
+	return getOutOfWaveMoveSpeedMultiplier()
+end
+
 local function canSwitchClassNow()
 	local waveState = resolveWaveState()
 	local allowedStates = getClassSystemConfig().SwitchAllowedStates or {}
@@ -385,7 +403,7 @@ local function applyHumanoidMoveSpeedBonus(humanoid, moveSpeedMultiplier)
 		humanoid:SetAttribute("ClassBaseWalkSpeed", baseWalkSpeed)
 	end
 
-	local desiredWalkSpeed = math.max(1, baseWalkSpeed * moveSpeedMultiplier)
+	local desiredWalkSpeed = math.max(1, baseWalkSpeed * moveSpeedMultiplier * getWaveMoveSpeedMultiplier())
 	if math.abs(desiredWalkSpeed - humanoid.WalkSpeed) < 0.01 then
 		return
 	end
@@ -403,6 +421,15 @@ local function applyCharacterClassBonuses(player, character)
 	if humanoid then
 		applyHumanoidClassBonus(humanoid, bonuses.maxHealthMultiplier)
 		applyHumanoidMoveSpeedBonus(humanoid, bonuses.moveSpeedMultiplier)
+	end
+end
+
+local function refreshAllCharacterClassBonuses()
+	for _, player in Players:GetPlayers() do
+		local character = player.Character
+		if character then
+			applyCharacterClassBonuses(player, character)
+		end
 	end
 end
 
@@ -858,6 +885,10 @@ function ClassService.start()
 
 		return selectClass(player, classId)
 	end
+
+	remotesFolder:GetAttributeChangedSignal("CurrentWaveState"):Connect(function()
+		refreshAllCharacterClassBonuses()
+	end)
 
 	Players.PlayerAdded:Connect(bindPlayer)
 	Players.PlayerRemoving:Connect(function(player)
