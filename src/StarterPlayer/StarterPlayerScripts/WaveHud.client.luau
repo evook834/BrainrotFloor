@@ -1,6 +1,8 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 
@@ -99,6 +101,47 @@ gameOverMessage.TextSize = 28
 gameOverMessage.ZIndex = 21
 gameOverMessage.Parent = gameOverOverlay
 
+local returnToLobbyButton = Instance.new("TextButton")
+returnToLobbyButton.Name = "ReturnToLobbyButton"
+returnToLobbyButton.Size = UDim2.fromOffset(280, 54)
+returnToLobbyButton.Position = UDim2.fromScale(0.5, 0.58)
+returnToLobbyButton.AnchorPoint = Vector2.new(0.5, 0)
+returnToLobbyButton.BackgroundColor3 = Color3.fromRGB(55, 90, 130)
+returnToLobbyButton.BorderSizePixel = 0
+returnToLobbyButton.Text = "Return to Lobby"
+returnToLobbyButton.TextColor3 = Color3.fromRGB(245, 250, 255)
+returnToLobbyButton.Font = Enum.Font.GothamBold
+returnToLobbyButton.TextSize = 22
+returnToLobbyButton.AutoButtonColor = true
+returnToLobbyButton.Visible = false
+returnToLobbyButton.ZIndex = 21
+returnToLobbyButton.Parent = gameOverOverlay
+
+local returnToLobbyButtonCorner = Instance.new("UICorner")
+returnToLobbyButtonCorner.CornerRadius = UDim.new(0, 10)
+returnToLobbyButtonCorner.Parent = returnToLobbyButton
+
+local returnToLobbyButtonStroke = Instance.new("UIStroke")
+returnToLobbyButtonStroke.Color = Color3.fromRGB(140, 185, 235)
+returnToLobbyButtonStroke.Transparency = 0.1
+returnToLobbyButtonStroke.Thickness = 1
+returnToLobbyButtonStroke.Parent = returnToLobbyButton
+
+local returnToLobbyStatus = Instance.new("TextLabel")
+returnToLobbyStatus.Name = "ReturnToLobbyStatus"
+returnToLobbyStatus.Size = UDim2.fromOffset(760, 44)
+returnToLobbyStatus.Position = UDim2.fromScale(0.5, 0.69)
+returnToLobbyStatus.AnchorPoint = Vector2.new(0.5, 0)
+returnToLobbyStatus.BackgroundTransparency = 1
+returnToLobbyStatus.Text = ""
+returnToLobbyStatus.TextWrapped = true
+returnToLobbyStatus.TextColor3 = Color3.fromRGB(220, 230, 245)
+returnToLobbyStatus.Font = Enum.Font.GothamSemibold
+returnToLobbyStatus.TextSize = 18
+returnToLobbyStatus.Visible = false
+returnToLobbyStatus.ZIndex = 21
+returnToLobbyStatus.Parent = gameOverOverlay
+
 local frame = Instance.new("Frame")
 frame.Name = "StatsPanel"
 frame.Size = UDim2.fromOffset(300, 148)
@@ -179,6 +222,10 @@ local respawnCountdownState = {
 	token = 0,
 }
 local gameOverActive = false
+local returnToLobbyRequested = false
+local returnToLobbyRequestToken = 0
+local gameOverMouseUnlockConnection = nil
+local savedCameraMode = nil
 
 local function render()
 	hpLine.Text = string.format("HP: %d / %d", math.max(0, math.floor(uiState.hp + 0.5)), math.max(1, math.floor(uiState.maxHp + 0.5)))
@@ -273,18 +320,82 @@ local function getGameOverMessage(reason)
 	return "The match has ended."
 end
 
+local returnToLobbyRemote = nil
+
+local function setReturnToLobbyButtonEnabled(enabled, text)
+	returnToLobbyButton.Active = enabled
+	returnToLobbyButton.AutoButtonColor = enabled
+	returnToLobbyButton.BackgroundTransparency = enabled and 0 or 0.35
+	returnToLobbyButton.Text = text
+end
+
+local function stopGameOverMouseUnlockLoop()
+	if gameOverMouseUnlockConnection then
+		gameOverMouseUnlockConnection:Disconnect()
+		gameOverMouseUnlockConnection = nil
+	end
+end
+
+local function startGameOverMouseUnlockLoop()
+	stopGameOverMouseUnlockLoop()
+	gameOverMouseUnlockConnection = RunService.RenderStepped:Connect(function()
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		UserInputService.MouseIconEnabled = true
+	end)
+end
+
+local function setGameOverInputModeActive(active)
+	if active then
+		if savedCameraMode == nil then
+			savedCameraMode = player.CameraMode
+		end
+
+		player.CameraMode = Enum.CameraMode.Classic
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		UserInputService.MouseIconEnabled = true
+		startGameOverMouseUnlockLoop()
+		return
+	end
+
+	stopGameOverMouseUnlockLoop()
+	if savedCameraMode ~= nil then
+		player.CameraMode = savedCameraMode
+		savedCameraMode = nil
+	end
+end
+
 local function setGameOverActive(active, reason)
 	gameOverActive = active
 	gameOverOverlay.Visible = active
+	setGameOverInputModeActive(active)
 
 	if active then
 		hideCountdown()
 		hideRespawnCountdown()
 		gameOverMessage.Text = getGameOverMessage(reason)
+		returnToLobbyButton.Visible = true
+		returnToLobbyStatus.Visible = true
+		returnToLobbyStatus.Text = ""
+		returnToLobbyRequested = false
+		returnToLobbyRequestToken += 1
+
+		if returnToLobbyRemote then
+			setReturnToLobbyButtonEnabled(true, "Return to Lobby")
+		else
+			setReturnToLobbyButtonEnabled(false, "Lobby Unavailable")
+			returnToLobbyStatus.Text = "Lobby teleport remote is unavailable."
+		end
+
 		return
 	end
 
 	gameOverMessage.Text = ""
+	returnToLobbyButton.Visible = false
+	returnToLobbyStatus.Visible = false
+	returnToLobbyStatus.Text = ""
+	returnToLobbyRequested = false
+	returnToLobbyRequestToken += 1
+	setReturnToLobbyButtonEnabled(false, "Return to Lobby")
 end
 
 local remotesFolder = ReplicatedStorage:WaitForChild(Config.Remotes.Folder, 15)
@@ -296,6 +407,58 @@ local waveStateRemote = remotesFolder and remotesFolder:WaitForChild(Config.Remo
 if not waveStateRemote then
 	warn("WaveHud could not find ReplicatedStorage/Remotes/WaveState")
 end
+
+local returnToLobbyRemoteCandidate = remotesFolder and remotesFolder:WaitForChild(Config.Remotes.ReturnToLobby, 15) or nil
+if returnToLobbyRemoteCandidate and returnToLobbyRemoteCandidate:IsA("RemoteEvent") then
+	returnToLobbyRemote = returnToLobbyRemoteCandidate
+elseif returnToLobbyRemoteCandidate then
+	warn("WaveHud found ReturnToLobby remote with unexpected class")
+else
+	warn("WaveHud could not find ReplicatedStorage/Remotes/ReturnToLobby")
+end
+
+local function requestReturnToLobby()
+	if not gameOverActive then
+		return
+	end
+
+	if not returnToLobbyRemote then
+		returnToLobbyStatus.Text = "Lobby teleport is unavailable."
+		setReturnToLobbyButtonEnabled(false, "Lobby Unavailable")
+		return
+	end
+
+	if returnToLobbyRequested then
+		return
+	end
+
+	returnToLobbyRequested = true
+	returnToLobbyRequestToken += 1
+	local activeRequestToken = returnToLobbyRequestToken
+	returnToLobbyStatus.Text = "Returning you to lobby..."
+	setReturnToLobbyButtonEnabled(false, "Returning...")
+	returnToLobbyRemote:FireServer()
+
+	task.delay(8, function()
+		if not gameOverActive then
+			return
+		end
+
+		if not returnToLobbyRequested then
+			return
+		end
+
+		if returnToLobbyRequestToken ~= activeRequestToken then
+			return
+		end
+
+		returnToLobbyRequested = false
+		returnToLobbyStatus.Text = "Teleport did not complete. Press again to retry."
+		setReturnToLobbyButtonEnabled(true, "Return to Lobby")
+	end)
+end
+
+returnToLobbyButton.Activated:Connect(requestReturnToLobby)
 
 local function applyWaveState(payload)
 	if typeof(payload) ~= "table" then

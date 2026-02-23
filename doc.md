@@ -175,6 +175,7 @@ A game-over flow was added for **match servers only** (not lobby).
 - When all alive players die at the same time window, the match enters `GameOver`.
 - Once `GameOver` is triggered, player respawns are cancelled/disabled.
 - A full-screen game-over overlay is shown to clients.
+- During game over, players can click a **Return to Lobby** button.
 
 ## Match-only guard
 
@@ -204,3 +205,23 @@ This ensures the logic only runs where match systems are active.
   - Adds `GameOverOverlay` with `GAME OVER` title and reason text.
   - Listens for wave state `GameOver` and displays overlay.
   - Hides/suppresses intermission and respawn countdown UI once game over is active.
+
+- Return-to-lobby remote + server teleport:
+  - `src/ReplicatedStorage/Shared/GameConfig.luau`
+  - Adds remote name `Config.Remotes.ReturnToLobby`.
+  - `src/ServerScriptService/Match/GameBootstrap.server.luau`
+  - Creates/binds `Remotes/ReturnToLobby` (`RemoteEvent`).
+  - On request, validates that:
+    - match systems are active
+    - game over has already been triggered
+  - Teleports the requesting player back to `MatchmakingConfig.LOBBY_PLACE_ID` using `TeleportService:TeleportAsync(...)`.
+  - Includes retry logic and per-player cooldown/in-flight guards.
+
+- Game-over mouse/camera input fix (button clickability):
+  - `src/StarterPlayer/StarterPlayerScripts/WaveHud.client.luau`
+  - While game over is active:
+    - forces `UserInputService.MouseBehavior = Enum.MouseBehavior.Default`
+    - forces `UserInputService.MouseIconEnabled = true`
+    - temporarily sets `player.CameraMode = Enum.CameraMode.Classic`
+  - Uses a render-step loop to keep mouse unlocked/visible while the overlay is up.
+  - Restores previous camera mode when game-over UI is dismissed.
