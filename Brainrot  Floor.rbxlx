@@ -3831,6 +3831,29 @@ local function formatPercent(value)
 	return string.format("%.1f%%", tonumber(value) or 0)
 end
 
+local function formatBonusSummary(classData)
+	local values = (classData and classData.currentBonuses) or {}
+	local damageText = formatPercent(values.damagePct)
+	local moveText = formatPercent(values.moveSpeedPct)
+	local drText = formatPercent(values.damageReductionPct)
+	local hpText = formatPercent(values.maxHealthPct)
+	local meleePct = tonumber(values.meleeRangePct) or 0
+	local classId = string.lower(tostring(classData and classData.id or ""))
+
+	if classId == "berserker" and meleePct > 0 then
+		return string.format(
+			"DMG +%s  MOVE +%s  DR +%s\nMELEE RANGE +%s  HP +%s",
+			damageText,
+			moveText,
+			drText,
+			formatPercent(meleePct),
+			hpText
+		)
+	end
+
+	return string.format("DMG +%s  MOVE +%s  DR +%s\nHP +%s", damageText, moveText, drText, hpText)
+end
+
 local function clearRows()
 	for _, child in listFrame:GetChildren() do
 		if child:IsA("Frame") then
@@ -3875,18 +3898,13 @@ local function renderPayload(payload)
 		if type(xpToNext) == "number" and xpToNext > 0 then
 			xpText = string.format("XP %.0f / %.0f", currentClassData.xp or 0, xpToNext)
 		end
-		local bonuses = currentClassData.currentBonuses or {}
 		currentInfo.Text = string.format(
-			"Current: %s (%s)\n%s | %s\nDMG +%s  MOVE +%s  DR +%s\nMELEE RANGE +%s  HP +%s",
+			"Current: %s (%s)\n%s | %s\n%s",
 			currentClassData.name or payload.currentClassName or "?",
 			currentClassData.weaponTag or "NoTag",
 			levelText,
 			xpText,
-			formatPercent(bonuses.damagePct),
-			formatPercent(bonuses.moveSpeedPct),
-			formatPercent(bonuses.damageReductionPct),
-			formatPercent(bonuses.meleeRangePct),
-			formatPercent(bonuses.maxHealthPct)
+			formatBonusSummary(currentClassData)
 		)
 	else
 		currentInfo.Text = "Current class data unavailable."
@@ -3922,19 +3940,14 @@ local function renderPayload(payload)
 		if type(xpToNext) == "number" and xpToNext > 0 then
 			xpLine = string.format("XP %.0f / %.0f", classData.xp or 0, xpToNext)
 		end
-		local rowBonuses = classData.currentBonuses or {}
 		info.Text = string.format(
-			"%s (%s)\nLv %d/%d  |  %s\nDMG +%s  MOVE +%s  DR +%s\nMELEE RANGE +%s  HP +%s",
+			"%s (%s)\nLv %d/%d  |  %s\n%s",
 			classData.name or classData.id or "?",
 			classData.weaponTag or "NoTag",
 			classData.level or 1,
 			payload.maxLevel or 200,
 			xpLine,
-			formatPercent(rowBonuses.damagePct),
-			formatPercent(rowBonuses.moveSpeedPct),
-			formatPercent(rowBonuses.damageReductionPct),
-			formatPercent(rowBonuses.meleeRangePct),
-			formatPercent(rowBonuses.maxHealthPct)
+			formatBonusSummary(classData)
 		)
 		info.Parent = row
 
