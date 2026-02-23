@@ -11,9 +11,9 @@ Config.LOBBY_PLACE_ID = 105950482922657
 -- If no suitable server is already running for a chosen difficulty,
 -- the lobby creates a reserved server on a random place from this list.
 Config.MATCH_PLACE_IDS = {
-	85990388071078,
-	117569264354652,
-	93216049725715,
+	--85990388071078,
+	--117569264354652,
+	--93216049725715,
 	124937386174828,
 }
 
