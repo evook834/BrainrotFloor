@@ -102,6 +102,7 @@ local Config = {
 		DisableHealthRegen = true,
 		RespawnDelaySeconds = 60,
 		OutOfWaveMoveSpeedMultiplier = 2.0,
+		SprintSpeedMultiplier = 2.5,
 	},
 	ClassSystem = {
 		MaxLevel = 200,
