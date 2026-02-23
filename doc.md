@@ -176,6 +176,25 @@ A game-over flow was added for **match servers only** (not lobby).
 - Once `GameOver` is triggered, player respawns are cancelled/disabled.
 - A full-screen game-over overlay is shown to clients.
 - During game over, players can click a **Return to Lobby** button.
+- During game over, a **Map Vote** UI appears after a short delay and players can vote for the next map.
+
+## Map vote behavior
+
+- Vote reveal delay: `5` seconds after game over.
+- Vote duration: `15` seconds.
+- Vote options come from the configured match place IDs.
+- Highest vote count wins.
+- If multiple maps tie for highest votes, the winner is picked randomly from the tied maps.
+- The next map server is always reserved/teleported with the **same difficulty** as the current match.
+
+## Current timing defaults
+
+Map vote timing is read from `MatchmakingConfig` with fallbacks:
+
+- `MAP_VOTE_REVEAL_DELAY_SECONDS` (default fallback: `5`)
+- `MAP_VOTE_DURATION_SECONDS` (default fallback: `15`)
+
+If these fields are not defined in config, the fallback values above are used.
 
 ## Match-only guard
 
@@ -217,6 +236,24 @@ This ensures the logic only runs where match systems are active.
   - Teleports the requesting player back to `MatchmakingConfig.LOBBY_PLACE_ID` using `TeleportService:TeleportAsync(...)`.
   - Includes retry logic and per-player cooldown/in-flight guards.
 
+- Map vote remote + winner routing:
+  - `src/ReplicatedStorage/Shared/GameConfig.luau`
+  - Adds remote name `Config.Remotes.MapVote`.
+  - `src/ServerScriptService/Match/GameBootstrap.server.luau`
+  - Creates/binds `Remotes/MapVote` (`RemoteEvent`).
+  - Starts vote flow after game over:
+    - waits reveal delay
+    - opens voting window
+    - tracks per-player vote (changing vote updates counts)
+    - decrements vote if a player leaves mid-vote
+  - Selects winner by highest votes; random tie-break when needed.
+  - Reserves a new private server for the winning place ID.
+  - Teleports all current players together to that winning map with teleport data including:
+    - `difficulty` (same as current match difficulty)
+    - `matchId` (new reserved server id)
+    - `placeId` (winning map place id)
+    - `reason = "MapVoteWinner"`
+
 - Game-over mouse/camera input fix (button clickability):
   - `src/StarterPlayer/StarterPlayerScripts/WaveHud.client.luau`
   - While game over is active:
@@ -225,3 +262,17 @@ This ensures the logic only runs where match systems are active.
     - temporarily sets `player.CameraMode = Enum.CameraMode.Classic`
   - Uses a render-step loop to keep mouse unlocked/visible while the overlay is up.
   - Restores previous camera mode when game-over UI is dismissed.
+
+- Client map-vote HUD:
+  - `src/StarterPlayer/StarterPlayerScripts/WaveHud.client.luau`
+  - Adds `MapVotePanel` to the game-over overlay.
+  - Displays:
+    - live vote options with vote counts
+    - a countdown using server end time
+    - end/teleport status text
+  - Sends vote choice to server through `Remotes/MapVote`.
+  - Handles server map-vote actions:
+    - `Start`
+    - `Update`
+    - `End`
+    - `Teleporting`

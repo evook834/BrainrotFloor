@@ -1,8 +1,8 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
-local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 
@@ -77,7 +77,7 @@ gameOverOverlay.Parent = gui
 local gameOverTitle = Instance.new("TextLabel")
 gameOverTitle.Name = "GameOverTitle"
 gameOverTitle.Size = UDim2.fromOffset(680, 90)
-gameOverTitle.Position = UDim2.fromScale(0.5, 0.44)
+gameOverTitle.Position = UDim2.fromScale(0.5, 0.38)
 gameOverTitle.AnchorPoint = Vector2.new(0.5, 1)
 gameOverTitle.BackgroundTransparency = 1
 gameOverTitle.Text = "GAME OVER"
@@ -90,7 +90,7 @@ gameOverTitle.Parent = gameOverOverlay
 local gameOverMessage = Instance.new("TextLabel")
 gameOverMessage.Name = "GameOverMessage"
 gameOverMessage.Size = UDim2.fromOffset(760, 80)
-gameOverMessage.Position = UDim2.fromScale(0.5, 0.46)
+gameOverMessage.Position = UDim2.fromScale(0.5, 0.4)
 gameOverMessage.AnchorPoint = Vector2.new(0.5, 0)
 gameOverMessage.BackgroundTransparency = 1
 gameOverMessage.Text = ""
@@ -101,10 +101,93 @@ gameOverMessage.TextSize = 28
 gameOverMessage.ZIndex = 21
 gameOverMessage.Parent = gameOverOverlay
 
+local mapVotePanel = Instance.new("Frame")
+mapVotePanel.Name = "MapVotePanel"
+mapVotePanel.Size = UDim2.new(0.9, 0, 0, 250)
+mapVotePanel.Position = UDim2.fromScale(0.5, 0.52)
+mapVotePanel.AnchorPoint = Vector2.new(0.5, 0)
+mapVotePanel.BackgroundColor3 = Color3.fromRGB(16, 19, 25)
+mapVotePanel.BackgroundTransparency = 0.1
+mapVotePanel.BorderSizePixel = 0
+mapVotePanel.Visible = false
+mapVotePanel.ZIndex = 21
+mapVotePanel.Parent = gameOverOverlay
+
+local mapVotePanelSizeConstraint = Instance.new("UISizeConstraint")
+mapVotePanelSizeConstraint.MaxSize = Vector2.new(920, 260)
+mapVotePanelSizeConstraint.MinSize = Vector2.new(320, 220)
+mapVotePanelSizeConstraint.Parent = mapVotePanel
+
+local mapVotePanelCorner = Instance.new("UICorner")
+mapVotePanelCorner.CornerRadius = UDim.new(0, 12)
+mapVotePanelCorner.Parent = mapVotePanel
+
+local mapVotePanelStroke = Instance.new("UIStroke")
+mapVotePanelStroke.Color = Color3.fromRGB(100, 130, 170)
+mapVotePanelStroke.Transparency = 0.2
+mapVotePanelStroke.Thickness = 1
+mapVotePanelStroke.Parent = mapVotePanel
+
+local mapVoteHeader = Instance.new("TextLabel")
+mapVoteHeader.Name = "Header"
+mapVoteHeader.Size = UDim2.new(1, -32, 0, 34)
+mapVoteHeader.Position = UDim2.fromOffset(16, 12)
+mapVoteHeader.BackgroundTransparency = 1
+mapVoteHeader.Text = "MAP VOTE"
+mapVoteHeader.TextXAlignment = Enum.TextXAlignment.Left
+mapVoteHeader.TextColor3 = Color3.fromRGB(240, 245, 255)
+mapVoteHeader.Font = Enum.Font.GothamBold
+mapVoteHeader.TextSize = 24
+mapVoteHeader.ZIndex = 22
+mapVoteHeader.Parent = mapVotePanel
+
+local mapVoteTimerLabel = Instance.new("TextLabel")
+mapVoteTimerLabel.Name = "Timer"
+mapVoteTimerLabel.Size = UDim2.new(1, -32, 0, 26)
+mapVoteTimerLabel.Position = UDim2.fromOffset(16, 44)
+mapVoteTimerLabel.BackgroundTransparency = 1
+mapVoteTimerLabel.Text = ""
+mapVoteTimerLabel.TextXAlignment = Enum.TextXAlignment.Left
+mapVoteTimerLabel.TextColor3 = Color3.fromRGB(180, 210, 245)
+mapVoteTimerLabel.Font = Enum.Font.GothamSemibold
+mapVoteTimerLabel.TextSize = 18
+mapVoteTimerLabel.ZIndex = 22
+mapVoteTimerLabel.Parent = mapVotePanel
+
+local mapVoteOptionsFrame = Instance.new("Frame")
+mapVoteOptionsFrame.Name = "Options"
+mapVoteOptionsFrame.Size = UDim2.new(1, -32, 0, 122)
+mapVoteOptionsFrame.Position = UDim2.fromOffset(16, 76)
+mapVoteOptionsFrame.BackgroundTransparency = 1
+mapVoteOptionsFrame.ZIndex = 22
+mapVoteOptionsFrame.Parent = mapVotePanel
+
+local mapVoteOptionsLayout = Instance.new("UIListLayout")
+mapVoteOptionsLayout.FillDirection = Enum.FillDirection.Horizontal
+mapVoteOptionsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+mapVoteOptionsLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+mapVoteOptionsLayout.Padding = UDim.new(0, 10)
+mapVoteOptionsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+mapVoteOptionsLayout.Parent = mapVoteOptionsFrame
+
+local mapVoteStatusLabel = Instance.new("TextLabel")
+mapVoteStatusLabel.Name = "Status"
+mapVoteStatusLabel.Size = UDim2.new(1, -32, 0, 42)
+mapVoteStatusLabel.Position = UDim2.fromOffset(16, 204)
+mapVoteStatusLabel.BackgroundTransparency = 1
+mapVoteStatusLabel.Text = ""
+mapVoteStatusLabel.TextWrapped = true
+mapVoteStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+mapVoteStatusLabel.TextColor3 = Color3.fromRGB(225, 232, 244)
+mapVoteStatusLabel.Font = Enum.Font.GothamSemibold
+mapVoteStatusLabel.TextSize = 17
+mapVoteStatusLabel.ZIndex = 22
+mapVoteStatusLabel.Parent = mapVotePanel
+
 local returnToLobbyButton = Instance.new("TextButton")
 returnToLobbyButton.Name = "ReturnToLobbyButton"
 returnToLobbyButton.Size = UDim2.fromOffset(280, 54)
-returnToLobbyButton.Position = UDim2.fromScale(0.5, 0.58)
+returnToLobbyButton.Position = UDim2.fromScale(0.5, 0.83)
 returnToLobbyButton.AnchorPoint = Vector2.new(0.5, 0)
 returnToLobbyButton.BackgroundColor3 = Color3.fromRGB(55, 90, 130)
 returnToLobbyButton.BorderSizePixel = 0
@@ -129,15 +212,15 @@ returnToLobbyButtonStroke.Parent = returnToLobbyButton
 
 local returnToLobbyStatus = Instance.new("TextLabel")
 returnToLobbyStatus.Name = "ReturnToLobbyStatus"
-returnToLobbyStatus.Size = UDim2.fromOffset(760, 44)
-returnToLobbyStatus.Position = UDim2.fromScale(0.5, 0.69)
+returnToLobbyStatus.Size = UDim2.fromOffset(760, 42)
+returnToLobbyStatus.Position = UDim2.fromScale(0.5, 0.91)
 returnToLobbyStatus.AnchorPoint = Vector2.new(0.5, 0)
 returnToLobbyStatus.BackgroundTransparency = 1
 returnToLobbyStatus.Text = ""
 returnToLobbyStatus.TextWrapped = true
 returnToLobbyStatus.TextColor3 = Color3.fromRGB(220, 230, 245)
 returnToLobbyStatus.Font = Enum.Font.GothamSemibold
-returnToLobbyStatus.TextSize = 18
+returnToLobbyStatus.TextSize = 17
 returnToLobbyStatus.Visible = false
 returnToLobbyStatus.ZIndex = 21
 returnToLobbyStatus.Parent = gameOverOverlay
@@ -221,11 +304,23 @@ local intermissionCountdownState = {
 local respawnCountdownState = {
 	token = 0,
 }
+local mapVoteCountdownState = {
+	token = 0,
+}
+
 local gameOverActive = false
 local returnToLobbyRequested = false
 local returnToLobbyRequestToken = 0
 local gameOverMouseUnlockConnection = nil
 local savedCameraMode = nil
+
+local returnToLobbyRemote = nil
+local mapVoteRemote = nil
+
+local mapVoteOpen = false
+local mapVoteOptions = {}
+local mapVoteButtonsByPlaceId = {}
+local mapVoteSelectedPlaceId = nil
 
 local function render()
 	hpLine.Text = string.format("HP: %d / %d", math.max(0, math.floor(uiState.hp + 0.5)), math.max(1, math.floor(uiState.maxHp + 0.5)))
@@ -249,6 +344,207 @@ local function cancelCountdown(countdownState, label)
 	beginCountdown(countdownState)
 	label.Visible = false
 	label.Text = ""
+end
+
+local function cancelMapVoteCountdown()
+	beginCountdown(mapVoteCountdownState)
+end
+
+local function normalizePlaceId(value)
+	local placeId = tonumber(value)
+	if placeId == nil then
+		return nil
+	end
+
+	if placeId ~= math.floor(placeId) then
+		return nil
+	end
+
+	if placeId <= 0 then
+		return nil
+	end
+
+	return placeId
+end
+
+local function normalizeMapVoteOptions(rawOptions)
+	local normalized = {}
+	if type(rawOptions) ~= "table" then
+		return normalized
+	end
+
+	for _, rawOption in ipairs(rawOptions) do
+		if type(rawOption) == "table" then
+			local placeId = normalizePlaceId(rawOption.placeId)
+			if placeId ~= nil then
+				local label = rawOption.label
+				if type(label) ~= "string" or label == "" then
+					label = ("Map %d"):format(#normalized + 1)
+				end
+
+				local votes = math.max(0, math.floor(tonumber(rawOption.votes) or 0))
+				table.insert(normalized, {
+					placeId = placeId,
+					label = label,
+					votes = votes,
+				})
+			end
+		end
+	end
+
+	return normalized
+end
+
+local function formatMapVoteTimerText(endsAt)
+	if type(endsAt) ~= "number" or endsAt <= 0 then
+		return "Vote ends soon"
+	end
+
+	local remaining = math.max(0, math.ceil(endsAt - Workspace:GetServerTimeNow()))
+	return string.format("Vote ends in %02ds", remaining)
+end
+
+local function computeVoteButtonWidth(optionCount)
+	if optionCount <= 1 then
+		return 280
+	end
+
+	if optionCount == 2 then
+		return 230
+	end
+
+	if optionCount == 3 then
+		return 200
+	end
+
+	return 160
+end
+
+local function clearMapVoteButtons()
+	for _, child in ipairs(mapVoteOptionsFrame:GetChildren()) do
+		if child:IsA("TextButton") then
+			child:Destroy()
+		end
+	end
+
+	mapVoteButtonsByPlaceId = {}
+end
+
+local function refreshMapVoteButtonVisual(button, option)
+	if mapVoteOpen then
+		button.Active = true
+		button.AutoButtonColor = true
+	else
+		button.Active = false
+		button.AutoButtonColor = false
+	end
+
+	local isSelected = mapVoteSelectedPlaceId == option.placeId
+	button.BackgroundColor3 = if isSelected then Color3.fromRGB(64, 108, 166) else Color3.fromRGB(34, 41, 52)
+	button.TextColor3 = if isSelected then Color3.fromRGB(245, 250, 255) else Color3.fromRGB(224, 232, 244)
+
+	local markerText = if isSelected then "\nYOUR VOTE" else ""
+	button.Text = string.format("%s\nVotes: %d%s", option.label, option.votes, markerText)
+end
+
+local function updateMapVoteButtons()
+	for _, option in ipairs(mapVoteOptions) do
+		local button = mapVoteButtonsByPlaceId[option.placeId]
+		if button then
+			refreshMapVoteButtonVisual(button, option)
+		end
+	end
+end
+
+local function renderMapVoteOptions()
+	clearMapVoteButtons()
+
+	local optionCount = #mapVoteOptions
+	if optionCount <= 0 then
+		mapVoteStatusLabel.Text = "No map options available."
+		return
+	end
+
+	local buttonWidth = computeVoteButtonWidth(optionCount)
+	for index, option in ipairs(mapVoteOptions) do
+		local placeId = option.placeId
+		local label = option.label
+
+		local button = Instance.new("TextButton")
+		button.Name = ("Option_%d"):format(placeId)
+		button.LayoutOrder = index
+		button.Size = UDim2.fromOffset(buttonWidth, 112)
+		button.BackgroundColor3 = Color3.fromRGB(34, 41, 52)
+		button.BorderSizePixel = 0
+		button.Text = ""
+		button.TextWrapped = true
+		button.TextYAlignment = Enum.TextYAlignment.Center
+		button.TextColor3 = Color3.fromRGB(224, 232, 244)
+		button.Font = Enum.Font.GothamBold
+		button.TextSize = 16
+		button.ZIndex = 22
+		button.Parent = mapVoteOptionsFrame
+
+		local buttonCorner = Instance.new("UICorner")
+		buttonCorner.CornerRadius = UDim.new(0, 10)
+		buttonCorner.Parent = button
+
+		local buttonStroke = Instance.new("UIStroke")
+		buttonStroke.Color = Color3.fromRGB(98, 124, 156)
+		buttonStroke.Transparency = 0.18
+		buttonStroke.Thickness = 1
+		buttonStroke.Parent = button
+
+		button.Activated:Connect(function()
+			if not mapVoteOpen or not mapVoteRemote or not gameOverActive then
+				return
+			end
+
+			mapVoteSelectedPlaceId = placeId
+			updateMapVoteButtons()
+			mapVoteStatusLabel.Text = string.format("You voted for %s.", label)
+			mapVoteRemote:FireServer({
+				placeId = placeId,
+			})
+		end)
+
+		mapVoteButtonsByPlaceId[placeId] = button
+		refreshMapVoteButtonVisual(button, option)
+	end
+end
+
+local function startMapVoteCountdown(endsAt)
+	local activeToken = beginCountdown(mapVoteCountdownState)
+	mapVoteTimerLabel.Text = formatMapVoteTimerText(endsAt)
+
+	task.spawn(function()
+		while isCountdownActive(mapVoteCountdownState, activeToken) do
+			if not mapVoteOpen then
+				break
+			end
+
+			mapVoteTimerLabel.Text = formatMapVoteTimerText(endsAt)
+			if type(endsAt) == "number" and endsAt > 0 then
+				local remaining = math.max(0, math.ceil(endsAt - Workspace:GetServerTimeNow()))
+				if remaining <= 0 then
+					break
+				end
+			end
+
+			task.wait(0.15)
+		end
+	end)
+end
+
+local function resetMapVoteUi()
+	mapVoteOpen = false
+	mapVoteOptions = {}
+	mapVoteSelectedPlaceId = nil
+	cancelMapVoteCountdown()
+	clearMapVoteButtons()
+	mapVotePanel.Visible = false
+	mapVoteTimerLabel.Text = ""
+	mapVoteStatusLabel.Text = ""
 end
 
 local function startIntermissionCountdown(seconds, waveNumber, intermissionEndsAt)
@@ -320,8 +616,6 @@ local function getGameOverMessage(reason)
 	return "The match has ended."
 end
 
-local returnToLobbyRemote = nil
-
 local function setReturnToLobbyButtonEnabled(enabled, text)
 	returnToLobbyButton.Active = enabled
 	returnToLobbyButton.AutoButtonColor = enabled
@@ -372,6 +666,7 @@ local function setGameOverActive(active, reason)
 	if active then
 		hideCountdown()
 		hideRespawnCountdown()
+		resetMapVoteUi()
 		gameOverMessage.Text = getGameOverMessage(reason)
 		returnToLobbyButton.Visible = true
 		returnToLobbyStatus.Visible = true
@@ -396,6 +691,7 @@ local function setGameOverActive(active, reason)
 	returnToLobbyRequested = false
 	returnToLobbyRequestToken += 1
 	setReturnToLobbyButtonEnabled(false, "Return to Lobby")
+	resetMapVoteUi()
 end
 
 local remotesFolder = ReplicatedStorage:WaitForChild(Config.Remotes.Folder, 15)
@@ -415,6 +711,15 @@ elseif returnToLobbyRemoteCandidate then
 	warn("WaveHud found ReturnToLobby remote with unexpected class")
 else
 	warn("WaveHud could not find ReplicatedStorage/Remotes/ReturnToLobby")
+end
+
+local mapVoteRemoteCandidate = remotesFolder and remotesFolder:WaitForChild(Config.Remotes.MapVote, 15) or nil
+if mapVoteRemoteCandidate and mapVoteRemoteCandidate:IsA("RemoteEvent") then
+	mapVoteRemote = mapVoteRemoteCandidate
+elseif mapVoteRemoteCandidate then
+	warn("WaveHud found MapVote remote with unexpected class")
+else
+	warn("WaveHud could not find ReplicatedStorage/Remotes/MapVote")
 end
 
 local function requestReturnToLobby()
@@ -459,6 +764,85 @@ local function requestReturnToLobby()
 end
 
 returnToLobbyButton.Activated:Connect(requestReturnToLobby)
+
+local function applyMapVotePayload(payload)
+	if typeof(payload) ~= "table" then
+		return
+	end
+
+	if not gameOverActive then
+		return
+	end
+
+	local action = payload.action
+	if type(action) ~= "string" then
+		return
+	end
+
+	if action == "Start" then
+		mapVoteOptions = normalizeMapVoteOptions(payload.options)
+		mapVoteOpen = true
+		mapVotePanel.Visible = true
+		mapVoteSelectedPlaceId = nil
+		mapVoteHeader.Text = "MAP VOTE"
+		mapVoteStatusLabel.Text = "Choose the next map."
+		renderMapVoteOptions()
+		startMapVoteCountdown(payload.endsAt)
+		return
+	end
+
+	if action == "Update" then
+		mapVoteOptions = normalizeMapVoteOptions(payload.options)
+		if mapVotePanel.Visible then
+			renderMapVoteOptions()
+		end
+		if mapVoteOpen then
+			mapVoteTimerLabel.Text = formatMapVoteTimerText(payload.endsAt)
+		end
+		return
+	end
+
+	if action == "End" then
+		mapVoteOptions = normalizeMapVoteOptions(payload.options)
+		mapVoteOpen = false
+		cancelMapVoteCountdown()
+		mapVotePanel.Visible = true
+		renderMapVoteOptions()
+		mapVoteTimerLabel.Text = "Voting closed"
+
+		local selectedLabel = payload.selectedLabel
+		if type(selectedLabel) ~= "string" or selectedLabel == "" then
+			selectedLabel = "next map"
+		end
+
+		if payload.wasTie == true then
+			mapVoteStatusLabel.Text = string.format("Winner: %s (random tie-break).", selectedLabel)
+		else
+			mapVoteStatusLabel.Text = string.format("Winner: %s.", selectedLabel)
+		end
+		return
+	end
+
+	if action == "Teleporting" then
+		mapVoteOpen = false
+		cancelMapVoteCountdown()
+		mapVotePanel.Visible = true
+		mapVoteTimerLabel.Text = "Teleporting..."
+
+		local selectedLabel = payload.selectedLabel
+		if type(selectedLabel) ~= "string" or selectedLabel == "" then
+			selectedLabel = "selected map"
+		end
+
+		local difficultyLabel = payload.difficulty
+		if type(difficultyLabel) == "string" and difficultyLabel ~= "" then
+			mapVoteStatusLabel.Text = string.format("Loading %s (%s difficulty)...", selectedLabel, difficultyLabel)
+		else
+			mapVoteStatusLabel.Text = string.format("Loading %s...", selectedLabel)
+		end
+		updateMapVoteButtons()
+	end
+end
 
 local function applyWaveState(payload)
 	if typeof(payload) ~= "table" then
@@ -577,6 +961,10 @@ end
 
 if waveStateRemote then
 	waveStateRemote.OnClientEvent:Connect(applyWaveState)
+end
+
+if mapVoteRemote then
+	mapVoteRemote.OnClientEvent:Connect(applyMapVotePayload)
 end
 
 if remotesFolder then

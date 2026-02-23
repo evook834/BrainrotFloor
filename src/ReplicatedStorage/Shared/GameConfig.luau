@@ -88,6 +88,7 @@ local Config = {
 		Folder = "Remotes",
 		WaveState = "WaveState",
 		ReturnToLobby = "ReturnToLobby",
+		MapVote = "MapVote",
 		ShopOpen = "ShopOpen",
 		ShopGetCatalog = "ShopGetCatalog",
 		ShopBuyWeapon = "ShopBuyWeapon",
