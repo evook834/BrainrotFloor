@@ -1299,7 +1299,8 @@ local function applyBulletSpread(direction, spreadDegrees)
 end
 
 local function fireBulletShot(player, character, origin, direction, weaponDef, shotOrigin, shotDirection)
-	local range = math.max(1, tonumber(weaponDef.Range) or 40)
+	local baseRange = math.max(1, tonumber(weaponDef.Range) or 40)
+	local range = baseRange * math.max(0.1, ClassService.getWeaponBulletRangeMultiplier(player, weaponDef))
 	local rayOrigin = typeof(shotOrigin) == "Vector3" and shotOrigin or origin
 	local rayDirection = typeof(shotDirection) == "Vector3" and shotDirection.Unit or direction
 	local spreadDegrees = ClassService.getWeaponSpreadDegrees(player, weaponDef)
@@ -2352,13 +2353,20 @@ local function getCatalogForPlayer(player)
 			continue
 		end
 
+		local baseRange = math.max(0, tonumber(weaponDef.Range) or 0)
+		local rangeMultiplier = math.max(0.1, ClassService.getWeaponBulletRangeMultiplier(player, weaponDef))
+		local effectiveRange = math.floor((baseRange * rangeMultiplier) + 0.5)
+		local rangeBonusPct = math.max(0, (rangeMultiplier - 1) * 100)
+
 		table.insert(weapons, {
 			id = weaponDef.Id,
 			name = weaponDef.DisplayName,
 			weaponClass = resolveWeaponClass(weaponDef),
 			cost = getWeaponCostForPlayer(player, weaponDef),
 			damage = weaponDef.Damage,
-			range = weaponDef.Range,
+			range = baseRange,
+			effectiveRange = effectiveRange,
+			rangeBonusPct = rangeBonusPct,
 			cooldown = weaponDef.Cooldown,
 			magazineSize = getMagazineSize(weaponDef, player),
 			reloadSeconds = getReloadSeconds(weaponDef, player),

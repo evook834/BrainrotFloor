@@ -1,9 +1,14 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local DataStoreService = game:GetService("DataStoreService")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 
 local ClassService = {}
+
+local CLASS_SELECTION_DATASTORE_NAME = "BrainrotFloor_ClassSelection_v1"
+local CLASS_SELECTION_SCHEMA_VERSION = 1
+local CLASS_PROGRESS_AUTOSAVE_SECONDS = 30
 
 local started = false
 local remotesFolder = nil
@@ -16,6 +21,10 @@ local weaponById = {}
 local playerStateByPlayer = {}
 local pushThrottleByPlayer = {}
 local characterConnectionByPlayer = {}
+local classSelectionStore = nil
+local classSelectionStoreUnavailable = false
+local persistedStateSignatureByUserId = {}
+local dirtyStateByUserId = {}
 
 local function ensureRemote(parent, className, name)
 	local instance = parent:FindFirstChild(name)
@@ -57,7 +66,198 @@ local function getClassDefinition(classId)
 	return classById[normalizeToken(classId)]
 end
 
-local function getDefaultClassId()
+local getDefaultClassId
+
+local function getClassSelectionStore()
+	if classSelectionStore then
+		return classSelectionStore
+	end
+	if classSelectionStoreUnavailable then
+		return nil
+	end
+
+	local ok, store = pcall(function()
+		return DataStoreService:GetDataStore(CLASS_SELECTION_DATASTORE_NAME)
+	end)
+	if not ok or not store then
+		classSelectionStoreUnavailable = true
+		warn(string.format("ClassService could not get class selection DataStore: %s", tostring(store)))
+		return nil
+	end
+
+	classSelectionStore = store
+	return classSelectionStore
+end
+
+local function getClassSelectionStoreKey(userId)
+	return string.format("u:%d", math.max(0, math.floor(tonumber(userId) or 0)))
+end
+
+local function buildPersistableStateData(state)
+	local maxLevel = getMaxLevel()
+	local selectedClassId = normalizeToken(state and state.selectedClassId)
+	if selectedClassId == "" or not classById[selectedClassId] then
+		selectedClassId = getDefaultClassId()
+	end
+
+	local progressByClassId = {}
+	if type(state) == "table" and type(state.progressByClassId) == "table" then
+		for classId, rawProgress in pairs(state.progressByClassId) do
+			local normalizedClassId = normalizeToken(classId)
+			if normalizedClassId ~= "" and classById[normalizedClassId] and type(rawProgress) == "table" then
+				local level = math.clamp(math.floor(tonumber(rawProgress.level) or 1), 1, maxLevel)
+				local xp = math.max(0, tonumber(rawProgress.xp) or 0)
+				if level >= maxLevel then
+					xp = 0
+				end
+				progressByClassId[normalizedClassId] = {
+					level = level,
+					xp = xp,
+				}
+			end
+		end
+	end
+
+	if selectedClassId ~= "" and not progressByClassId[selectedClassId] then
+		progressByClassId[selectedClassId] = {
+			level = 1,
+			xp = 0,
+		}
+	end
+
+	return {
+		schemaVersion = CLASS_SELECTION_SCHEMA_VERSION,
+		selectedClassId = selectedClassId,
+		progressByClassId = progressByClassId,
+	}
+end
+
+local function buildStateSignature(stateData)
+	local parts = { tostring(stateData.selectedClassId or "") }
+	local classIds = {}
+	for classId in pairs(stateData.progressByClassId or {}) do
+		table.insert(classIds, classId)
+	end
+	table.sort(classIds)
+
+	for _, classId in ipairs(classIds) do
+		local progress = stateData.progressByClassId[classId] or {}
+		local level = math.floor(tonumber(progress.level) or 1)
+		local xpMillis = math.max(0, math.floor(((tonumber(progress.xp) or 0) * 1000) + 0.5))
+		table.insert(parts, string.format("%s:%d:%d", classId, level, xpMillis))
+	end
+
+	return table.concat(parts, "|")
+end
+
+local function loadPersistedState(userId)
+	local store = getClassSelectionStore()
+	if not store then
+		return nil
+	end
+
+	local key = getClassSelectionStoreKey(userId)
+	local ok, value = pcall(function()
+		return store:GetAsync(key)
+	end)
+	if not ok then
+		warn(string.format("ClassService failed to load class state for userId %s: %s", tostring(userId), tostring(value)))
+		return nil
+	end
+
+	local loadedState = {
+		selectedClassId = getDefaultClassId(),
+		progressByClassId = {},
+	}
+
+	if type(value) == "string" then
+		loadedState.selectedClassId = value
+	elseif type(value) == "table" then
+		loadedState.selectedClassId = value.selectedClassId or value.classId or loadedState.selectedClassId
+
+		local progressByClassId = value.progressByClassId
+		if type(progressByClassId) ~= "table" then
+			progressByClassId = value.progress
+		end
+
+		if type(progressByClassId) == "table" then
+			for classId, rawProgress in pairs(progressByClassId) do
+				local normalizedClassId = normalizeToken(classId)
+				if normalizedClassId ~= "" and classById[normalizedClassId] and type(rawProgress) == "table" then
+					loadedState.progressByClassId[normalizedClassId] = {
+						level = tonumber(rawProgress.level) or 1,
+						xp = tonumber(rawProgress.xp) or 0,
+					}
+				end
+			end
+		end
+	else
+		return nil
+	end
+
+	local normalizedSelectedClassId = normalizeToken(loadedState.selectedClassId)
+	if normalizedSelectedClassId == "" or not classById[normalizedSelectedClassId] then
+		normalizedSelectedClassId = getDefaultClassId()
+	end
+	loadedState.selectedClassId = normalizedSelectedClassId
+	if loadedState.selectedClassId == "" then
+		return nil
+	end
+
+	return loadedState
+end
+
+local function markPersistedStateDirty(userId)
+	if type(userId) ~= "number" or userId <= 0 then
+		return
+	end
+
+	dirtyStateByUserId[userId] = true
+end
+
+local function savePersistedState(userId, state, force)
+	if type(userId) ~= "number" or userId <= 0 then
+		return false
+	end
+
+	local stateData = buildPersistableStateData(state)
+	if stateData.selectedClassId == "" then
+		return false
+	end
+
+	local signature = buildStateSignature(stateData)
+	if persistedStateSignatureByUserId[userId] == signature and (not force or dirtyStateByUserId[userId] ~= true) then
+		dirtyStateByUserId[userId] = nil
+		return true
+	end
+
+	local store = getClassSelectionStore()
+	if not store then
+		return false
+	end
+
+	local key = getClassSelectionStoreKey(userId)
+	local ok, errOrResult = pcall(function()
+		store:SetAsync(key, stateData)
+	end)
+	if not ok then
+		warn(
+			string.format(
+				"ClassService failed to save class state for userId %s (class %s): %s",
+				tostring(userId),
+				stateData.selectedClassId,
+				tostring(errOrResult)
+			)
+		)
+		return false
+	end
+
+	persistedStateSignatureByUserId[userId] = signature
+	dirtyStateByUserId[userId] = nil
+	return true
+end
+
+getDefaultClassId = function()
 	local configured = normalizeToken(getClassSystemConfig().DefaultClassId)
 	if configured ~= "" and classById[configured] then
 		return configured
@@ -123,6 +323,60 @@ local function getXpRequiredForNextLevel(classDef, level)
 	return math.max(1, math.floor(requirement + 0.5))
 end
 
+local function sanitizeLoadedProgress(classId, rawProgress)
+	if type(rawProgress) ~= "table" then
+		return nil
+	end
+
+	local classDef = classById[classId]
+	if not classDef then
+		return nil
+	end
+
+	local maxLevel = getMaxLevel()
+	local level = math.clamp(math.floor(tonumber(rawProgress.level) or 1), 1, maxLevel)
+	local xp = math.max(0, tonumber(rawProgress.xp) or 0)
+	local xpToNext = getXpRequiredForNextLevel(classDef, level)
+	if xpToNext then
+		xp = math.min(xp, math.max(0, xpToNext - 1))
+	else
+		level = maxLevel
+		xp = 0
+	end
+
+	return {
+		level = level,
+		xp = xp,
+	}
+end
+
+local function applyPersistedStateToPlayerState(state, persistedState)
+	local selectedClassId = normalizeToken(persistedState and persistedState.selectedClassId)
+	if selectedClassId == "" or not classById[selectedClassId] then
+		selectedClassId = getDefaultClassId()
+	end
+
+	state.selectedClassId = selectedClassId
+	table.clear(state.progressByClassId)
+
+	if type(persistedState) == "table" and type(persistedState.progressByClassId) == "table" then
+		for classId, rawProgress in pairs(persistedState.progressByClassId) do
+			local normalizedClassId = normalizeToken(classId)
+			local sanitizedProgress = sanitizeLoadedProgress(normalizedClassId, rawProgress)
+			if sanitizedProgress then
+				state.progressByClassId[normalizedClassId] = sanitizedProgress
+			end
+		end
+	end
+
+	if selectedClassId ~= "" and not state.progressByClassId[selectedClassId] then
+		state.progressByClassId[selectedClassId] = {
+			level = 1,
+			xp = 0,
+		}
+	end
+end
+
 local function getBonusesAtLevel(classDef, level)
 	local levelIndex = math.max(1, math.floor(tonumber(level) or 1))
 	local bonusLevels = levelIndex - 1
@@ -156,6 +410,16 @@ local function getBonusesAtLevel(classDef, level)
 	local reloadSpeedBonus = math.max(0, tonumber(bonuses.ReloadSpeedPerLevel) or tonumber(bonuses.ReloadPerLevel) or 0)
 		* bonusLevels
 	local reloadTimeMultiplier = 1 / (1 + reloadSpeedBonus)
+	local bulletRangeMultiplier = 1
+		+ (
+			math.max(
+				0,
+				tonumber(bonuses.BulletRangePerLevel)
+					or tonumber(bonuses.WeaponRangePerLevel)
+					or tonumber(bonuses.RangePerLevel)
+					or 0
+			) * bonusLevels
+		)
 	local spreadReduction = math.clamp(
 		math.max(
 			0,
@@ -179,6 +443,7 @@ local function getBonusesAtLevel(classDef, level)
 		shopDiscount = shopDiscount,
 		magazineSizeMultiplier = math.max(0.1, magazineSizeMultiplier),
 		reloadTimeMultiplier = math.max(0.1, reloadTimeMultiplier),
+		bulletRangeMultiplier = math.max(0.1, bulletRangeMultiplier),
 		bulletSpreadMultiplier = math.max(0.2, bulletSpreadMultiplier),
 	}
 end
@@ -195,6 +460,7 @@ local function summarizeBonuses(bonuses)
 		shopDiscount = bonuses.shopDiscount,
 		magazineSizeMultiplier = bonuses.magazineSizeMultiplier,
 		reloadTimeMultiplier = bonuses.reloadTimeMultiplier,
+		bulletRangeMultiplier = bonuses.bulletRangeMultiplier,
 		bulletSpreadMultiplier = bonuses.bulletSpreadMultiplier,
 		damagePct = (bonuses.damageMultiplier - 1) * 100,
 		maxHealthPct = (bonuses.maxHealthMultiplier - 1) * 100,
@@ -204,8 +470,82 @@ local function summarizeBonuses(bonuses)
 		shopDiscountPct = bonuses.shopDiscount * 100,
 		magazineSizePct = (bonuses.magazineSizeMultiplier - 1) * 100,
 		reloadSpeedPct = (reloadSpeedMultiplier - 1) * 100,
+		bulletRangePct = (bonuses.bulletRangeMultiplier - 1) * 100,
 		bulletSpreadReductionPct = (1 - bonuses.bulletSpreadMultiplier) * 100,
 	}
+end
+
+local bonusPctKeyAliases = {
+	Damage = "damagePct",
+	WeaponDamage = "damagePct",
+	MaxHealth = "maxHealthPct",
+	MoveSpeed = "moveSpeedPct",
+	MeleeRange = "meleeRangePct",
+	DamageReduction = "damageReductionPct",
+	ShopDiscount = "shopDiscountPct",
+	ShopCostReduction = "shopDiscountPct",
+	MagazineSize = "magazineSizePct",
+	MagSize = "magazineSizePct",
+	ReloadSpeed = "reloadSpeedPct",
+	Reload = "reloadSpeedPct",
+	BulletRange = "bulletRangePct",
+	WeaponRange = "bulletRangePct",
+	Range = "bulletRangePct",
+	BulletSpreadReduction = "bulletSpreadReductionPct",
+	SpreadReduction = "bulletSpreadReductionPct",
+	Accuracy = "bulletSpreadReductionPct",
+}
+
+local function resolveBonusPctKeyFromPerLevel(rawBonusKey)
+	if type(rawBonusKey) ~= "string" then
+		return nil
+	end
+
+	local stem = string.match(rawBonusKey, "^(.+)PerLevel$")
+	if not stem or stem == "" then
+		return nil
+	end
+
+	local alias = bonusPctKeyAliases[stem]
+	if alias then
+		return alias
+	end
+
+	return string.lower(string.sub(stem, 1, 1)) .. string.sub(stem, 2) .. "Pct"
+end
+
+local function buildPerLevelBonusesFromConfig(rawBonusConfig)
+	local perLevelBonuses = {}
+	if type(rawBonusConfig) ~= "table" then
+		return perLevelBonuses
+	end
+
+	for rawBonusKey, rawPerLevelValue in pairs(rawBonusConfig) do
+		local pctKey = resolveBonusPctKeyFromPerLevel(rawBonusKey)
+		local perLevelValue = tonumber(rawPerLevelValue)
+		if pctKey and perLevelValue then
+			local pctValue = perLevelValue * 100
+			local existing = perLevelBonuses[pctKey]
+			if type(existing) ~= "number" or math.abs(pctValue) > math.abs(existing) then
+				perLevelBonuses[pctKey] = pctValue
+			end
+		end
+	end
+
+	return perLevelBonuses
+end
+
+local function buildCurrentBonusesWithFallback(classBonuses, perLevelBonuses, level)
+	local currentBonuses = summarizeBonuses(classBonuses)
+	local bonusLevels = math.max(0, math.floor(tonumber(level) or 1) - 1)
+
+	for pctKey, perLevelValue in pairs(perLevelBonuses) do
+		if currentBonuses[pctKey] == nil then
+			currentBonuses[pctKey] = (tonumber(perLevelValue) or 0) * bonusLevels
+		end
+	end
+
+	return currentBonuses
 end
 
 local function buildClassRegistry()
@@ -476,7 +816,13 @@ local function buildPayloadForPlayer(player)
 
 	local canSwitch, waveState = canSwitchClassNow()
 	local currentProgress = getOrCreateClassProgress(state, classDef.Id)
-	local currentBonuses = summarizeBonuses(getBonusesAtLevel(classDef, currentProgress.level))
+	local selectedClassBonuses = getBonusesAtLevel(classDef, currentProgress.level)
+	local selectedPerLevelBonuses = buildPerLevelBonusesFromConfig(classDef.Bonuses)
+	local currentBonuses = buildCurrentBonusesWithFallback(
+		selectedClassBonuses,
+		selectedPerLevelBonuses,
+		currentProgress.level
+	)
 
 	local classes = {}
 	for _, listedClass in ipairs(classOrder) do
@@ -485,6 +831,8 @@ local function buildPayloadForPlayer(player)
 		local xp = math.max(0, tonumber(progress.xp) or 0)
 		local xpToNext = getXpRequiredForNextLevel(listedClass, level)
 		local classBonuses = getBonusesAtLevel(listedClass, level)
+		local perLevelBonuses = buildPerLevelBonusesFromConfig(listedClass.Bonuses)
+		local classCurrentBonuses = buildCurrentBonusesWithFallback(classBonuses, perLevelBonuses, level)
 
 		table.insert(classes, {
 			id = listedClass.Id,
@@ -495,44 +843,8 @@ local function buildPayloadForPlayer(player)
 			xp = xp,
 			xpToNext = xpToNext,
 			isCurrent = listedClass.Id == state.selectedClassId,
-			currentBonuses = summarizeBonuses(classBonuses),
-			perLevelBonuses = {
-				damagePct = math.max(
-					0,
-					tonumber(listedClass.Bonuses.DamagePerLevel)
-						or tonumber(listedClass.Bonuses.WeaponDamagePerLevel)
-						or 0
-				) * 100,
-				maxHealthPct = math.max(0, tonumber(listedClass.Bonuses.MaxHealthPerLevel) or 0) * 100,
-				moveSpeedPct = math.max(0, tonumber(listedClass.Bonuses.MoveSpeedPerLevel) or 0) * 100,
-				meleeRangePct = math.max(0, tonumber(listedClass.Bonuses.MeleeRangePerLevel) or 0) * 100,
-				damageReductionPct = math.max(0, tonumber(listedClass.Bonuses.DamageReductionPerLevel) or 0) * 100,
-				shopDiscountPct = math.max(
-					0,
-					tonumber(listedClass.Bonuses.ShopDiscountPerLevel)
-						or tonumber(listedClass.Bonuses.ShopCostReductionPerLevel)
-						or 0
-				) * 100,
-				magazineSizePct = math.max(
-					0,
-					tonumber(listedClass.Bonuses.MagazineSizePerLevel)
-						or tonumber(listedClass.Bonuses.MagSizePerLevel)
-						or 0
-				) * 100,
-				reloadSpeedPct = math.max(
-					0,
-					tonumber(listedClass.Bonuses.ReloadSpeedPerLevel)
-						or tonumber(listedClass.Bonuses.ReloadPerLevel)
-						or 0
-				) * 100,
-				bulletSpreadReductionPct = math.max(
-					0,
-					tonumber(listedClass.Bonuses.BulletSpreadReductionPerLevel)
-						or tonumber(listedClass.Bonuses.SpreadReductionPerLevel)
-						or tonumber(listedClass.Bonuses.AccuracyPerLevel)
-						or 0
-				) * 100,
-			},
+			currentBonuses = classCurrentBonuses,
+			perLevelBonuses = perLevelBonuses,
 		})
 	end
 
@@ -596,6 +908,8 @@ local function selectClass(player, classId)
 
 	state.selectedClassId = classDef.Id
 	getOrCreateClassProgress(state, classDef.Id)
+	markPersistedStateDirty(player.UserId)
+	savePersistedState(player.UserId, state, true)
 
 	if player.Character then
 		applyCharacterClassBonuses(player, player.Character)
@@ -611,7 +925,18 @@ local function selectClass(player, classId)
 end
 
 local function bindPlayer(player)
-	getOrCreatePlayerState(player)
+	local state = getOrCreatePlayerState(player)
+	local userId = player.UserId
+
+	local persistedState = loadPersistedState(userId)
+	if persistedState then
+		applyPersistedStateToPlayerState(state, persistedState)
+	else
+		state.selectedClassId = getDefaultClassId()
+		getOrCreateClassProgress(state, state.selectedClassId)
+	end
+	persistedStateSignatureByUserId[userId] = buildStateSignature(buildPersistableStateData(state))
+	dirtyStateByUserId[userId] = nil
 
 	if characterConnectionByPlayer[player] then
 		characterConnectionByPlayer[player]:Disconnect()
@@ -633,6 +958,30 @@ local function bindPlayer(player)
 	end
 
 	pushPlayerState(player, "Init", true)
+end
+
+local function savePlayerStateForPlayer(player, force)
+	if not player or not player:IsA("Player") then
+		return false
+	end
+
+	local state = playerStateByPlayer[player]
+	if not state then
+		return false
+	end
+
+	local userId = player.UserId
+	if not force and dirtyStateByUserId[userId] ~= true then
+		return true
+	end
+
+	return savePersistedState(userId, state, force)
+end
+
+local function autosaveDirtyPlayerStates()
+	for _, player in Players:GetPlayers() do
+		savePlayerStateForPlayer(player, false)
+	end
 end
 
 function ClassService.getPlayerClassId(player)
@@ -782,6 +1131,15 @@ function ClassService.getWeaponSpreadDegrees(player, weaponDef)
 	return math.max(0, baseSpreadDegrees * math.max(0.2, bonuses.bulletSpreadMultiplier or 1))
 end
 
+function ClassService.getWeaponBulletRangeMultiplier(player, weaponDef)
+	local bonuses = getPlayerWeaponBonuses(player, weaponDef)
+	if not bonuses then
+		return 1
+	end
+
+	return math.max(0.1, bonuses.bulletRangeMultiplier or 1)
+end
+
 function ClassService.recordDamage(player, damage, weaponDef)
 	if not player or not player:IsA("Player") then
 		return
@@ -805,6 +1163,8 @@ function ClassService.recordDamage(player, damage, weaponDef)
 		return
 	end
 
+	local previousLevel = progress.level
+	local previousXp = progress.xp
 	local maxLevel = getMaxLevel()
 	local leveledUp = false
 
@@ -833,6 +1193,15 @@ function ClassService.recordDamage(player, damage, weaponDef)
 
 	if leveledUp and player.Character then
 		applyCharacterClassBonuses(player, player.Character)
+	end
+	if progress.level ~= previousLevel or progress.xp ~= previousXp then
+		markPersistedStateDirty(player.UserId)
+	end
+	if leveledUp then
+		local state = playerStateByPlayer[player]
+		if state then
+			savePersistedState(player.UserId, state, true)
+		end
 	end
 
 	pushPlayerState(player, leveledUp and "LevelUp" or "XpGained", leveledUp)
@@ -892,12 +1261,29 @@ function ClassService.start()
 
 	Players.PlayerAdded:Connect(bindPlayer)
 	Players.PlayerRemoving:Connect(function(player)
+		savePlayerStateForPlayer(player, true)
+
 		playerStateByPlayer[player] = nil
 		pushThrottleByPlayer[player] = nil
+		persistedStateSignatureByUserId[player.UserId] = nil
+		dirtyStateByUserId[player.UserId] = nil
 
 		if characterConnectionByPlayer[player] then
 			characterConnectionByPlayer[player]:Disconnect()
 			characterConnectionByPlayer[player] = nil
+		end
+	end)
+
+	task.spawn(function()
+		while started do
+			task.wait(CLASS_PROGRESS_AUTOSAVE_SECONDS)
+			autosaveDirtyPlayerStates()
+		end
+	end)
+
+	game:BindToClose(function()
+		for _, player in Players:GetPlayers() do
+			savePlayerStateForPlayer(player, true)
 		end
 	end)
 

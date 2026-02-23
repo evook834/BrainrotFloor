@@ -49,6 +49,7 @@ local function getActivePerkText(classData)
 		{ label = "Shop", value = tonumber(bonuses.shopDiscountPct) or 0 },
 		{ label = "Reload", value = tonumber(bonuses.reloadSpeedPct) or 0 },
 		{ label = "Mag", value = tonumber(bonuses.magazineSizePct) or 0 },
+		{ label = "Range", value = tonumber(bonuses.bulletRangePct) or 0 },
 		{ label = "Spread", value = tonumber(bonuses.bulletSpreadReductionPct) or 0 },
 	}
 

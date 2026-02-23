@@ -197,13 +197,19 @@ local function renderCatalog(catalog)
 			local reloadSeconds = tonumber(weapon.reloadSeconds) or 0
 			ammoLine = string.format("  MAG %d  RELOAD %.1fs", weapon.magazineSize, reloadSeconds)
 		end
+		local displayedRange = math.max(0, math.floor((tonumber(weapon.effectiveRange) or tonumber(weapon.range) or 0) + 0.5))
+		local rangeText = string.format("RANGE %d", displayedRange)
+		local rangeBonusPct = tonumber(weapon.rangeBonusPct) or 0
+		if rangeBonusPct >= 0.05 then
+			rangeText = string.format("RANGE %d (+%.1f%% class)", displayedRange, rangeBonusPct)
+		end
 		info.Text = string.format(
-			"%s (%s)  |  $%d\nDMG %d  RANGE %d  CD %.2fs%s",
+			"%s (%s)  |  $%d\nDMG %d  %s  CD %.2fs%s",
 			weapon.name or weapon.id or "?",
 			weapon.weaponClass or "Weapon",
 			weapon.cost or 0,
 			weapon.damage or 0,
-			weapon.range or 0,
+			rangeText,
 			weapon.cooldown or 0,
 			ammoLine
 		)

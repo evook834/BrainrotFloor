@@ -289,6 +289,7 @@ local bonusKeyOrder = {
 	{ key = "shopDiscountPct", label = "Shop Discount" },
 	{ key = "magazineSizePct", label = "Magazine Size" },
 	{ key = "reloadSpeedPct", label = "Reload Speed" },
+	{ key = "bulletRangePct", label = "Weapon Range" },
 	{ key = "bulletSpreadReductionPct", label = "Spread Reduction" },
 }
 
@@ -317,14 +318,14 @@ local function buildBonusInfoText(classData)
 	local lines = {}
 
 	local function appendLine(label, totalValue, perLevelValue)
-		local total = tonumber(totalValue) or 0
-		local perLevel = tonumber(perLevelValue) or 0
-		local hasTotal = math.abs(total) >= 0.05
-		local hasPerLevel = math.abs(perLevel) >= 0.001
+		local hasTotal = type(totalValue) == "number"
+		local hasPerLevel = type(perLevelValue) == "number"
 		if not hasTotal and not hasPerLevel then
 			return
 		end
 
+		local total = tonumber(totalValue) or 0
+		local perLevel = tonumber(perLevelValue) or 0
 		if hasPerLevel then
 			table.insert(
 				lines,
