@@ -6,10 +6,13 @@
 
 ## Quick start
 1. Open this folder in a terminal.
-2. Run `rojo serve`.
+2. Run one of:
+   - `rojo serve lobby.project.json` for the lobby place
+   - `rojo serve match.project.json` for match/map places
+   - `rojo serve default.project.json` for the legacy single-project setup
 3. In Roblox Studio, install and open the Rojo plugin.
 4. Connect to `localhost:34872` and sync the project.
-5. If you use lobby matchmaking, set `MATCH_PLACE_IDS` in `src/ServerScriptService/Lobby/MatchmakingConfig.luau` to your map place IDs.
+5. If you use lobby matchmaking, set `LOBBY_PLACE_ID` and `MATCH_PLACE_IDS` in `src/ServerScriptService/Lobby/MatchmakingConfig.luau`.
 
 ## Game scaffold included
 - Wave loop with intermission and scaling enemy count.
@@ -24,7 +27,20 @@
 
 ## Existing place file
 Your existing place file (`Brainrot  Floor.rbxlx`) is untouched.
-Rojo sync uses `default.project.json` and `src/` going forward.
+Rojo sync can use `default.project.json`, `lobby.project.json`, or `match.project.json`.
+
+## Multi-place runtime routing
+Role selection is centralized in `src/ServerScriptService/Lobby/MatchmakingConfig.luau`:
+- `LOBBY_PLACE_ID`: public lobby place id
+- `MATCH_PLACE_IDS`: map/match place id list used for teleport + reserved servers
+- `FORCE_PLACE_ROLE`: optional override (`"Lobby"` or `"Match"`) for testing only
+
+Runtime behavior:
+- `GameBootstrap` runs only in match places
+- `LobbyMatchmaker` runs only in lobby places
+- `MatchServerRegistry` runs only in match places (and only with `PrivateServerId`)
+
+This lets you keep one shared script tree without manually adding each new script to every map place.
 
 ## Difficulty tuning
 Gameplay difficulty modifiers live in `src/ReplicatedStorage/Shared/GameConfig.luau` under `Difficulty.Settings`.
@@ -44,6 +60,9 @@ Use these exact paths when syncing with Rojo:
 3. `src/ServerScriptService/Lobby/MatchServerRegistry.server.luau`
    - Studio location: `ServerScriptService > Lobby > MatchServerRegistry` (`Script`)
    - Runs in reserved match servers. Publishes heartbeat/player slot state to MemoryStore.
+4. `src/ServerScriptService/Lobby/PlaceRole.luau`
+   - Studio location: `ServerScriptService > Lobby > PlaceRole` (`ModuleScript`)
+   - Central place-role resolver used by startup scripts.
 
 Required lobby workspace setup:
 - `Workspace > DifficultyButtons` folder with button `BasePart` instances.

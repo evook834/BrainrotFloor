@@ -2,6 +2,7 @@ local MemoryStoreService = game:GetService("MemoryStoreService")
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
+local PlaceRole = require(script.Parent.PlaceRole)
 
 local function resolveConfigModule()
 	local localConfig = script.Parent:FindFirstChild("MatchmakingConfig")
@@ -28,6 +29,14 @@ end
 
 local Config = requireConfig()
 local matchServers = MemoryStoreService:GetSortedMap(Config.MEMORYSTORE_MAP_NAME)
+
+if not PlaceRole.shouldRunMatchSystems() then
+	warn(("[MatchServerRegistry] Skipping match registry for place role '%s' (placeId=%s)."):format(
+		PlaceRole.getRole(),
+		tostring(game.PlaceId)
+	))
+	return
+end
 
 local MATCH_KEY = game.PrivateServerId
 if MATCH_KEY == "" then

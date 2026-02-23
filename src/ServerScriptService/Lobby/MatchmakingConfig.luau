@@ -1,5 +1,12 @@
 local Config = {}
 
+-- Runtime routing for shared scripts across multiple places.
+-- Set to "Lobby" or "Match" only when you need to force behavior during testing.
+Config.FORCE_PLACE_ROLE = nil
+
+-- Public lobby place where players choose difficulty before teleport.
+Config.LOBBY_PLACE_ID = 105950482922657
+
 -- Shared map place IDs used by all difficulties.
 -- If no suitable server is already running for a chosen difficulty,
 -- the lobby creates a reserved server on a random place from this list.
@@ -7,6 +14,7 @@ Config.MATCH_PLACE_IDS = {
 	85990388071078,
 	117569264354652,
 	93216049725715,
+	124937386174828,
 }
 
 -- Legacy single-place fallback (kept for compatibility).

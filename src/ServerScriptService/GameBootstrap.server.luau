@@ -3,11 +3,20 @@ local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
 
+local PlaceRole = require(script.Parent.Lobby.PlaceRole)
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local WaveService = require(script.Parent.Services.WaveService)
 local ShopService = require(script.Parent.Services.ShopService)
 local ClassService = require(script.Parent.Services.ClassService)
 local DifficultyService = require(script.Parent.Services.DifficultyService)
+
+if not PlaceRole.shouldRunMatchSystems() then
+	warn(("[GameBootstrap] Skipping match systems for place role '%s' (placeId=%s)."):format(
+		PlaceRole.getRole(),
+		tostring(game.PlaceId)
+	))
+	return
+end
 
 local function ensureFolder(parent, name)
 	local folder = parent:FindFirstChild(name)

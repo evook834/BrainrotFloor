@@ -5,6 +5,7 @@ local TeleportService = game:GetService("TeleportService")
 local Workspace = game:GetService("Workspace")
 
 local PLACEHOLDER_PLACE_ID = 1234567890
+local PlaceRole = require(script.Parent.PlaceRole)
 
 local function resolveConfigModule()
 	local localConfig = script.Parent:FindFirstChild("MatchmakingConfig")
@@ -33,8 +34,12 @@ local Config = requireConfig()
 local matchServers = MemoryStoreService:GetSortedMap(Config.MEMORYSTORE_MAP_NAME)
 local randomGenerator = Random.new()
 
-if game.PrivateServerId ~= "" and not Config.ALLOW_PRIVATE_SERVER_LOBBY then
-	warn("[LobbyMatchmaker] Private server detected. Skipping lobby matchmaking button wiring.")
+if not PlaceRole.shouldRunLobbySystems() then
+	warn(("[LobbyMatchmaker] Skipping lobby systems for place role '%s' (placeId=%s, privateServer=%s)."):format(
+		PlaceRole.getRole(),
+		tostring(game.PlaceId),
+		tostring(game.PrivateServerId ~= "")
+	))
 	return
 end
 
