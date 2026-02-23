@@ -43,7 +43,7 @@ Validation/build workflow:
     - `game/places/match/default.project.json` -> `artifacts/match-place.rbxlx`
   - Uploads `artifacts/` as `place-build-artifacts`
 
-Publish skeleton workflow:
+Publish workflow:
 - File: `.github/workflows/publish-opencloud.yml`
 - Trigger:
   - `workflow_dispatch` only (manual gate), with inputs:
@@ -55,9 +55,9 @@ Publish skeleton workflow:
   2. Run `publish-opencloud.yml` manually against that commit.
   3. Select the target environment (`staging` or `production`) so environment-scoped secrets are used.
   4. Choose whether to publish lobby, match, or both.
-- Current state:
+- Behavior:
   - The workflow builds fresh artifacts and validates required secrets.
-  - Final Open Cloud publish API call is intentionally left as a skeleton step for your credential/policy wiring.
+  - Publishes selected `.rbxlx` artifacts to Roblox using Open Cloud Place Publishing API.
 
 Required GitHub environment secrets (`staging` and/or `production`):
 - `ROBLOX_OPEN_CLOUD_API_KEY`

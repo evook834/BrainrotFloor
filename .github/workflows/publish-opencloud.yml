@@ -1,4 +1,4 @@
-name: Publish Places (Open Cloud Skeleton)
+name: Publish Places (Open Cloud)
 
 on:
   workflow_dispatch:
@@ -78,30 +78,52 @@ jobs:
             fi
           done
 
-      - name: Publish lobby place (skeleton)
+      - name: Publish lobby place
         if: ${{ inputs.publish_lobby }}
         env:
+          ROBLOX_OPEN_CLOUD_API_KEY: ${{ secrets.ROBLOX_OPEN_CLOUD_API_KEY }}
           ROBLOX_UNIVERSE_ID: ${{ secrets.ROBLOX_UNIVERSE_ID }}
           ROBLOX_LOBBY_PLACE_ID: ${{ secrets.ROBLOX_LOBBY_PLACE_ID }}
         run: |
           set -euo pipefail
           test -f artifacts/lobby-place.rbxlx
-          echo "Open Cloud publish skeleton:"
-          echo "  Universe: ${ROBLOX_UNIVERSE_ID}"
-          echo "  Place: ${ROBLOX_LOBBY_PLACE_ID}"
-          echo "  Artifact: artifacts/lobby-place.rbxlx"
-          echo "Replace this step with your final Open Cloud publish call."
+          response="$(
+            curl --silent --show-error --fail-with-body --location \
+              --request POST \
+              "https://apis.roblox.com/universes/v1/${ROBLOX_UNIVERSE_ID}/places/${ROBLOX_LOBBY_PLACE_ID}/versions?versionType=Published" \
+              --header "x-api-key: ${ROBLOX_OPEN_CLOUD_API_KEY}" \
+              --header "Content-Type: application/xml" \
+              --data-binary "@artifacts/lobby-place.rbxlx"
+          )"
+          version_number="$(printf '%s' "$response" | sed -nE 's/.*"versionNumber"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p')"
+          if [ -z "$version_number" ]; then
+            echo "Publish succeeded but versionNumber was not found in response:"
+            echo "$response"
+            exit 1
+          fi
+          echo "Published lobby place ${ROBLOX_LOBBY_PLACE_ID} to version ${version_number}."
 
-      - name: Publish match place (skeleton)
+      - name: Publish match place
         if: ${{ inputs.publish_match }}
         env:
+          ROBLOX_OPEN_CLOUD_API_KEY: ${{ secrets.ROBLOX_OPEN_CLOUD_API_KEY }}
           ROBLOX_UNIVERSE_ID: ${{ secrets.ROBLOX_UNIVERSE_ID }}
           ROBLOX_MATCH_PLACE_ID: ${{ secrets.ROBLOX_MATCH_PLACE_ID }}
         run: |
           set -euo pipefail
           test -f artifacts/match-place.rbxlx
-          echo "Open Cloud publish skeleton:"
-          echo "  Universe: ${ROBLOX_UNIVERSE_ID}"
-          echo "  Place: ${ROBLOX_MATCH_PLACE_ID}"
-          echo "  Artifact: artifacts/match-place.rbxlx"
-          echo "Replace this step with your final Open Cloud publish call."
+          response="$(
+            curl --silent --show-error --fail-with-body --location \
+              --request POST \
+              "https://apis.roblox.com/universes/v1/${ROBLOX_UNIVERSE_ID}/places/${ROBLOX_MATCH_PLACE_ID}/versions?versionType=Published" \
+              --header "x-api-key: ${ROBLOX_OPEN_CLOUD_API_KEY}" \
+              --header "Content-Type: application/xml" \
+              --data-binary "@artifacts/match-place.rbxlx"
+          )"
+          version_number="$(printf '%s' "$response" | sed -nE 's/.*"versionNumber"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p')"
+          if [ -z "$version_number" ]; then
+            echo "Publish succeeded but versionNumber was not found in response:"
+            echo "$response"
+            exit 1
+          fi
+          echo "Published match place ${ROBLOX_MATCH_PLACE_ID} to version ${version_number}."
