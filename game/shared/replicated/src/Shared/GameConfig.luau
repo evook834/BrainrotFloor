@@ -1,10 +1,10 @@
-local ClassSystemConfig = require(script.Parent:WaitForChild("ClassSystemConfig"))
-local AmmoPickupConfig = require(script.Parent:WaitForChild("AmmoPickupConfig"))
-local EnemyConfig = require(script.Parent:WaitForChild("EnemyConfig"))
-local PlayerConfig = require(script.Parent:WaitForChild("PlayerConfig"))
-local RemoteNames = require(script.Parent:WaitForChild("RemoteNames"))
-local ShopConfig = require(script.Parent:WaitForChild("ShopConfig"))
-local WaveConfig = require(script.Parent:WaitForChild("WaveConfig"))
+local ClassSystemConfig = require(script.Parent:WaitForChild("Classes"):WaitForChild("ClassSystemConfig"))
+local AmmoPickupConfig = require(script.Parent:WaitForChild("Pickups"):WaitForChild("AmmoPickupConfig"))
+local EnemyConfig = require(script.Parent:WaitForChild("Enemy"):WaitForChild("EnemyConfig"))
+local PlayerConfig = require(script.Parent:WaitForChild("Player"):WaitForChild("PlayerConfig"))
+local RemoteNames = require(script.Parent:WaitForChild("Remotes"):WaitForChild("RemoteNames"))
+local ShopConfig = require(script.Parent:WaitForChild("Shop"):WaitForChild("ShopConfig"))
+local WaveConfig = require(script.Parent:WaitForChild("Waves"):WaitForChild("WaveConfig"))
 
 local Config = {
 	Wave = WaveConfig,
