@@ -5,13 +5,16 @@ local Config = {}
 Config.FORCE_PLACE_ROLE = nil
 
 -- Public lobby place where players choose difficulty before teleport.
-Config.LOBBY_PLACE_ID = 110355050239948
+Config.LOBBY_PLACE_ID = 105950482922657
 
 -- Shared map place IDs used by all difficulties.
 -- If no suitable server is already running for a chosen difficulty,
 -- the lobby creates a reserved server on a random place from this list.
 Config.MATCH_PLACE_IDS = {
-	117308283626623
+	124937386174828,
+	93216049725715,
+	85990388071078,
+	117569264354652
 }
 
 -- Legacy single-place fallback (kept for compatibility).
