@@ -1,7 +1,7 @@
 local ClassCatalog = require(script.Parent:WaitForChild("ClassCatalog"))
 local EnemyProfiles = require(script.Parent:WaitForChild("EnemyProfiles"))
 local RemoteNames = require(script.Parent:WaitForChild("RemoteNames"))
-local WeaponCatalog = require(script.Parent:WaitForChild("WeaponCatalog"))
+local ShopConfig = require(script.Parent:WaitForChild("ShopConfig"))
 
 local Config = {
 	Wave = {
@@ -91,23 +91,7 @@ local Config = {
 		},
 		Classes = ClassCatalog,
 	},
-	Shop = {
-		PurchaseAllowedStates = {
-			Preparing = true,
-			Cleared = true,
-			Blocked = true,
-		},
-		Trader = {
-			ModelName = "WeaponTrader",
-			PartName = "TraderRoot",
-			Position = Vector3.new(0, 4, -25),
-			ActionText = "Open Store",
-			ObjectText = "Weapon Trader",
-			MaxActivationDistance = 12,
-			HoldDuration = 0.15,
-		},
-		Weapons = WeaponCatalog,
-	},
+	Shop = ShopConfig,
 }
 
 return Config
