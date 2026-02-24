@@ -80,6 +80,22 @@ local ClassCatalog = {
 			BurnDamageFractionPerSecond = 0.1,
 		},
 	},
+	{
+		Id = "sentrytech",
+		DisplayName = "Sentry Tech",
+		Description = "Deploys and repairs sentries. Debuff: takes double damage from all enemies.",
+		WeaponTag = "SentryTech",
+		Progression = {
+			BaseXpToLevel = 94,
+			XpGrowthPerLevel = 0.035,
+		},
+		Bonuses = {
+			MoveSpeedPerLevel = 0.0035,
+			RepairSpeedPerLevel = 0.002,
+			TurretDamagePerLevel = 0.044,
+			IncomingDamageMultiplier = 2,
+		},
+	},
 }
 
 return ClassCatalog

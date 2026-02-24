@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local ClassService = require(script.Parent.ClassService)
@@ -24,6 +25,7 @@ local defaultProfile = {
 	ChaseAnimationId = "",
 	AttackAnimationId = "",
 }
+local SENTRY_TURRET_FOLDER_NAME = "SentryTurrets"
 
 local function normalizeAnimationId(rawId)
 	if type(rawId) ~= "string" or rawId == "" then
@@ -115,6 +117,7 @@ local function getNearestTarget(originPosition, acquireRange)
 	local nearestHumanoid = nil
 	local nearestRootPart = nil
 	local nearestDistance = acquireRange
+	local nearestPlayer = nil
 
 	for _, player in Players:GetPlayers() do
 		local character = player.Character
@@ -127,12 +130,32 @@ local function getNearestTarget(originPosition, acquireRange)
 					nearestDistance = distance
 					nearestHumanoid = humanoid
 					nearestRootPart = rootPart
+					nearestPlayer = player
 				end
 			end
 		end
 	end
 
-	return nearestHumanoid, nearestRootPart, nearestDistance
+	local sentryFolder = Workspace:FindFirstChild(SENTRY_TURRET_FOLDER_NAME)
+	if sentryFolder then
+		for _, child in ipairs(sentryFolder:GetChildren()) do
+			if child:IsA("Model") and child:GetAttribute("IsSentryTurret") == true then
+				local humanoid = child:FindFirstChildOfClass("Humanoid")
+				local rootPart = ModelRootResolver.resolveRootPart(child)
+				if humanoid and rootPart and humanoid.Health > 0 then
+					local distance = (rootPart.Position - originPosition).Magnitude
+					if distance <= nearestDistance then
+						nearestDistance = distance
+						nearestHumanoid = humanoid
+						nearestRootPart = rootPart
+						nearestPlayer = nil
+					end
+				end
+			end
+		end
+	end
+
+	return nearestHumanoid, nearestRootPart, nearestDistance, nearestPlayer
 end
 
 local function getFacingOffsetCFrame(profile)
@@ -329,7 +352,7 @@ function EnemyAIService.start(enemyModel, templateName)
 				break
 			end
 
-			local targetHumanoid, targetRootPart, distance = getNearestTarget(rootPart.Position, profile.AcquireRange)
+			local targetHumanoid, targetRootPart, distance, targetPlayer = getNearestTarget(rootPart.Position, profile.AcquireRange)
 			if targetHumanoid and targetRootPart then
 				if distance <= profile.AttackRange then
 					stopTrack(chaseTrack)
@@ -359,14 +382,13 @@ function EnemyAIService.start(enemyModel, templateName)
 							end
 
 							local liveRootPart = ModelRootResolver.resolveRootPart(enemyModel)
-							local liveTargetRoot = targetHumanoid.Parent:FindFirstChild("HumanoidRootPart")
+							local liveTargetRoot = ModelRootResolver.resolveRootPart(targetHumanoid.Parent)
 							if not liveRootPart or not liveTargetRoot then
 								return
 							end
 
 							local attackDistance = (liveTargetRoot.Position - liveRootPart.Position).Magnitude
 							if attackDistance <= profile.AttackRange + 1.5 and targetHumanoid.Health > 0 then
-								local targetPlayer = Players:GetPlayerFromCharacter(targetHumanoid.Parent)
 								local damageMultiplier = targetPlayer and ClassService.getIncomingDamageMultiplier(targetPlayer) or 1
 								local baseDamage = (tonumber(profile.AttackDamage) or 0) * enemyDamageMultiplier
 								local finalDamage = math.max(0, baseDamage * damageMultiplier)

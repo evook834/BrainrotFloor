@@ -24,6 +24,10 @@ local bonusPctKeyAliases = {
 	CritChance = "criticalHitChancePct",
 	SuperCriticalHitChance = "superCriticalHitChancePct",
 	SuperCritChance = "superCriticalHitChancePct",
+	RepairSpeed = "repairSpeedPct",
+	TurretRepairSpeed = "repairSpeedPct",
+	TurretDamage = "turretDamagePct",
+	SentryDamage = "turretDamagePct",
 }
 
 local function resolveBonusPctKeyFromPerLevel(rawBonusKey)
@@ -57,6 +61,8 @@ local function summarizeBonuses(bonuses)
 	local reloadTimeMultiplier = resolvedBonuses.reloadTimeMultiplier or 1
 	local bulletRangeMultiplier = resolvedBonuses.bulletRangeMultiplier or 1
 	local bulletSpreadMultiplier = resolvedBonuses.bulletSpreadMultiplier or 1
+	local repairSpeedMultiplier = resolvedBonuses.repairSpeedMultiplier or 1
+	local turretDamageMultiplier = resolvedBonuses.turretDamageMultiplier or 1
 	local burnChance = math.clamp(tonumber(resolvedBonuses.burnChance) or 0, 0, 1)
 	local criticalHitChance = math.clamp(tonumber(resolvedBonuses.criticalHitChance) or 0, 0, 1)
 	local superCriticalHitChance = math.clamp(tonumber(resolvedBonuses.superCriticalHitChance) or 0, 0, 1)
@@ -74,6 +80,8 @@ local function summarizeBonuses(bonuses)
 		reloadTimeMultiplier = reloadTimeMultiplier,
 		bulletRangeMultiplier = bulletRangeMultiplier,
 		bulletSpreadMultiplier = bulletSpreadMultiplier,
+		repairSpeedMultiplier = repairSpeedMultiplier,
+		turretDamageMultiplier = turretDamageMultiplier,
 		damagePct = (damageMultiplier - 1) * 100,
 		maxHealthPct = (maxHealthMultiplier - 1) * 100,
 		moveSpeedPct = (moveSpeedMultiplier - 1) * 100,
@@ -84,6 +92,8 @@ local function summarizeBonuses(bonuses)
 		reloadSpeedPct = (reloadSpeedMultiplier - 1) * 100,
 		bulletRangePct = (bulletRangeMultiplier - 1) * 100,
 		bulletSpreadReductionPct = (1 - bulletSpreadMultiplier) * 100,
+		repairSpeedPct = (repairSpeedMultiplier - 1) * 100,
+		turretDamagePct = (turretDamageMultiplier - 1) * 100,
 		burnChancePct = burnChance * 100,
 		criticalHitChancePct = criticalHitChance * 100,
 		superCriticalHitChancePct = superCriticalHitChance * 100,
@@ -210,7 +220,14 @@ function ClassProgression.getBonusesAtLevel(classDef, level)
 		0,
 		0.85
 	)
-	local incomingDamageMultiplier = 1 - totalDamageReduction
+	local baseIncomingDamageMultiplier = math.max(
+		0.05,
+		tonumber(bonuses.IncomingDamageMultiplier)
+			or tonumber(bonuses.DamageTakenMultiplier)
+			or tonumber(bonuses.IncomingDamageBaseMultiplier)
+			or 1
+	)
+	local incomingDamageMultiplier = baseIncomingDamageMultiplier * (1 - totalDamageReduction)
 	local shopDiscount = math.clamp(
 		math.max(0, tonumber(bonuses.ShopDiscountPerLevel) or tonumber(bonuses.ShopCostReductionPerLevel) or 0) * bonusLevels,
 		0,
@@ -245,6 +262,24 @@ function ClassProgression.getBonusesAtLevel(classDef, level)
 		0.8
 	)
 	local bulletSpreadMultiplier = 1 - spreadReduction
+	local repairSpeedMultiplier = 1
+		+ (
+			math.max(
+				0,
+				tonumber(bonuses.RepairSpeedPerLevel)
+					or tonumber(bonuses.TurretRepairSpeedPerLevel)
+					or 0
+			) * bonusLevels
+		)
+	local turretDamageMultiplier = 1
+		+ (
+			math.max(
+				0,
+				tonumber(bonuses.TurretDamagePerLevel)
+					or tonumber(bonuses.SentryDamagePerLevel)
+					or 0
+			) * bonusLevels
+		)
 	local baseBurnChance = math.clamp(math.max(0, tonumber(bonuses.BurnChance) or 0), 0, 1)
 	local burnChancePerLevel = math.max(0, tonumber(bonuses.BurnChancePerLevel) or 0)
 	local burnChance = math.clamp(baseBurnChance + (burnChancePerLevel * bonusLevels), 0, 1)
@@ -288,6 +323,8 @@ function ClassProgression.getBonusesAtLevel(classDef, level)
 		reloadTimeMultiplier = math.max(0.1, reloadTimeMultiplier),
 		bulletRangeMultiplier = math.max(0.1, bulletRangeMultiplier),
 		bulletSpreadMultiplier = math.max(0.2, bulletSpreadMultiplier),
+		repairSpeedMultiplier = math.max(0.1, repairSpeedMultiplier),
+		turretDamageMultiplier = math.max(0, turretDamageMultiplier),
 		burnChance = burnChance,
 		criticalHitChance = criticalHitChance,
 		superCriticalHitChance = superCriticalHitChance,

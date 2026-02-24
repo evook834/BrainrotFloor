@@ -515,6 +515,14 @@ function ClassService.getIncomingDamageMultiplier(player)
 	return classCombatRules.getIncomingDamageMultiplier(player)
 end
 
+function ClassService.getRepairSpeedMultiplier(player)
+	return classCombatRules.getRepairSpeedMultiplier(player)
+end
+
+function ClassService.getTurretDamageMultiplier(player)
+	return classCombatRules.getTurretDamageMultiplier(player)
+end
+
 function ClassService.getMeleeRangeMultiplier(player, weaponDef)
 	return classCombatRules.getMeleeRangeMultiplier(player, weaponDef)
 end

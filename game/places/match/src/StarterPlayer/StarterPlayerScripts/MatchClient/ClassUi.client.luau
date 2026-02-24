@@ -289,6 +289,8 @@ local bonusKeyOrder = {
 	{ key = "shopDiscountPct", label = "Shop Discount" },
 	{ key = "magazineSizePct", label = "Magazine Size" },
 	{ key = "reloadSpeedPct", label = "Reload Speed" },
+	{ key = "repairSpeedPct", label = "Repair Speed" },
+	{ key = "turretDamagePct", label = "Turret Damage" },
 	{ key = "bulletRangePct", label = "Weapon Range" },
 	{ key = "bulletSpreadReductionPct", label = "Spread Reduction" },
 	{ key = "burnChancePct", label = "Burn Chance" },

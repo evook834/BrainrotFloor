@@ -34,7 +34,15 @@ local randomGenerator = Random.new()
 local FIRE_CONE_HALF_ANGLE_DEGREES = 40
 local FIRE_CONE_MIN_DOT = math.cos(math.rad(FIRE_CONE_HALF_ANGLE_DEGREES))
 local BURN_DOT_FALLBACK_TICK_INTERVAL_SECONDS = 0.5
+local SENTRY_TURRET_FOLDER_NAME = "SentryTurrets"
+local MAX_SENTRY_COUNT_PER_PLAYER = 3
+local SENTRY_REPAIR_INTERRUPT_SECONDS = 0.45
 local applyDamageToEnemy
+local sentryTurretFolder = nil
+local sentryTurretsByPlayer = {}
+local sentryRecordByModel = setmetatable({}, { __mode = "k" })
+local sentryCharacterConnectionByPlayer = {}
+local sentryCharacterDeathConnectionByPlayer = {}
 
 local function ensureRemote(parent, className, name)
 	local instance = parent:FindFirstChild(name)
@@ -74,6 +82,26 @@ end
 
 local function getEnemyContainer()
 	return Workspace:FindFirstChild(Config.Enemy.ContainerName)
+end
+
+local function getSentryTurretFolder()
+	if sentryTurretFolder and sentryTurretFolder.Parent == Workspace then
+		return sentryTurretFolder
+	end
+
+	sentryTurretFolder = Workspace:FindFirstChild(SENTRY_TURRET_FOLDER_NAME)
+	if sentryTurretFolder and sentryTurretFolder:IsA("Folder") then
+		return sentryTurretFolder
+	end
+
+	if sentryTurretFolder then
+		sentryTurretFolder:Destroy()
+	end
+
+	sentryTurretFolder = Instance.new("Folder")
+	sentryTurretFolder.Name = SENTRY_TURRET_FOLDER_NAME
+	sentryTurretFolder.Parent = Workspace
+	return sentryTurretFolder
 end
 
 local function findEnemyModelFromDescendant(descendant, enemyContainer)
@@ -2461,6 +2489,797 @@ local function createToolFromTemplate(weaponDef)
 	return nil
 end
 
+local function disconnectConnections(connections)
+	if type(connections) ~= "table" then
+		return
+	end
+
+	for _, connection in ipairs(connections) do
+		connection:Disconnect()
+	end
+	table.clear(connections)
+end
+
+local function removeSentryRecord(model)
+	local record = sentryRecordByModel[model]
+	if not record then
+		return
+	end
+
+	sentryRecordByModel[model] = nil
+	disconnectConnections(record.connections)
+
+	local owner = record.owner
+	local records = owner and sentryTurretsByPlayer[owner]
+	if records then
+		for index = #records, 1, -1 do
+			if records[index] == model then
+				table.remove(records, index)
+			end
+		end
+		if #records == 0 then
+			sentryTurretsByPlayer[owner] = nil
+		end
+	end
+end
+
+local function playSentryDestroyedEffect(model)
+	if not (model and model:IsA("Model")) then
+		return
+	end
+
+	local root = ModelRootResolver.resolveRootPart(model)
+	local position = root and root.Position or model:GetPivot().Position
+
+	createExplosionEffect(position, 4.25)
+	createMuzzleFlash(position, Color3.fromRGB(255, 205, 120), 2.6, 0.14)
+	createMuzzleFlash(position, Color3.fromRGB(255, 130, 85), 1.9, 0.18)
+
+	for _ = 1, 8 do
+		local direction = Vector3.new(
+			randomGenerator:NextNumber(-1, 1),
+			randomGenerator:NextNumber(0.15, 1),
+			randomGenerator:NextNumber(-1, 1)
+		)
+		if direction.Magnitude > 0.01 then
+			direction = direction.Unit
+			local reach = randomGenerator:NextNumber(2.5, 6)
+			local endPosition = position + direction * reach
+			createTracerSegment(position, endPosition, Color3.fromRGB(255, 170, 90), 0.16, 0.08)
+			createFlamePuff(endPosition, randomGenerator:NextNumber(0.3, 0.65), randomGenerator:NextNumber(0.08, 0.16))
+		end
+	end
+
+	task.delay(0.06, function()
+		createExplosionEffect(position, 3.2)
+		createMuzzleFlash(position, Color3.fromRGB(255, 175, 95), 1.7, 0.1)
+	end)
+
+	task.delay(0.13, function()
+		createExplosionEffect(position, 2.25)
+	end)
+end
+
+local function clearPlayerSentries(player, options)
+	local playDestroyEffect = type(options) == "table" and options.playDestroyEffect == true
+	local records = sentryTurretsByPlayer[player]
+	if not records then
+		return
+	end
+
+	local copy = table.clone(records)
+	sentryTurretsByPlayer[player] = nil
+	for _, model in ipairs(copy) do
+		if playDestroyEffect and model and model.Parent then
+			playSentryDestroyedEffect(model)
+		end
+		removeSentryRecord(model)
+		if model and model.Parent then
+			model:Destroy()
+		end
+	end
+end
+
+local function disconnectPlayerSentryDeathBindings(player)
+	local characterConnection = sentryCharacterConnectionByPlayer[player]
+	if characterConnection then
+		characterConnection:Disconnect()
+		sentryCharacterConnectionByPlayer[player] = nil
+	end
+
+	local deathConnection = sentryCharacterDeathConnectionByPlayer[player]
+	if deathConnection then
+		deathConnection:Disconnect()
+		sentryCharacterDeathConnectionByPlayer[player] = nil
+	end
+end
+
+local function bindPlayerSentryDeathCleanup(player)
+	disconnectPlayerSentryDeathBindings(player)
+
+	local function bindCharacter(character)
+		local existingDeathConnection = sentryCharacterDeathConnectionByPlayer[player]
+		if existingDeathConnection then
+			existingDeathConnection:Disconnect()
+			sentryCharacterDeathConnectionByPlayer[player] = nil
+		end
+
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		if not humanoid and character then
+			local awaited = character:WaitForChild("Humanoid", 5)
+			if awaited and awaited:IsA("Humanoid") then
+				humanoid = awaited
+			end
+		end
+		if not humanoid then
+			return
+		end
+
+		sentryCharacterDeathConnectionByPlayer[player] = humanoid.Died:Connect(function()
+			clearPlayerSentries(player, {
+				playDestroyEffect = true,
+			})
+		end)
+	end
+
+	sentryCharacterConnectionByPlayer[player] = player.CharacterAdded:Connect(function(character)
+		task.defer(function()
+			bindCharacter(character)
+		end)
+	end)
+
+	if player.Character then
+		task.defer(function()
+			bindCharacter(player.Character)
+		end)
+	end
+end
+
+local function prunePlayerSentries(player)
+	local records = sentryTurretsByPlayer[player]
+	if not records then
+		return 0
+	end
+
+	for index = #records, 1, -1 do
+		local model = records[index]
+		local record = model and sentryRecordByModel[model]
+		if not model or not record then
+			table.remove(records, index)
+		elseif not model.Parent or not record.humanoid or record.humanoid.Health <= 0 then
+			removeSentryRecord(model)
+		end
+	end
+
+	if #records == 0 then
+		sentryTurretsByPlayer[player] = nil
+		return 0
+	end
+
+	return #records
+end
+
+local function countPlayerSentriesByKind(player, kindId)
+	local records = sentryTurretsByPlayer[player]
+	if not records or #records == 0 then
+		return 0
+	end
+
+	local normalizedKindId = tostring(kindId or "")
+	if normalizedKindId == "" then
+		return 0
+	end
+
+	local count = 0
+	for _, model in ipairs(records) do
+		local record = sentryRecordByModel[model]
+		if record and record.kindId == normalizedKindId and model and model.Parent and record.humanoid and record.humanoid.Health > 0 then
+			count += 1
+		end
+	end
+
+	return count
+end
+
+local function getTurretFillColor(healthRatio)
+	if healthRatio <= 0.2 then
+		return Color3.fromRGB(220, 65, 60)
+	end
+	if healthRatio <= 0.5 then
+		return Color3.fromRGB(230, 165, 60)
+	end
+	return Color3.fromRGB(70, 220, 105)
+end
+
+local function attachTurretHealthBar(model, rootPart)
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "TurretHealthBar"
+	billboard.Adornee = rootPart
+	billboard.AlwaysOnTop = true
+	billboard.LightInfluence = 0
+	billboard.MaxDistance = 220
+	billboard.Size = UDim2.fromOffset(88, 8)
+	billboard.StudsOffsetWorldSpace = Vector3.new(0, 3.5, 0)
+	billboard.Parent = model
+
+	local background = Instance.new("Frame")
+	background.Name = "Background"
+	background.Size = UDim2.fromScale(1, 1)
+	background.BackgroundColor3 = Color3.fromRGB(28, 32, 36)
+	background.BackgroundTransparency = 0.2
+	background.BorderSizePixel = 0
+	background.Parent = billboard
+
+	local backgroundCorner = Instance.new("UICorner")
+	backgroundCorner.CornerRadius = UDim.new(0, 6)
+	backgroundCorner.Parent = background
+
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.Size = UDim2.fromScale(1, 1)
+	fill.BackgroundColor3 = Color3.fromRGB(70, 220, 105)
+	fill.BorderSizePixel = 0
+	fill.Parent = background
+
+	local fillCorner = Instance.new("UICorner")
+	fillCorner.CornerRadius = UDim.new(0, 6)
+	fillCorner.Parent = fill
+
+	return fill
+end
+
+local function isEnemyModelAlive(enemyModel)
+	if not enemyModel or not enemyModel.Parent then
+		return false
+	end
+
+	local humanoid = enemyModel:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		return humanoid.Health > 0
+	end
+
+	local health = enemyModel:GetAttribute("EnemyHealth")
+	if type(health) ~= "number" then
+		return true
+	end
+
+	return health > 0
+end
+
+local function getEnemyModelHealth(enemyModel)
+	if not enemyModel or not enemyModel.Parent then
+		return nil, nil
+	end
+
+	local humanoid = enemyModel:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		local currentHealth = tonumber(humanoid.Health)
+		local maxHealth = tonumber(humanoid.MaxHealth)
+		if type(maxHealth) ~= "number" or maxHealth <= 0 then
+			maxHealth = 1
+		end
+		return currentHealth, maxHealth
+	end
+
+	local currentHealth = enemyModel:GetAttribute("EnemyHealth")
+	if type(currentHealth) ~= "number" then
+		return nil, nil
+	end
+
+	local maxHealth = enemyModel:GetAttribute("EnemyMaxHealth")
+	if type(maxHealth) ~= "number" or maxHealth <= 0 then
+		maxHealth = math.max(1, currentHealth)
+	end
+
+	return currentHealth, maxHealth
+end
+
+local function pickTurretTargetCandidate(bestCandidate, candidate, preferredModel)
+	if not bestCandidate then
+		return candidate
+	end
+
+	if candidate.health < bestCandidate.health then
+		return candidate
+	end
+	if candidate.health > bestCandidate.health then
+		return bestCandidate
+	end
+
+	if candidate.distance < bestCandidate.distance then
+		return candidate
+	end
+	if candidate.distance > bestCandidate.distance then
+		return bestCandidate
+	end
+
+	if preferredModel then
+		if candidate.model == preferredModel and bestCandidate.model ~= preferredModel then
+			return candidate
+		end
+		if bestCandidate.model == preferredModel and candidate.model ~= preferredModel then
+			return bestCandidate
+		end
+	end
+
+	return bestCandidate
+end
+
+local function findTurretTarget(record, muzzleOrigin)
+	local enemyContainer = getEnemyContainer()
+	if not enemyContainer then
+		record.currentTarget = nil
+		return nil, nil
+	end
+
+	local maxRange = math.max(100, tonumber(record.acquireRange) or 100000)
+	local preferredModel = record.currentTarget
+	local bestCandidate = nil
+
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+	raycastParams.FilterDescendantsInstances = { record.model, getEffectsFolder() }
+	raycastParams.IgnoreWater = true
+
+	local function buildCandidate(enemyModel)
+		if not enemyModel:IsA("Model") or not isEnemyModelAlive(enemyModel) then
+			return nil
+		end
+
+		local enemyRoot = ModelRootResolver.resolveRootPart(enemyModel)
+		if not enemyRoot then
+			return nil
+		end
+
+		local delta = enemyRoot.Position - muzzleOrigin
+		local distance = delta.Magnitude
+		if distance <= 0.01 or distance > maxRange then
+			return nil
+		end
+
+		local hitResult = Workspace:Raycast(muzzleOrigin, delta, raycastParams)
+		local isVisible = false
+		if not hitResult then
+			isVisible = true
+		else
+			isVisible = hitResult.Instance and hitResult.Instance:IsDescendantOf(enemyModel)
+		end
+		if not isVisible then
+			return nil
+		end
+
+		local currentHealth = getEnemyModelHealth(enemyModel)
+		local resolvedHealth = math.huge
+		if type(currentHealth) == "number" then
+			resolvedHealth = math.max(0, currentHealth)
+		end
+
+		return {
+			model = enemyModel,
+			root = enemyRoot,
+			distance = distance,
+			health = resolvedHealth,
+		}
+	end
+
+	-- Hard target lock: keep current target until dead or out of range.
+	if preferredModel and preferredModel.Parent then
+		local preferredRoot = ModelRootResolver.resolveRootPart(preferredModel)
+		if preferredRoot and isEnemyModelAlive(preferredModel) then
+			local preferredDelta = preferredRoot.Position - muzzleOrigin
+			local preferredDistance = preferredDelta.Magnitude
+			if preferredDistance > 0.01 and preferredDistance <= maxRange then
+				record.currentTarget = preferredModel
+				return preferredModel, preferredRoot
+			end
+		end
+	end
+
+	for _, enemyModel in ipairs(enemyContainer:GetChildren()) do
+		local candidate = buildCandidate(enemyModel)
+		if candidate then
+			bestCandidate = pickTurretTargetCandidate(bestCandidate, candidate, preferredModel)
+		end
+	end
+
+	if bestCandidate then
+		record.currentTarget = bestCandidate.model
+		return bestCandidate.model, bestCandidate.root
+	end
+
+	record.currentTarget = nil
+	return nil, nil
+end
+
+local function startTurretCombatLoop(record)
+	task.spawn(function()
+		while record.model.Parent and record.humanoid.Parent and record.humanoid.Health > 0 do
+			task.wait(math.max(0.05, tonumber(record.thinkInterval) or 0.08))
+
+			local rootPart = ModelRootResolver.resolveRootPart(record.model)
+			if not rootPart then
+				continue
+			end
+
+			local now = os.clock()
+			if now - (record.lastFireAt or -math.huge) < math.max(0.05, tonumber(record.fireCooldown) or 0.2) then
+				continue
+			end
+
+			local muzzleOrigin = rootPart.Position + Vector3.new(0, rootPart.Size.Y * 0.35, 0)
+			local enemyModel, enemyRoot = findTurretTarget(record, muzzleOrigin)
+			if not enemyModel or not enemyRoot then
+				continue
+			end
+
+			record.lastFireAt = now
+			local toEnemy = enemyRoot.Position - muzzleOrigin
+			local lookDirection = if toEnemy.Magnitude > 0.01 then toEnemy.Unit else rootPart.CFrame.LookVector
+			local turretDamageMultiplier = 1
+			if record.owner and record.owner:IsA("Player") then
+				turretDamageMultiplier = math.max(0, ClassService.getTurretDamageMultiplier(record.owner))
+			end
+			local turretShotDamage = math.max(0, record.damage * turretDamageMultiplier)
+			if turretShotDamage <= 0 then
+				continue
+			end
+			createMuzzleFlash(muzzleOrigin, Color3.fromRGB(120, 225, 255), 0.22, 0.05)
+			createTracerSegment(muzzleOrigin, enemyRoot.Position, Color3.fromRGB(120, 225, 255), 0.1, 0.05)
+			applyDamageToEnemy(record.owner, enemyModel, turretShotDamage, nil, {
+				applyClassMultiplier = false,
+				allowBurnOnHit = false,
+				allowCriticalHits = false,
+			})
+
+			local flatLook = Vector3.new(lookDirection.X, 0, lookDirection.Z)
+			if flatLook.Magnitude > 0.01 then
+				record.model:PivotTo(CFrame.lookAt(rootPart.Position, rootPart.Position + flatLook.Unit))
+			end
+		end
+
+		if record.model and record.model.Parent then
+			record.model:Destroy()
+		end
+		removeSentryRecord(record.model)
+	end)
+end
+
+local function buildSentryModelFromTemplate(weaponDef)
+	local template = findShopItemTemplate(weaponDef)
+	if not template then
+		return nil
+	end
+
+	if template:IsA("Model") then
+		return template:Clone()
+	end
+
+	if template:IsA("Tool") then
+		local clonedTool = template:Clone()
+		local model = Instance.new("Model")
+		model.Name = clonedTool.Name
+		for _, child in ipairs(clonedTool:GetChildren()) do
+			child.Parent = model
+		end
+		clonedTool:Destroy()
+		if not model:FindFirstChildWhichIsA("BasePart", true) then
+			model:Destroy()
+			return nil
+		end
+		return model
+	end
+
+	if template:IsA("BasePart") then
+		local model = Instance.new("Model")
+		model.Name = template.Name
+		local part = template:Clone()
+		part.Parent = model
+		return model
+	end
+
+	return nil
+end
+
+local function resolveSentryPlacementCFrame(player, character, rootPart, sentryModel, weaponDef, explicitShotOrigin, explicitShotDirection)
+	local fallbackOrigin = rootPart.Position + Vector3.new(0, 1.5, 0)
+	local fallbackDirection = rootPart.CFrame.LookVector
+	local rayDirection = nil
+
+	local aimState = getFreshAimState(player)
+	if aimState and typeof(aimState.hitPosition) == "Vector3" then
+		local toAimHit = aimState.hitPosition - fallbackOrigin
+		if toAimHit.Magnitude > 0.01 then
+			rayDirection = toAimHit.Unit
+		end
+	end
+
+	if typeof(rayDirection) ~= "Vector3" or rayDirection.Magnitude <= 0.001 then
+		local fallbackRayDirection = explicitShotDirection
+		if typeof(fallbackRayDirection) ~= "Vector3" or fallbackRayDirection.Magnitude <= 0.001 then
+			_, fallbackRayDirection = getPlayerShotRay(player, rootPart, fallbackOrigin, fallbackDirection)
+		end
+
+		rayDirection = if typeof(fallbackRayDirection) == "Vector3" then fallbackRayDirection.Unit else fallbackDirection
+	end
+
+	local maxDistance = math.max(15, tonumber(weaponDef.TurretPlacementDistance) or tonumber(weaponDef.Range) or 180)
+	local raycastExclusions = {}
+	local enemyContainer = getEnemyContainer()
+	if enemyContainer then
+		table.insert(raycastExclusions, enemyContainer)
+	end
+	local sentryFolder = getSentryTurretFolder()
+	if sentryFolder then
+		table.insert(raycastExclusions, sentryFolder)
+	end
+	local raycastParams = buildWeaponRaycastParams(character, raycastExclusions)
+	local hitResult = Workspace:Raycast(fallbackOrigin, rayDirection.Unit * maxDistance, raycastParams)
+	if not hitResult then
+		return nil
+	end
+
+	if hitResult.Normal.Y < 0.55 then
+		return nil
+	end
+
+	local ok, _, boundsSize = pcall(function()
+		return sentryModel:GetBoundingBox()
+	end)
+	if not ok or not boundsSize then
+		return nil
+	end
+
+	local lookDirection = Vector3.new(rayDirection.X, 0, rayDirection.Z)
+	if lookDirection.Magnitude <= 0.01 then
+		lookDirection = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
+	end
+	if lookDirection.Magnitude <= 0.01 then
+		lookDirection = Vector3.new(0, 0, -1)
+	end
+
+	local placementPosition = hitResult.Position + Vector3.new(0, (boundsSize.Y * 0.5) + 0.05, 0)
+	local placementCFrame = CFrame.lookAt(placementPosition, placementPosition + lookDirection.Unit)
+	local overlapParams = OverlapParams.new()
+	overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+	local overlapExclusions = { character, getEffectsFolder() }
+	if enemyContainer then
+		table.insert(overlapExclusions, enemyContainer)
+	end
+	overlapParams.FilterDescendantsInstances = overlapExclusions
+
+	local padding = Vector3.new(0.25, 0.25, 0.25)
+	local overlaps = Workspace:GetPartBoundsInBox(placementCFrame, boundsSize + padding, overlapParams)
+	for _, part in ipairs(overlaps) do
+		if part and part.Parent and part.CanCollide then
+			return nil
+		end
+	end
+
+	return placementCFrame
+end
+
+local function deploySentryTurret(player, character, rootPart, weaponDef, explicitShotOrigin, explicitShotDirection)
+	local activeCount = prunePlayerSentries(player)
+	if activeCount >= MAX_SENTRY_COUNT_PER_PLAYER then
+		return false
+	end
+	if countPlayerSentriesByKind(player, weaponDef.Id) >= 1 then
+		return false
+	end
+
+	local sentryModel = buildSentryModelFromTemplate(weaponDef)
+	if not sentryModel then
+		return false
+	end
+
+	local placementCFrame = resolveSentryPlacementCFrame(
+		player,
+		character,
+		rootPart,
+		sentryModel,
+		weaponDef,
+		explicitShotOrigin,
+		explicitShotDirection
+	)
+	if not placementCFrame then
+		sentryModel:Destroy()
+		return false
+	end
+
+	local root = ModelRootResolver.resolveRootPart(sentryModel)
+	if not root then
+		sentryModel:Destroy()
+		return false
+	end
+
+	local turretMaxHealth = math.max(50, tonumber(weaponDef.TurretMaxHealth) or 420)
+	local turretDamage = math.max(1, tonumber(weaponDef.TurretDamage) or 26)
+	local turretFireCooldown = math.max(0.05, tonumber(weaponDef.TurretFireCooldown) or 0.2)
+	local turretAcquireRange = math.max(100, tonumber(weaponDef.TurretAcquireRange) or 100000)
+	local turretThinkInterval = math.max(0.05, tonumber(weaponDef.TurretThinkInterval) or 0.08)
+
+	for _, descendant in ipairs(sentryModel:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+			descendant.CanCollide = false
+			descendant.CanTouch = true
+			descendant.CanQuery = true
+		end
+	end
+
+	local humanoid = sentryModel:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		humanoid = Instance.new("Humanoid")
+		humanoid.Parent = sentryModel
+	end
+	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	humanoid.NameDisplayDistance = 0
+	humanoid.HealthDisplayDistance = 0
+	humanoid.AutoRotate = false
+	humanoid.WalkSpeed = 0
+	humanoid.JumpPower = 0
+	humanoid.BreakJointsOnDeath = false
+	humanoid.MaxHealth = turretMaxHealth
+	humanoid.Health = turretMaxHealth
+
+	sentryModel.Name = string.format("Sentry_%d_%d", player.UserId, math.floor(os.clock() * 1000))
+	sentryModel:SetAttribute("IsSentryTurret", true)
+	sentryModel:SetAttribute("SentryOwnerUserId", player.UserId)
+	sentryModel:SetAttribute("SentryOwnerName", player.Name)
+	sentryModel:SetAttribute("TurretMaxHealth", turretMaxHealth)
+	sentryModel:SetAttribute("TurretHealth", turretMaxHealth)
+	sentryModel:SetAttribute("TurretLastDamagedAt", -1)
+
+	local turretFolder = getSentryTurretFolder()
+	sentryModel.Parent = turretFolder
+	sentryModel:PivotTo(placementCFrame)
+
+	local healthFill = attachTurretHealthBar(sentryModel, root)
+	local record = {
+		owner = player,
+		kindId = tostring(weaponDef.Id or ""),
+		model = sentryModel,
+		humanoid = humanoid,
+		damage = turretDamage,
+		fireCooldown = turretFireCooldown,
+		acquireRange = turretAcquireRange,
+		thinkInterval = turretThinkInterval,
+		lastFireAt = -math.huge,
+		lastDamagedAt = -1,
+		currentTarget = nil,
+		healthFill = healthFill,
+		connections = {},
+	}
+	sentryRecordByModel[sentryModel] = record
+
+	local records = sentryTurretsByPlayer[player]
+	if not records then
+		records = {}
+		sentryTurretsByPlayer[player] = records
+	end
+	table.insert(records, sentryModel)
+
+	local function refreshHealthVisuals(newHealth, previousHealth)
+		local resolvedHealth = math.clamp(tonumber(newHealth) or 0, 0, turretMaxHealth)
+		if previousHealth ~= nil and resolvedHealth < previousHealth then
+			record.lastDamagedAt = os.clock()
+			sentryModel:SetAttribute("TurretLastDamagedAt", record.lastDamagedAt)
+		end
+
+		sentryModel:SetAttribute("TurretHealth", resolvedHealth)
+		if record.healthFill then
+			local healthRatio = math.clamp(resolvedHealth / turretMaxHealth, 0, 1)
+			record.healthFill.Size = UDim2.fromScale(healthRatio, 1)
+			record.healthFill.BackgroundColor3 = getTurretFillColor(healthRatio)
+		end
+	end
+
+	local previousHealth = humanoid.Health
+	table.insert(record.connections, humanoid.HealthChanged:Connect(function(newHealth)
+		refreshHealthVisuals(newHealth, previousHealth)
+		previousHealth = math.clamp(tonumber(newHealth) or 0, 0, turretMaxHealth)
+	end))
+
+	table.insert(record.connections, humanoid.Died:Connect(function()
+		if sentryModel and sentryModel.Parent then
+			sentryModel:Destroy()
+		end
+	end))
+
+	table.insert(record.connections, sentryModel.AncestryChanged:Connect(function(_, parent)
+		if not parent then
+			removeSentryRecord(sentryModel)
+		end
+	end))
+
+	refreshHealthVisuals(humanoid.Health)
+	startTurretCombatLoop(record)
+	return true
+end
+
+local function repairOwnedSentries(player, weaponDef)
+	local records = sentryTurretsByPlayer[player]
+	if not records or #records == 0 then
+		return
+	end
+
+	prunePlayerSentries(player)
+	records = sentryTurretsByPlayer[player]
+	if not records or #records == 0 then
+		return
+	end
+
+	local repairPerSecond = math.max(0, tonumber(weaponDef.RepairPerSecond) or 24)
+	if repairPerSecond <= 0 then
+		return
+	end
+
+	local character = player.Character
+	local playerRootPart = character and character:FindFirstChild("HumanoidRootPart")
+	if not playerRootPart then
+		return
+	end
+
+	local repairDistance = math.max(2, tonumber(weaponDef.RepairDistance) or 12)
+	local repairDistanceSquared = repairDistance * repairDistance
+	local repairSpeedMultiplier = math.max(0.1, ClassService.getRepairSpeedMultiplier(player))
+	local tickSeconds = math.max(0.05, tonumber(weaponDef.Cooldown) or 0.2)
+	local repairAmount = repairPerSecond * repairSpeedMultiplier * tickSeconds
+	if repairAmount <= 0 then
+		return
+	end
+
+	local now = os.clock()
+	for _, model in ipairs(records) do
+		local record = sentryRecordByModel[model]
+		local humanoid = record and record.humanoid
+		if record and humanoid and humanoid.Parent and humanoid.Health > 0 then
+			local turretRoot = ModelRootResolver.resolveRootPart(model)
+			if not turretRoot then
+				continue
+			end
+
+			local delta = turretRoot.Position - playerRootPart.Position
+			if delta:Dot(delta) > repairDistanceSquared then
+				continue
+			end
+
+			if now - (record.lastDamagedAt or -math.huge) > SENTRY_REPAIR_INTERRUPT_SECONDS then
+				local maxHealth = math.max(1, humanoid.MaxHealth)
+				if humanoid.Health < maxHealth then
+					humanoid.Health = math.clamp(humanoid.Health + repairAmount, 0, maxHealth)
+				end
+			end
+		end
+	end
+end
+
+local function consumeOwnedWeaponInstances(player, weaponId)
+	if type(weaponId) ~= "string" or weaponId == "" then
+		return false
+	end
+
+	local consumedAny = false
+	local containers = {
+		player.Character,
+		player:FindFirstChildOfClass("Backpack"),
+		player:FindFirstChild("StarterGear"),
+	}
+
+	for _, container in ipairs(containers) do
+		if container then
+			for _, child in ipairs(container:GetChildren()) do
+				if child:IsA("Tool") and child:GetAttribute("WeaponId") == weaponId then
+					consumedAny = true
+					child:Destroy()
+				end
+			end
+		end
+	end
+
+	return consumedAny
+end
+
 local function configureWeaponTool(tool, weaponDef, owner)
 	local weaponClass = resolveWeaponClass(weaponDef)
 	local dualWieldEnabled = isDualWieldWeapon(weaponDef)
@@ -2476,6 +3295,7 @@ local function configureWeaponTool(tool, weaponDef, owner)
 	tool:SetAttribute("Damage", weaponDef.Damage)
 	tool:SetAttribute("Range", weaponDef.Range)
 	tool:SetAttribute("Cooldown", weaponDef.Cooldown)
+	tool:SetAttribute("TurretPlacementDistance", weaponDef.TurretPlacementDistance)
 	tool:SetAttribute("MagazineSize", getMagazineSize(weaponDef, owner))
 	tool:SetAttribute("ReloadSeconds", getReloadSeconds(weaponDef, owner))
 
@@ -2525,8 +3345,8 @@ local function configureWeaponTool(tool, weaponDef, owner)
 			return
 		end
 
-		-- Global anti-backshot guard: applies to every weapon class routed through this fire path.
-		if not canPlayerFireTowardRequestedDirection(owner, rootPart, explicitShotDirection) then
+		-- Keep anti-backshot for offensive weapons; sentry deploy/repair should follow placement/repair rules instead.
+		if weaponClass ~= "SentryDeployer" and weaponClass ~= "RepairTool" and not canPlayerFireTowardRequestedDirection(owner, rootPart, explicitShotDirection) then
 			return
 		end
 
@@ -2552,7 +3372,14 @@ local function configureWeaponTool(tool, weaponDef, owner)
 			shotOrigin, shotDirection = getPlayerShotRay(owner, rootPart, origin, direction)
 		end
 
-		if weaponClass == "Melee" then
+		if weaponClass == "SentryDeployer" then
+			local didDeploy = deploySentryTurret(owner, character, rootPart, weaponDef, shotOrigin, shotDirection)
+			if didDeploy then
+				consumeOwnedWeaponInstances(owner, weaponDef.Id)
+			end
+		elseif weaponClass == "RepairTool" then
+			repairOwnedSentries(owner, weaponDef)
+		elseif weaponClass == "Melee" then
 			fireMeleeAttack(owner, character, origin, direction, weaponDef, state, tool)
 		elseif weaponClass == "Flamethrower" then
 			fireFlamethrower(owner, character, weaponDef, state, handle)
@@ -3423,6 +4250,13 @@ function ShopService.start()
 	end
 	started = true
 
+	local turretFolder = getSentryTurretFolder()
+	for _, child in ipairs(turretFolder:GetChildren()) do
+		if child:IsA("Model") then
+			child:Destroy()
+		end
+	end
+
 	for _, weaponDef in ipairs(Config.Shop.Weapons or {}) do
 		weaponById[weaponDef.Id] = weaponDef
 	end
@@ -3560,10 +4394,20 @@ function ShopService.start()
 		end)
 	end
 
+	Players.PlayerAdded:Connect(function(player)
+		bindPlayerSentryDeathCleanup(player)
+	end)
+
 	Players.PlayerRemoving:Connect(function(player)
 		playerAimState[player] = nil
 		playerGroundFireState[player] = nil
+		clearPlayerSentries(player)
+		disconnectPlayerSentryDeathBindings(player)
 	end)
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		bindPlayerSentryDeathCleanup(player)
+	end
 
 	ensureTraderPrompt()
 end

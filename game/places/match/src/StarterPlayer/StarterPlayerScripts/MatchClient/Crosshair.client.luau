@@ -14,6 +14,12 @@ local DEFAULT_SCOPE_ZOOM_FOV = 18
 local HIDE_WEAPON_MODEL_WHILE_SCOPED_IDS = {
 	awp = true,
 }
+local SENTRY_DEPLOYER_CLASS_TOKEN = "sentrydeployer"
+local SENTRY_TURRET_FOLDER_NAME = "SentryTurrets"
+local WEAPON_EFFECTS_FOLDER_NAME = "WeaponEffects"
+local SENTRY_PREVIEW_VALID_COLOR = Color3.fromRGB(90, 240, 135)
+local SENTRY_PREVIEW_INVALID_COLOR = Color3.fromRGB(235, 95, 95)
+local SENTRY_PREVIEW_PADDING = Vector3.new(0.25, 0.25, 0.25)
 local SCOPE_UI_EXEMPT_GUI_NAMES = {
 	AmmoHud = true,
 }
@@ -174,6 +180,11 @@ local dualPoseRightShoulderState = {}
 local dualPoseWeaponKey = nil
 local dualPoseRenderStepName = string.format("DualWieldPose_%d", player.UserId)
 local dualWieldWeaponIds = {}
+local sentryPlacementPreviewModel = nil
+local sentryPlacementPreviewParts = {}
+local sentryPlacementPreviewSourceTool = nil
+local sentryPlacementPreviewBoundsSize = nil
+local sentryPlacementPreviewHighlight = nil
 
 for _, weaponDef in ipairs((Config.Shop and Config.Shop.Weapons) or {}) do
 	if type(weaponDef) == "table" and type(weaponDef.Id) == "string" and weaponDef.Id ~= "" then
@@ -979,12 +990,12 @@ end
 local function getCurrentAimData()
 	local camera = workspace.CurrentCamera
 	if not camera then
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	end
 
 	local viewportSize = camera.ViewportSize
 	if viewportSize.X <= 0 or viewportSize.Y <= 0 then
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	end
 
 	local viewportX, viewportY = getCrosshairViewportPoint()
@@ -998,11 +1009,342 @@ local function getCurrentAimData()
 	local maxDistance = 1800
 	local raycastResult = workspace:Raycast(cameraRay.Origin, cameraRay.Direction * maxDistance, raycastParams)
 	local hitPosition = cameraRay.Origin + cameraRay.Direction * maxDistance
+	local hitNormal = nil
 	if raycastResult then
 		hitPosition = raycastResult.Position
+		hitNormal = raycastResult.Normal
 	end
 
-	return hitPosition, cameraRay.Direction.Unit, cameraRay.Origin
+	return hitPosition, cameraRay.Direction.Unit, cameraRay.Origin, hitNormal
+end
+
+local function getSentryPlacementMaxDistance()
+	if not currentTool then
+		return 180
+	end
+
+	local placementDistance = tonumber(currentTool:GetAttribute("TurretPlacementDistance"))
+	if type(placementDistance) == "number" and placementDistance > 0 then
+		return placementDistance
+	end
+
+	local range = tonumber(currentTool:GetAttribute("Range"))
+	if type(range) == "number" and range > 0 then
+		return range
+	end
+
+	return 180
+end
+
+local function getCurrentSentryPlacementData()
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return nil, nil, nil
+	end
+
+	local viewportSize = camera.ViewportSize
+	if viewportSize.X <= 0 or viewportSize.Y <= 0 then
+		return nil, nil, nil
+	end
+
+	local viewportX, viewportY = getCrosshairViewportPoint()
+	local cameraRay = camera:ViewportPointToRay(viewportX, viewportY)
+	local cameraDirection = cameraRay.Direction.Unit
+	local maxDistance = getSentryPlacementMaxDistance()
+
+	local exclusions = {}
+	if currentCharacter then
+		table.insert(exclusions, currentCharacter)
+	end
+
+	local enemyContainerName = Config.Enemy and Config.Enemy.ContainerName
+	if type(enemyContainerName) == "string" and enemyContainerName ~= "" then
+		local enemyContainer = workspace:FindFirstChild(enemyContainerName)
+		if enemyContainer then
+			table.insert(exclusions, enemyContainer)
+		end
+	end
+
+	local sentryFolder = workspace:FindFirstChild(SENTRY_TURRET_FOLDER_NAME)
+	if sentryFolder then
+		table.insert(exclusions, sentryFolder)
+	end
+
+	local effectsFolder = workspace:FindFirstChild(WEAPON_EFFECTS_FOLDER_NAME)
+	if effectsFolder then
+		table.insert(exclusions, effectsFolder)
+	end
+	if sentryPlacementPreviewModel then
+		table.insert(exclusions, sentryPlacementPreviewModel)
+	end
+
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+	raycastParams.FilterDescendantsInstances = exclusions
+	raycastParams.IgnoreWater = true
+
+	local longRange = 1800
+	local cameraHitResult = workspace:Raycast(cameraRay.Origin, cameraDirection * longRange, raycastParams)
+	local targetPosition = cameraRay.Origin + cameraDirection * longRange
+	if cameraHitResult then
+		targetPosition = cameraHitResult.Position
+	end
+
+	local rootPart = currentCharacter and currentCharacter:FindFirstChild("HumanoidRootPart")
+	local placementOrigin = if rootPart and rootPart:IsA("BasePart")
+		then (rootPart.Position + Vector3.new(0, 1.5, 0))
+		else cameraRay.Origin
+	local toTarget = targetPosition - placementOrigin
+	local placementDirection = cameraDirection
+	if toTarget.Magnitude > 0.01 then
+		placementDirection = toTarget.Unit
+	end
+
+	local raycastResult = workspace:Raycast(placementOrigin, placementDirection * maxDistance, raycastParams)
+	if not raycastResult then
+		return nil, nil, placementDirection
+	end
+
+	return raycastResult.Position, raycastResult.Normal, placementDirection
+end
+
+local function clearSentryPlacementPreview()
+	if sentryPlacementPreviewModel then
+		sentryPlacementPreviewModel:Destroy()
+	end
+
+	sentryPlacementPreviewModel = nil
+	sentryPlacementPreviewHighlight = nil
+	sentryPlacementPreviewSourceTool = nil
+	sentryPlacementPreviewBoundsSize = nil
+	table.clear(sentryPlacementPreviewParts)
+end
+
+local function setSentryPlacementPreviewVisible(visible)
+	local shouldShow = visible == true
+	for _, entry in ipairs(sentryPlacementPreviewParts) do
+		local part = entry.part
+		if part and part.Parent then
+			part.Transparency = if shouldShow then entry.displayTransparency else 1
+		end
+	end
+
+	if sentryPlacementPreviewHighlight then
+		sentryPlacementPreviewHighlight.Enabled = shouldShow
+	end
+end
+
+local function setSentryPlacementPreviewColor(color)
+	for _, entry in ipairs(sentryPlacementPreviewParts) do
+		local part = entry.part
+		if part and part.Parent then
+			part.Color = color
+		end
+	end
+
+	if sentryPlacementPreviewHighlight then
+		sentryPlacementPreviewHighlight.FillColor = color
+		sentryPlacementPreviewHighlight.OutlineColor = color
+	end
+end
+
+local function isSentryPreviewSourcePart(part)
+	if not part or not part:IsA("BasePart") then
+		return false
+	end
+
+	if part.Name == "Handle" then
+		return false
+	end
+
+	return part.Transparency < 0.995
+end
+
+local function ensureSentryPlacementPreviewModel()
+	if not currentTool then
+		clearSentryPlacementPreview()
+		return false
+	end
+
+	if sentryPlacementPreviewModel and sentryPlacementPreviewModel.Parent and sentryPlacementPreviewSourceTool == currentTool then
+		return true
+	end
+
+	clearSentryPlacementPreview()
+
+	local sourceParts = {}
+	local fallbackPart = nil
+	local handle = currentTool:FindFirstChild("Handle", true)
+	if handle and handle:IsA("BasePart") then
+		fallbackPart = handle
+	end
+
+	for _, descendant in ipairs(currentTool:GetDescendants()) do
+		if isSentryPreviewSourcePart(descendant) then
+			table.insert(sourceParts, descendant)
+		elseif not fallbackPart and descendant:IsA("BasePart") then
+			fallbackPart = descendant
+		end
+	end
+
+	if #sourceParts == 0 then
+		if not fallbackPart then
+			return false
+		end
+		table.insert(sourceParts, fallbackPart)
+	end
+
+	local sourceRoot = fallbackPart or sourceParts[1]
+	if not sourceRoot then
+		return false
+	end
+
+	local previewModel = Instance.new("Model")
+	previewModel.Name = "SentryPlacementPreview"
+	previewModel.Parent = workspace
+
+	for _, sourcePart in ipairs(sourceParts) do
+		local clonePart = sourcePart:Clone()
+		for _, descendant in ipairs(clonePart:GetDescendants()) do
+			if descendant:IsA("JointInstance") or descendant:IsA("Constraint") or descendant:IsA("Script") or descendant:IsA("LocalScript") then
+				descendant:Destroy()
+			end
+		end
+
+		clonePart.Anchored = true
+		clonePart.CanCollide = false
+		clonePart.CanTouch = false
+		clonePart.CanQuery = false
+		clonePart.CastShadow = false
+		clonePart.Transparency = math.clamp(tonumber(sourcePart.Transparency) or 0, 0.2, 0.85)
+		clonePart.Parent = previewModel
+
+		table.insert(sentryPlacementPreviewParts, {
+			part = clonePart,
+			relativeCFrame = sourceRoot.CFrame:ToObjectSpace(sourcePart.CFrame),
+			displayTransparency = clonePart.Transparency,
+		})
+	end
+
+	local ok, _, size = pcall(function()
+		return previewModel:GetBoundingBox()
+	end)
+	if ok and size then
+		sentryPlacementPreviewBoundsSize = Vector3.new(
+			math.max(0.2, size.X),
+			math.max(0.2, size.Y),
+			math.max(0.2, size.Z)
+		)
+	else
+		sentryPlacementPreviewBoundsSize = Vector3.new(3, 3, 3)
+	end
+
+	local previewHighlight = Instance.new("Highlight")
+	previewHighlight.Name = "PlacementHighlight"
+	previewHighlight.Adornee = previewModel
+	previewHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	previewHighlight.FillTransparency = 0.62
+	previewHighlight.OutlineTransparency = 0.22
+	previewHighlight.Enabled = false
+	previewHighlight.Parent = previewModel
+
+	sentryPlacementPreviewModel = previewModel
+	sentryPlacementPreviewHighlight = previewHighlight
+	sentryPlacementPreviewSourceTool = currentTool
+	return true
+end
+
+local function updateSentryPlacementPreview(show, hitPosition, hitNormal, lookDirection)
+	if not show then
+		setSentryPlacementPreviewVisible(false)
+		return
+	end
+
+	if not ensureSentryPlacementPreviewModel() then
+		return
+	end
+
+	if typeof(hitPosition) ~= "Vector3" or typeof(hitNormal) ~= "Vector3" then
+		setSentryPlacementPreviewVisible(false)
+		return
+	end
+
+	local flatLook = nil
+	if typeof(lookDirection) == "Vector3" and lookDirection.Magnitude > 0.001 then
+		flatLook = Vector3.new(lookDirection.X, 0, lookDirection.Z)
+	end
+	if not flatLook or flatLook.Magnitude <= 0.001 then
+		local rootPart = currentCharacter and currentCharacter:FindFirstChild("HumanoidRootPart")
+		if rootPart then
+			flatLook = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
+		else
+			flatLook = Vector3.new(0, 0, -1)
+		end
+	end
+	if flatLook.Magnitude <= 0.001 then
+		flatLook = Vector3.new(0, 0, -1)
+	end
+
+	local boundsSize = sentryPlacementPreviewBoundsSize or Vector3.new(3, 3, 3)
+	local placementPosition = hitPosition + Vector3.new(0, (boundsSize.Y * 0.5) + 0.05, 0)
+	local placementCFrame = CFrame.lookAt(placementPosition, placementPosition + flatLook.Unit)
+
+	for _, entry in ipairs(sentryPlacementPreviewParts) do
+		local part = entry.part
+		if part and part.Parent then
+			part.CFrame = placementCFrame * entry.relativeCFrame
+		end
+	end
+
+	local overlaps = {}
+	local overlapParams = OverlapParams.new()
+	overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+	local overlapExclusions = {}
+	if currentCharacter then
+		table.insert(overlapExclusions, currentCharacter)
+	end
+	if sentryPlacementPreviewModel then
+		table.insert(overlapExclusions, sentryPlacementPreviewModel)
+	end
+	local effectsFolder = workspace:FindFirstChild(WEAPON_EFFECTS_FOLDER_NAME)
+	if effectsFolder then
+		table.insert(overlapExclusions, effectsFolder)
+	end
+	local enemyContainerName = Config.Enemy and Config.Enemy.ContainerName
+	if type(enemyContainerName) == "string" and enemyContainerName ~= "" then
+		local enemyContainer = workspace:FindFirstChild(enemyContainerName)
+		if enemyContainer then
+			table.insert(overlapExclusions, enemyContainer)
+		end
+	end
+	overlapParams.FilterDescendantsInstances = overlapExclusions
+	overlaps = workspace:GetPartBoundsInBox(placementCFrame, boundsSize + SENTRY_PREVIEW_PADDING, overlapParams)
+
+	local blocked = false
+	for _, part in ipairs(overlaps) do
+		if part and part.Parent and part.CanCollide then
+			blocked = true
+			break
+		end
+	end
+
+	local isPlaceable = hitNormal.Y >= 0.55 and not blocked
+	setSentryPlacementPreviewColor(if isPlaceable then SENTRY_PREVIEW_VALID_COLOR else SENTRY_PREVIEW_INVALID_COLOR)
+	setSentryPlacementPreviewVisible(true)
+end
+
+local function isHoldingSentryDeployerTool()
+	if not currentTool or not currentCharacter or currentTool.Parent ~= currentCharacter then
+		return false
+	end
+
+	local weaponClass = currentTool:GetAttribute("WeaponClass")
+	if type(weaponClass) ~= "string" then
+		return false
+	end
+
+	local token = string.lower(weaponClass):gsub("%s+", "")
+	return token == SENTRY_DEPLOYER_CLASS_TOKEN
 end
 
 local function sendAimUpdate(forceSend)
@@ -1120,6 +1462,7 @@ local function updateToolConnections(tool)
 	lastAutoFireAt = -math.huge
 	if not currentTool then
 		clearDualWieldPose()
+		clearSentryPlacementPreview()
 		return
 	end
 
@@ -1211,6 +1554,13 @@ RunService.RenderStepped:Connect(function()
 
 	if not isCharacterAlive() then
 		showCrosshair = false
+	end
+
+	if showCrosshair and not shopOpen and isHoldingSentryDeployerTool() then
+		local hitPosition, hitNormal, lookDirection = getCurrentSentryPlacementData()
+		updateSentryPlacementPreview(true, hitPosition, hitNormal, lookDirection)
+	else
+		updateSentryPlacementPreview(false)
 	end
 
 	local shouldScope = false

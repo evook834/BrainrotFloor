@@ -86,6 +86,32 @@ function ClassCombatRules.new(config)
 		return math.max(0.05, bonuses.incomingDamageMultiplier)
 	end
 
+	function api.getRepairSpeedMultiplier(player)
+		if not player or not player:IsA("Player") then
+			return 1
+		end
+
+		local _, bonuses = getPlayerSelectedClassBonuses(player)
+		if not bonuses then
+			return 1
+		end
+
+		return math.max(0.1, bonuses.repairSpeedMultiplier or 1)
+	end
+
+	function api.getTurretDamageMultiplier(player)
+		if not player or not player:IsA("Player") then
+			return 1
+		end
+
+		local _, bonuses = getPlayerSelectedClassBonuses(player)
+		if not bonuses then
+			return 1
+		end
+
+		return math.max(0, bonuses.turretDamageMultiplier or 1)
+	end
+
 	function api.getMeleeRangeMultiplier(player, weaponDef)
 		if not player or not player:IsA("Player") then
 			return 1
