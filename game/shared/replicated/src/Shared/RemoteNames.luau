@@ -9,6 +9,7 @@ local RemoteNames = {
 	ShopBuyAmmo = "ShopBuyAmmo",
 	WeaponAim = "WeaponAim",
 	WeaponFire = "WeaponFire",
+	WeaponReload = "WeaponReload",
 	DamageIndicator = "DamageIndicator",
 	ClassGetData = "ClassGetData",
 	ClassSelect = "ClassSelect",

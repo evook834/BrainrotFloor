@@ -21,6 +21,7 @@ local shopBuyWeaponFunction = nil
 local shopBuyAmmoFunction = nil
 local weaponAimRemote = nil
 local weaponFireRemote = nil
+local weaponReloadRemote = nil
 local damageIndicatorRemote = nil
 local weaponById = {}
 local weaponEffectsFolder = nil
@@ -2312,6 +2313,29 @@ local function configureWeaponTool(tool, weaponDef, owner)
 		fireWeapon(owner, character, humanoid, rootPart, explicitShotOrigin, explicitShotDirection)
 	end
 
+	state.reloadHandler = function(owner)
+		if not owner or not owner:IsA("Player") then
+			return
+		end
+
+		if not ClassService.canPlayerUseWeapon(owner, weaponDef) then
+			ClassService.enforcePlayerLoadout(owner)
+			return
+		end
+
+		local character = owner.Character
+		if not character or tool.Parent ~= character then
+			return
+		end
+
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if not humanoid or humanoid.Health <= 0 then
+			return
+		end
+
+		startReload(tool, weaponDef, state, owner)
+	end
+
 	tool.Activated:Connect(function()
 		-- Prefer explicit client fire remote for aim-accurate shots.
 		if weaponFireRemote then
@@ -2359,6 +2383,7 @@ local function configureWeaponTool(tool, weaponDef, owner)
 		if state then
 			clearDualWieldOffhand(state)
 			state.fireHandler = nil
+			state.reloadHandler = nil
 		end
 		toolRuntimeState[tool] = nil
 	end)
@@ -3082,6 +3107,7 @@ function ShopService.start()
 	shopBuyAmmoFunction = ensureRemote(remotesFolder, "RemoteFunction", Config.Remotes.ShopBuyAmmo)
 	weaponAimRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.WeaponAim)
 	weaponFireRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.WeaponFire)
+	weaponReloadRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.WeaponReload)
 	damageIndicatorRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.DamageIndicator)
 
 	shopGetCatalogFunction.OnServerInvoke = function(player)
@@ -3165,6 +3191,40 @@ function ShopService.start()
 			end
 
 			state.fireHandler(player, explicitShotOrigin, explicitShotDirection)
+		end)
+	end
+
+	if weaponReloadRemote then
+		weaponReloadRemote.OnServerEvent:Connect(function(player, weaponId)
+			if type(weaponId) ~= "string" or weaponId == "" then
+				return
+			end
+
+			local weaponDef = weaponById[weaponId]
+			if not weaponDef then
+				return
+			end
+			if not canPlayerUseWeapon(player, weaponDef) then
+				ClassService.enforcePlayerLoadout(player)
+				return
+			end
+
+			local tool = getEquippedWeaponTool(player, weaponId)
+			if not tool then
+				return
+			end
+
+			local state = toolRuntimeState[tool]
+			if not state then
+				return
+			end
+
+			if type(state.reloadHandler) == "function" then
+				state.reloadHandler(player)
+				return
+			end
+
+			startReload(tool, weaponDef, state, player)
 		end)
 	end
 

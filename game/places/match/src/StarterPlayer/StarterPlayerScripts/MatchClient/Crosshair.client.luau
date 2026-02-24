@@ -13,9 +13,11 @@ local DOT_CURSOR_ICON = "rbxasset://textures/MouseLockedCursor.png"
 local remotesFolder = ReplicatedStorage:WaitForChild(Config.Remotes.Folder)
 local weaponAimRemote = nil
 local weaponFireRemote = nil
+local weaponReloadRemote = nil
 if remotesFolder then
 	weaponAimRemote = remotesFolder:WaitForChild(Config.Remotes.WeaponAim)
 	weaponFireRemote = remotesFolder:WaitForChild(Config.Remotes.WeaponFire)
+	weaponReloadRemote = remotesFolder:WaitForChild(Config.Remotes.WeaponReload)
 end
 
 if mouse then
@@ -694,6 +696,33 @@ local function sendFireRequest()
 	weaponFireRemote:FireServer(weaponId, hitPosition, lookDirection, cameraOrigin)
 end
 
+local function sendReloadRequest()
+	if not weaponReloadRemote or not currentTool or not currentCharacter then
+		return
+	end
+	if UserInputService:GetFocusedTextBox() then
+		return
+	end
+	if isShopOpen() then
+		return
+	end
+
+	local humanoid = currentCharacter:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then
+		return
+	end
+	if currentTool:GetAttribute("IsReloading") == true then
+		return
+	end
+
+	local weaponId = currentTool:GetAttribute("WeaponId")
+	if type(weaponId) ~= "string" or weaponId == "" then
+		return
+	end
+
+	weaponReloadRemote:FireServer(weaponId)
+end
+
 local function isCurrentWeaponAutoFireEnabled()
 	if not currentTool then
 		return false
@@ -793,6 +822,12 @@ UserInputService.InputBegan:Connect(function(inputObject, gameProcessed)
 	if gameProcessed then
 		return
 	end
+
+	if inputObject.KeyCode == Enum.KeyCode.R then
+		sendReloadRequest()
+		return
+	end
+
 	if inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
 		isPrimaryFireHeld = true
 	end
