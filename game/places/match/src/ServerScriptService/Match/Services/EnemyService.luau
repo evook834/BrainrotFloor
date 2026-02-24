@@ -215,6 +215,21 @@ local function getEnemyHealthMultiplierForDifficulty(difficulty)
 	return multiplier
 end
 
+local function getEnemyHealthMultiplierForPlayers(playerCount)
+	local scaling = Config.Wave.WaveScaling or {}
+	if scaling.Enabled == false then
+		return 1
+	end
+
+	local basePlayers = math.max(1, math.floor((tonumber(scaling.BasePlayers) or 1) + 0.5))
+	local extraPlayers = math.max(0, math.max(1, math.floor((tonumber(playerCount) or 1) + 0.5)) - basePlayers)
+	local multiplierPerExtraPlayer = math.max(0, tonumber(scaling.EnemyHealthMultiplierPerExtraPlayer) or 0.15)
+	local maxMultiplier = math.max(1, tonumber(scaling.MaxEnemyHealthMultiplier) or 1.75)
+	local multiplier = 1 + (extraPlayers * multiplierPerExtraPlayer)
+
+	return math.max(1, math.min(maxMultiplier, multiplier))
+end
+
 local function getEnemyDamageMultiplierForDifficulty(difficulty)
 	local multiplier = tonumber(DifficultyService.getNumberSetting("EnemyDamageMultiplier", 1, difficulty)) or 1
 	if multiplier < 0 then
@@ -224,7 +239,7 @@ local function getEnemyDamageMultiplierForDifficulty(difficulty)
 	return multiplier
 end
 
-function EnemyService.spawnWave(enemyCount, waveNumber)
+function EnemyService.spawnWave(enemyCount, waveNumber, options)
 	local templates = getEnemyTemplates()
 	local spawnPoints = getSpawnPoints()
 
@@ -243,7 +258,13 @@ function EnemyService.spawnWave(enemyCount, waveNumber)
 	local cadence = getSpawnCadence()
 	local activeWaveNumber = waveNumber or 1
 	local activeDifficulty = DifficultyService.getCurrentDifficulty()
-	local enemyHealthMultiplier = getEnemyHealthMultiplierForDifficulty(activeDifficulty)
+	local playerCountForWave = math.max(1, #Players:GetPlayers())
+	if type(options) == "table" and type(options.playerCount) == "number" then
+		playerCountForWave = math.max(1, math.floor(options.playerCount + 0.5))
+	end
+	local enemyDifficultyHealthMultiplier = getEnemyHealthMultiplierForDifficulty(activeDifficulty)
+	local enemyPlayerHealthMultiplier = getEnemyHealthMultiplierForPlayers(playerCountForWave)
+	local enemyHealthMultiplier = enemyDifficultyHealthMultiplier * enemyPlayerHealthMultiplier
 	local enemyDamageMultiplier = getEnemyDamageMultiplierForDifficulty(activeDifficulty)
 
 	if enemyCount > 0 and cadence.InitialDelaySeconds > 0 then
@@ -252,8 +273,8 @@ function EnemyService.spawnWave(enemyCount, waveNumber)
 
 	local spawnIndex = 0
 	while spawnIndex < enemyCount do
-		local playerCount = math.max(1, #Players:GetPlayers())
-		local burstSize, intervalMultiplier, groupPauseMultiplier = getPlayerSpawnModifiers(playerCount, cadence)
+		local cadencePlayerCount = math.max(1, #Players:GetPlayers())
+		local burstSize, intervalMultiplier, groupPauseMultiplier = getPlayerSpawnModifiers(cadencePlayerCount, cadence)
 		local toSpawnNow = math.min(burstSize, enemyCount - spawnIndex)
 
 		for burstIndex = 1, toSpawnNow do
@@ -274,6 +295,8 @@ function EnemyService.spawnWave(enemyCount, waveNumber)
 				enemy.Parent = container
 				enemy:SetAttribute("IsEnemy", true)
 				enemy:SetAttribute("Difficulty", activeDifficulty)
+				enemy:SetAttribute("EnemyPlayerCountForScaling", playerCountForWave)
+				enemy:SetAttribute("EnemyPlayerHealthMultiplier", enemyPlayerHealthMultiplier)
 				enemy:SetAttribute("EnemyHealthMultiplier", enemyHealthMultiplier)
 				enemy:SetAttribute("EnemyDamageMultiplier", enemyDamageMultiplier)
 				enemy:SetAttribute("EnemyType", templateName)

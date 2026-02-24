@@ -1,4 +1,5 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
@@ -67,6 +68,31 @@ local function waitForWaveClear(timeoutSeconds)
 	end
 end
 
+local function getWaveScalingConfig()
+	local scaling = Config.Wave.WaveScaling or {}
+
+	return {
+		enabled = scaling.Enabled ~= false,
+		basePlayers = math.max(1, math.floor((tonumber(scaling.BasePlayers) or 1) + 0.5)),
+		enemiesPerExtraPlayer = math.max(0, tonumber(scaling.EnemiesPerExtraPlayer) or 1),
+		maxEnemyCountMultiplier = math.max(1, tonumber(scaling.MaxEnemyCountMultiplier) or 2),
+	}
+end
+
+local function getScaledWaveEnemyCount(baseEnemyCount, playerCount, scalingConfig)
+	local safeBaseEnemyCount = math.max(1, math.floor((tonumber(baseEnemyCount) or 1) + 0.5))
+	if not scalingConfig.enabled then
+		return safeBaseEnemyCount
+	end
+
+	local safePlayerCount = math.max(1, math.floor((tonumber(playerCount) or 1) + 0.5))
+	local extraPlayers = math.max(0, safePlayerCount - scalingConfig.basePlayers)
+	local scaledEnemyCount = safeBaseEnemyCount + (extraPlayers * scalingConfig.enemiesPerExtraPlayer)
+	scaledEnemyCount = math.min(scaledEnemyCount, safeBaseEnemyCount * scalingConfig.maxEnemyCountMultiplier)
+
+	return math.max(1, math.floor(scaledEnemyCount + 0.5))
+end
+
 function WaveService.start()
 	if running then
 		warn("WaveService is already running")
@@ -85,13 +111,17 @@ function WaveService.start()
 	end
 
 	running = true
+	local waveScalingConfig = getWaveScalingConfig()
+	local playersForNextWave = math.max(1, #Players:GetPlayers())
 
 	while running do
 		waveNumber += 1
-		local enemiesToSpawn = Config.Wave.BaseEnemyCount + (waveNumber - 1) * Config.Wave.EnemiesPerWave
+		local baseEnemiesToSpawn = Config.Wave.BaseEnemyCount + (waveNumber - 1) * Config.Wave.EnemiesPerWave
+		local enemiesToSpawn = getScaledWaveEnemyCount(baseEnemiesToSpawn, playersForNextWave, waveScalingConfig)
 
 		broadcastState("Preparing", {
 			enemies = enemiesToSpawn,
+			players = playersForNextWave,
 			intermission = Config.Wave.IntermissionSeconds,
 			intermissionEndsAt = Workspace:GetServerTimeNow() + Config.Wave.IntermissionSeconds,
 		})
@@ -102,14 +132,18 @@ function WaveService.start()
 
 		broadcastState("InProgress", {
 			enemies = enemiesToSpawn,
+			players = playersForNextWave,
 		})
 
-		local spawned = EnemyService.spawnWave(enemiesToSpawn, waveNumber)
+		local spawned = EnemyService.spawnWave(enemiesToSpawn, waveNumber, {
+			playerCount = playersForNextWave,
+		})
 		if spawned == 0 then
 			warn("No enemies were spawned. Add Brainrot enemy models and spawn points.")
 			broadcastState("Blocked", {
 				reason = "NoEnemyTemplatesOrSpawnPoints",
 			})
+			playersForNextWave = math.max(1, #Players:GetPlayers())
 			task.wait(5)
 			continue
 		end
@@ -119,8 +153,10 @@ function WaveService.start()
 			break
 		end
 
+		playersForNextWave = math.max(1, #Players:GetPlayers())
 		broadcastState("Cleared", {
 			enemies = spawned,
+			nextWavePlayers = playersForNextWave,
 		})
 		task.wait(2)
 	end

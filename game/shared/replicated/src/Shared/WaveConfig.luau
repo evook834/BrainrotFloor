@@ -2,6 +2,14 @@ local WaveConfig = {
 	IntermissionSeconds = 10,
 	BaseEnemyCount = 6,
 	EnemiesPerWave = 2,
+	WaveScaling = {
+		Enabled = true,
+		BasePlayers = 1,
+		EnemiesPerExtraPlayer = 1,
+		MaxEnemyCountMultiplier = 2,
+		EnemyHealthMultiplierPerExtraPlayer = 0.15,
+		MaxEnemyHealthMultiplier = 1.75,
+	},
 	SpawnCadence = {
 		InitialDelaySeconds = 2,
 		BaseIntervalSeconds = 3,
