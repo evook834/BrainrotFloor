@@ -18,6 +18,7 @@ local remotesFolder = nil
 local shopOpenRemote = nil
 local shopGetCatalogFunction = nil
 local shopBuyWeaponFunction = nil
+local shopBuyAmmoFunction = nil
 local weaponAimRemote = nil
 local weaponFireRemote = nil
 local damageIndicatorRemote = nil
@@ -509,7 +510,43 @@ local function getToolState(tool, weaponDef, owner)
 	return state
 end
 
-local function updateAmmoAttributes(tool, weaponDef, state, owner)
+local updateAmmoAttributes
+
+local function mirrorAmmoStateAcrossOwnedTools(sourceTool, weaponDef, sourceState, owner)
+	if not (owner and owner:IsA("Player")) then
+		return
+	end
+	if not sourceTool or not sourceTool:IsA("Tool") then
+		return
+	end
+
+	local weaponId = sourceTool:GetAttribute("WeaponId")
+	if type(weaponId) ~= "string" or weaponId == "" then
+		return
+	end
+
+	local containers = {
+		owner.Character,
+		owner:FindFirstChildOfClass("Backpack"),
+		owner:FindFirstChild("StarterGear"),
+	}
+
+	for _, container in ipairs(containers) do
+		if container then
+			for _, child in ipairs(container:GetChildren()) do
+				if child:IsA("Tool") and child ~= sourceTool and child:GetAttribute("WeaponId") == weaponId then
+					local mirroredState = getToolState(child, weaponDef, owner)
+					mirroredState.ammo = sourceState.ammo
+					mirroredState.reserveAmmo = sourceState.reserveAmmo
+					mirroredState.isReloading = false
+					updateAmmoAttributes(child, weaponDef, mirroredState, owner, true)
+				end
+			end
+		end
+	end
+end
+
+updateAmmoAttributes = function(tool, weaponDef, state, owner, skipMirror)
 	syncToolCombatStats(tool, weaponDef, state, owner)
 	local magazineSize = state.magazineSize
 	if not magazineSize then
@@ -554,6 +591,10 @@ local function updateAmmoAttributes(tool, weaponDef, state, owner)
 			magazineSize,
 			state.reserveAmmo
 		)
+	end
+
+	if skipMirror ~= true then
+		mirrorAmmoStateAcrossOwnedTools(tool, weaponDef, state, owner)
 	end
 end
 
@@ -2352,6 +2393,58 @@ local function getEquippedWeaponTool(player, weaponId)
 	return nil
 end
 
+local function normalizeAmmoRefillMode(value)
+	if type(value) ~= "string" then
+		return "ReserveOnly"
+	end
+
+	local normalized = string.lower(value)
+	if normalized == "full" then
+		return "Full"
+	end
+	if normalized == "magazineonly" then
+		return "MagazineOnly"
+	end
+	return "ReserveOnly"
+end
+
+local function refillAmmoForTool(tool, weaponDef, owner, refillMode, reserveAmount)
+	local state = getToolState(tool, weaponDef, owner)
+	syncToolCombatStats(tool, weaponDef, state, owner)
+
+	local magazineSize = state.magazineSize
+	if type(magazineSize) ~= "number" or magazineSize <= 0 then
+		return false
+	end
+
+	local reserveAmmoCapacity = math.max(0, math.floor((tonumber(state.reserveAmmoCapacity) or 0) + 0.5))
+	local ammoBefore = math.max(0, math.floor((tonumber(state.ammo) or 0) + 0.5))
+	local reserveBefore = math.max(0, math.floor((tonumber(state.reserveAmmo) or 0) + 0.5))
+
+	state.ammo = math.clamp(ammoBefore, 0, magazineSize)
+	state.reserveAmmo = math.clamp(reserveBefore, 0, reserveAmmoCapacity)
+
+	if refillMode == "Full" then
+		state.ammo = magazineSize
+		state.reserveAmmo = reserveAmmoCapacity
+		state.isReloading = false
+	elseif refillMode == "MagazineOnly" then
+		state.ammo = magazineSize
+		state.isReloading = false
+	else
+		local roundedReserveAmount = tonumber(reserveAmount)
+		if type(roundedReserveAmount) == "number" and roundedReserveAmount > 0 then
+			local ammoToAdd = math.max(0, math.floor(roundedReserveAmount + 0.5))
+			state.reserveAmmo = math.min(reserveAmmoCapacity, state.reserveAmmo + ammoToAdd)
+		else
+			state.reserveAmmo = reserveAmmoCapacity
+		end
+	end
+
+	updateAmmoAttributes(tool, weaponDef, state, owner)
+	return state.ammo > ammoBefore or state.reserveAmmo > reserveBefore
+end
+
 local function playerOwnsWeapon(player, weaponId)
 	local containers = {
 		player:FindFirstChildOfClass("Backpack"),
@@ -2402,6 +2495,176 @@ local function getWeaponCostForPlayer(player, weaponDef)
 	return math.max(0, math.floor((tonumber(weaponDef.Cost) or 0) + 0.5))
 end
 
+local function getAmmoRefillPricingConfig()
+	local refillConfig = (Config.Shop and Config.Shop.AmmoRefill) or {}
+	local fullRefillCostScale = math.max(0, tonumber(refillConfig.FullRefillCostScale) or 0.35)
+	local minimumWeaponRefillCost = math.max(0, math.floor((tonumber(refillConfig.MinimumWeaponRefillCost) or 10) + 0.5))
+	local minimumPurchaseCost = math.max(0, math.floor((tonumber(refillConfig.MinimumPurchaseCost) or 1) + 0.5))
+
+	return {
+		fullRefillCostScale = fullRefillCostScale,
+		minimumWeaponRefillCost = minimumWeaponRefillCost,
+		minimumPurchaseCost = minimumPurchaseCost,
+	}
+end
+
+local function collectOwnedWeaponToolsById(player)
+	local toolsByWeaponId = {}
+	local containers = {
+		player.Character,
+		player:FindFirstChildOfClass("Backpack"),
+		player:FindFirstChild("StarterGear"),
+	}
+
+	for _, container in ipairs(containers) do
+		if container then
+			for _, child in ipairs(container:GetChildren()) do
+				if child:IsA("Tool") then
+					local weaponId = child:GetAttribute("WeaponId")
+					if type(weaponId) == "string" and weaponId ~= "" and not toolsByWeaponId[weaponId] then
+						toolsByWeaponId[weaponId] = child
+					end
+				end
+			end
+		end
+	end
+
+	return toolsByWeaponId
+end
+
+local function getToolAmmoSnapshot(tool, weaponDef, owner)
+	if not tool or not tool:IsA("Tool") then
+		return nil
+	end
+
+	local magazineSize = getMagazineSize(weaponDef, owner)
+	if type(magazineSize) ~= "number" or magazineSize <= 0 then
+		return nil
+	end
+
+	local reserveAmmoCapacity = getReserveAmmoCapacity(weaponDef, magazineSize)
+	if type(reserveAmmoCapacity) ~= "number" or reserveAmmoCapacity < 0 then
+		reserveAmmoCapacity = 0
+	end
+
+	local state = toolRuntimeState[tool]
+	local currentAmmo = if state then state.ammo else tool:GetAttribute("CurrentAmmo")
+	local reserveAmmo = if state then state.reserveAmmo else tool:GetAttribute("ReserveAmmo")
+
+	currentAmmo = math.clamp(math.floor((tonumber(currentAmmo) or magazineSize) + 0.5), 0, magazineSize)
+	reserveAmmo = math.clamp(math.floor((tonumber(reserveAmmo) or reserveAmmoCapacity) + 0.5), 0, reserveAmmoCapacity)
+
+	local currentTotalAmmo = currentAmmo + reserveAmmo
+	local maxTotalAmmo = magazineSize + reserveAmmoCapacity
+	local missingAmmo = math.max(0, maxTotalAmmo - currentTotalAmmo)
+
+	return {
+		currentAmmo = currentAmmo,
+		reserveAmmo = reserveAmmo,
+		magazineSize = magazineSize,
+		reserveAmmoCapacity = reserveAmmoCapacity,
+		currentTotalAmmo = currentTotalAmmo,
+		maxTotalAmmo = maxTotalAmmo,
+		missingAmmo = missingAmmo,
+	}
+end
+
+local function buildWeaponAmmoRefillQuote(player, weaponDef, tool, pricingConfig)
+	if not (player and player:IsA("Player")) then
+		return nil
+	end
+	if type(weaponDef) ~= "table" or type(weaponDef.Id) ~= "string" or weaponDef.Id == "" then
+		return nil
+	end
+	if not (tool and tool:IsA("Tool")) then
+		return nil
+	end
+
+	local ammoSnapshot = getToolAmmoSnapshot(tool, weaponDef, player)
+	if not ammoSnapshot then
+		return {
+			weaponId = weaponDef.Id,
+			tool = tool,
+			isRefillable = false,
+			canRefill = false,
+			cost = 0,
+			currentTotalAmmo = nil,
+			maxTotalAmmo = nil,
+			missingAmmo = nil,
+		}
+	end
+
+	local maxTotalAmmo = ammoSnapshot.maxTotalAmmo
+	local missingAmmo = ammoSnapshot.missingAmmo
+	if maxTotalAmmo <= 0 or missingAmmo <= 0 then
+		return {
+			weaponId = weaponDef.Id,
+			tool = tool,
+			isRefillable = true,
+			canRefill = false,
+			cost = 0,
+			currentTotalAmmo = ammoSnapshot.currentTotalAmmo,
+			maxTotalAmmo = maxTotalAmmo,
+			missingAmmo = missingAmmo,
+		}
+	end
+
+	local weaponCost = getWeaponCostForPlayer(player, weaponDef)
+	local fullRefillCost = math.max(
+		pricingConfig.minimumWeaponRefillCost,
+		math.floor((weaponCost * pricingConfig.fullRefillCostScale) + 0.5)
+	)
+	local proportionalCost = math.floor((fullRefillCost * (missingAmmo / maxTotalAmmo)) + 0.5)
+	local refillCost = math.max(pricingConfig.minimumPurchaseCost, proportionalCost)
+
+	return {
+		weaponId = weaponDef.Id,
+		tool = tool,
+		isRefillable = true,
+		canRefill = refillCost > 0,
+		cost = math.max(0, refillCost),
+		currentTotalAmmo = ammoSnapshot.currentTotalAmmo,
+		maxTotalAmmo = maxTotalAmmo,
+		missingAmmo = missingAmmo,
+	}
+end
+
+local function collectAmmoRefillQuotesForOwnedWeapons(player)
+	local pricingConfig = getAmmoRefillPricingConfig()
+	local toolsByWeaponId = collectOwnedWeaponToolsById(player)
+	local quotesByWeaponId = {}
+	local refillAllCost = 0
+	local ownedWeapons = 0
+	local ownedRefillableWeapons = 0
+	local refillableWeaponsWithMissingAmmo = 0
+
+	for weaponId, tool in pairs(toolsByWeaponId) do
+		local weaponDef = weaponById[weaponId]
+		if weaponDef and canPlayerUseWeapon(player, weaponDef) then
+			ownedWeapons += 1
+			local quote = buildWeaponAmmoRefillQuote(player, weaponDef, tool, pricingConfig)
+			if quote then
+				quotesByWeaponId[weaponId] = quote
+				if quote.isRefillable then
+					ownedRefillableWeapons += 1
+				end
+				if quote.canRefill and quote.cost > 0 then
+					refillableWeaponsWithMissingAmmo += 1
+					refillAllCost += quote.cost
+				end
+			end
+		end
+	end
+
+	return {
+		quotesByWeaponId = quotesByWeaponId,
+		refillAllCost = math.max(0, refillAllCost),
+		ownedWeapons = ownedWeapons,
+		ownedRefillableWeapons = ownedRefillableWeapons,
+		refillableWeaponsWithMissingAmmo = refillableWeaponsWithMissingAmmo,
+	}
+end
+
 local function getClassRestrictionMessage(player)
 	local className = ClassService.getPlayerClassName(player)
 	return string.format("%s cannot buy this weapon.", className)
@@ -2410,6 +2673,8 @@ end
 local function getCatalogForPlayer(player)
 	local canPurchase, waveState = canPurchaseNow()
 	local weapons = {}
+	local refillSummary = collectAmmoRefillQuotesForOwnedWeapons(player)
+	local quotesByWeaponId = refillSummary.quotesByWeaponId
 
 	for _, weaponDef in ipairs(Config.Shop.Weapons or {}) do
 		if not canPlayerUseWeapon(player, weaponDef) then
@@ -2420,6 +2685,11 @@ local function getCatalogForPlayer(player)
 		local rangeMultiplier = math.max(0.1, ClassService.getWeaponBulletRangeMultiplier(player, weaponDef))
 		local effectiveRange = math.floor((baseRange * rangeMultiplier) + 0.5)
 		local rangeBonusPct = math.max(0, (rangeMultiplier - 1) * 100)
+		local isOwned = playerOwnsWeapon(player, weaponDef.Id)
+		local refillQuote = quotesByWeaponId[weaponDef.Id]
+		local refillCost = if refillQuote then refillQuote.cost else 0
+		local canRefill = if refillQuote then refillQuote.canRefill else false
+		local isRefillable = if refillQuote then refillQuote.isRefillable else getMagazineSize(weaponDef, player) ~= nil
 
 		table.insert(weapons, {
 			id = weaponDef.Id,
@@ -2433,7 +2703,13 @@ local function getCatalogForPlayer(player)
 			cooldown = weaponDef.Cooldown,
 			magazineSize = getMagazineSize(weaponDef, player),
 			reloadSeconds = getReloadSeconds(weaponDef, player),
-			owned = playerOwnsWeapon(player, weaponDef.Id),
+			owned = isOwned,
+			isRefillable = isRefillable,
+			refillCost = if isOwned then refillCost else 0,
+			canRefill = if isOwned then canRefill else false,
+			currentAmmoTotal = if refillQuote then refillQuote.currentTotalAmmo else nil,
+			maxAmmoTotal = if refillQuote then refillQuote.maxTotalAmmo else nil,
+			missingAmmo = if refillQuote then refillQuote.missingAmmo else nil,
 		})
 	end
 
@@ -2446,6 +2722,11 @@ local function getCatalogForPlayer(player)
 		canPurchase = canPurchase,
 		waveState = waveState,
 		weapons = weapons,
+		refillAllCost = refillSummary.refillAllCost,
+		canRefillAll = refillSummary.refillAllCost > 0,
+		ownedWeapons = refillSummary.ownedWeapons,
+		ownedRefillableWeapons = refillSummary.ownedRefillableWeapons,
+		refillableWeaponsWithMissingAmmo = refillSummary.refillableWeaponsWithMissingAmmo,
 	}
 end
 
@@ -2549,6 +2830,187 @@ local function buyWeapon(player, weaponId)
 	}
 end
 
+local function buyAmmoForWeapon(player, weaponId)
+	local weaponDef = weaponById[weaponId]
+	if not weaponDef then
+		return {
+			success = false,
+			message = "Unknown weapon.",
+		}
+	end
+
+	local canPurchase = canPurchaseNow()
+	if not canPurchase then
+		return {
+			success = false,
+			message = "You can only buy between waves.",
+		}
+	end
+
+	if not canPlayerUseWeapon(player, weaponDef) then
+		return {
+			success = false,
+			message = getClassRestrictionMessage(player),
+		}
+	end
+
+	local refillSummary = collectAmmoRefillQuotesForOwnedWeapons(player)
+	local quote = refillSummary.quotesByWeaponId[weaponId]
+	if not quote or not quote.tool or quote.tool.Parent == nil then
+		return {
+			success = false,
+			message = "You do not own this weapon.",
+		}
+	end
+
+	if quote.isRefillable ~= true then
+		return {
+			success = false,
+			message = "This weapon does not use ammo.",
+		}
+	end
+
+	if quote.canRefill ~= true or quote.cost <= 0 then
+		return {
+			success = false,
+			message = "Ammo is already full.",
+		}
+	end
+
+	local moneyValue = getMoneyValue(player)
+	if not moneyValue then
+		return {
+			success = false,
+			message = "Money data not available.",
+		}
+	end
+	if moneyValue.Value < quote.cost then
+		return {
+			success = false,
+			message = "Not enough money.",
+		}
+	end
+
+	moneyValue.Value -= quote.cost
+	local didRefill = refillAmmoForTool(quote.tool, weaponDef, player, "Full", nil)
+	if not didRefill then
+		moneyValue.Value += quote.cost
+		return {
+			success = false,
+			message = "Ammo is already full.",
+		}
+	end
+
+	return {
+		success = true,
+		message = string.format("Refilled %s ammo for $%d", weaponDef.DisplayName, quote.cost),
+	}
+end
+
+local function buyAmmoForAllOwnedWeapons(player)
+	local canPurchase = canPurchaseNow()
+	if not canPurchase then
+		return {
+			success = false,
+			message = "You can only buy between waves.",
+		}
+	end
+
+	local refillSummary = collectAmmoRefillQuotesForOwnedWeapons(player)
+	if refillSummary.refillAllCost <= 0 or refillSummary.refillableWeaponsWithMissingAmmo <= 0 then
+		return {
+			success = false,
+			message = "All owned weapon ammo is already full.",
+		}
+	end
+
+	local moneyValue = getMoneyValue(player)
+	if not moneyValue then
+		return {
+			success = false,
+			message = "Money data not available.",
+		}
+	end
+	if moneyValue.Value < refillSummary.refillAllCost then
+		return {
+			success = false,
+			message = "Not enough money.",
+		}
+	end
+
+	moneyValue.Value -= refillSummary.refillAllCost
+	local spent = 0
+	local refilledCount = 0
+
+	for weaponId, quote in pairs(refillSummary.quotesByWeaponId) do
+		if quote.canRefill == true and quote.cost > 0 and quote.tool and quote.tool.Parent then
+			local weaponDef = weaponById[weaponId]
+			if weaponDef and refillAmmoForTool(quote.tool, weaponDef, player, "Full", nil) then
+				refilledCount += 1
+				spent += quote.cost
+			end
+		end
+	end
+
+	if refilledCount <= 0 then
+		moneyValue.Value += refillSummary.refillAllCost
+		return {
+			success = false,
+			message = "All owned weapon ammo is already full.",
+		}
+	end
+
+	local refund = refillSummary.refillAllCost - spent
+	if refund > 0 then
+		moneyValue.Value += refund
+	end
+
+	return {
+		success = true,
+		message = string.format("Refilled ammo for %d weapon%s for $%d", refilledCount, if refilledCount == 1 then "" else "s", spent),
+	}
+end
+
+function ShopService.refillPlayerAmmo(player, options)
+	if not player or not player:IsA("Player") then
+		return false
+	end
+
+	local refillMode = "ReserveOnly"
+	local reserveAmount = nil
+	if type(options) == "table" then
+		refillMode = normalizeAmmoRefillMode(options.mode)
+		reserveAmount = options.reserveAmount
+	end
+
+	local anyRefilled = false
+	local seenTools = {}
+	local containers = {
+		player.Character,
+		player:FindFirstChildOfClass("Backpack"),
+		player:FindFirstChild("StarterGear"),
+	}
+
+	for _, container in ipairs(containers) do
+		if container then
+			for _, child in ipairs(container:GetChildren()) do
+				if child:IsA("Tool") and not seenTools[child] then
+					seenTools[child] = true
+					local weaponId = child:GetAttribute("WeaponId")
+					if type(weaponId) == "string" and weaponId ~= "" then
+						local weaponDef = weaponById[weaponId]
+						if weaponDef and refillAmmoForTool(child, weaponDef, player, refillMode, reserveAmount) then
+							anyRefilled = true
+						end
+					end
+				end
+			end
+		end
+	end
+
+	return anyRefilled
+end
+
 local function ensureTraderPrompt()
 	local traderConfig = Config.Shop.Trader or {}
 	local modelName = traderConfig.ModelName or "WeaponTrader"
@@ -2617,6 +3079,7 @@ function ShopService.start()
 	shopOpenRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.ShopOpen)
 	shopGetCatalogFunction = ensureRemote(remotesFolder, "RemoteFunction", Config.Remotes.ShopGetCatalog)
 	shopBuyWeaponFunction = ensureRemote(remotesFolder, "RemoteFunction", Config.Remotes.ShopBuyWeapon)
+	shopBuyAmmoFunction = ensureRemote(remotesFolder, "RemoteFunction", Config.Remotes.ShopBuyAmmo)
 	weaponAimRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.WeaponAim)
 	weaponFireRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.WeaponFire)
 	damageIndicatorRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.DamageIndicator)
@@ -2634,6 +3097,33 @@ function ShopService.start()
 		end
 
 		return buyWeapon(player, weaponId)
+	end
+
+	shopBuyAmmoFunction.OnServerInvoke = function(player, request)
+		if type(request) == "string" then
+			return buyAmmoForWeapon(player, request)
+		end
+
+		if type(request) ~= "table" then
+			return {
+				success = false,
+				message = "Invalid ammo purchase request.",
+			}
+		end
+
+		if request.allOwned == true then
+			return buyAmmoForAllOwnedWeapons(player)
+		end
+
+		local weaponId = request.weaponId
+		if type(weaponId) ~= "string" or weaponId == "" then
+			return {
+				success = false,
+				message = "Invalid weapon ammo request.",
+			}
+		end
+
+		return buyAmmoForWeapon(player, weaponId)
 	end
 
 	if weaponAimRemote then

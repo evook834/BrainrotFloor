@@ -74,7 +74,7 @@ closeButtonCorner.Parent = closeButton
 
 local listFrame = Instance.new("ScrollingFrame")
 listFrame.Name = "ItemList"
-listFrame.Size = UDim2.new(1, -24, 1, -128)
+listFrame.Size = UDim2.new(1, -24, 1, -166)
 listFrame.Position = UDim2.fromOffset(12, 76)
 listFrame.BackgroundColor3 = Color3.fromRGB(12, 13, 16)
 listFrame.BackgroundTransparency = 0.15
@@ -103,6 +103,23 @@ listPadding.PaddingLeft = UDim.new(0, 8)
 listPadding.PaddingRight = UDim.new(0, 8)
 listPadding.Parent = listFrame
 
+local refillAllButton = Instance.new("TextButton")
+refillAllButton.Name = "RefillAllButton"
+refillAllButton.Size = UDim2.fromOffset(214, 34)
+refillAllButton.Position = UDim2.new(1, -226, 1, -76)
+refillAllButton.BackgroundColor3 = Color3.fromRGB(62, 64, 72)
+refillAllButton.BorderSizePixel = 0
+refillAllButton.AutoButtonColor = false
+refillAllButton.TextColor3 = Color3.fromRGB(240, 245, 240)
+refillAllButton.Font = Enum.Font.GothamBold
+refillAllButton.TextSize = 13
+refillAllButton.Text = "Refill All Owned"
+refillAllButton.Parent = panel
+
+local refillAllButtonCorner = Instance.new("UICorner")
+refillAllButtonCorner.CornerRadius = UDim.new(0, 8)
+refillAllButtonCorner.Parent = refillAllButton
+
 local statusLabel = Instance.new("TextLabel")
 statusLabel.Name = "Status"
 statusLabel.Size = UDim2.new(1, -24, 0, 28)
@@ -124,16 +141,18 @@ end
 local shopOpenRemote = remotesFolder:WaitForChild(Config.Remotes.ShopOpen, 15)
 local shopGetCatalogFunction = remotesFolder:WaitForChild(Config.Remotes.ShopGetCatalog, 15)
 local shopBuyWeaponFunction = remotesFolder:WaitForChild(Config.Remotes.ShopBuyWeapon, 15)
+local shopBuyAmmoFunction = remotesFolder:WaitForChild(Config.Remotes.ShopBuyAmmo, 15)
 local waveStateRemote = remotesFolder:FindFirstChild(Config.Remotes.WaveState)
 local classStateRemote = remotesFolder:FindFirstChild(Config.Remotes.ClassState)
 
-if not shopOpenRemote or not shopGetCatalogFunction or not shopBuyWeaponFunction then
+if not shopOpenRemote or not shopGetCatalogFunction or not shopBuyWeaponFunction or not shopBuyAmmoFunction then
 	warn("ShopUi is missing one or more shop remotes")
 	return
 end
 
 local isRefreshing = false
 local refreshCatalog
+local refillAllPurchaseEnabled = false
 
 local function setStatus(text, color)
 	statusLabel.Text = text or ""
@@ -163,6 +182,28 @@ local function renderCatalog(catalog)
 	else
 		subtitle.Text = string.format("Store CLOSED while wave is active (%s)", waveState)
 		subtitle.TextColor3 = Color3.fromRGB(245, 155, 155)
+	end
+
+	local refillAllCost = math.max(0, math.floor((tonumber(catalog.refillAllCost) or 0) + 0.5))
+	local canRefillAll = catalog.canRefillAll == true and refillAllCost > 0
+	refillAllPurchaseEnabled = false
+	refillAllButton.AutoButtonColor = false
+	if not canPurchase then
+		refillAllButton.Text = "Refill All (Wave Active)"
+		refillAllButton.BackgroundColor3 = Color3.fromRGB(78, 52, 52)
+	elseif canRefillAll then
+		refillAllPurchaseEnabled = true
+		refillAllButton.AutoButtonColor = true
+		refillAllButton.Text = string.format("Refill All Owned ($%d)", refillAllCost)
+		refillAllButton.BackgroundColor3 = Color3.fromRGB(52, 96, 68)
+	else
+		local ownedRefillable = math.max(0, math.floor((tonumber(catalog.ownedRefillableWeapons) or 0) + 0.5))
+		if ownedRefillable <= 0 then
+			refillAllButton.Text = "No Owned Ammo Weapons"
+		else
+			refillAllButton.Text = "All Owned Ammo Full"
+		end
+		refillAllButton.BackgroundColor3 = Color3.fromRGB(62, 64, 72)
 	end
 
 	local renderedCount = 0
@@ -203,15 +244,22 @@ local function renderCatalog(catalog)
 		if rangeBonusPct >= 0.05 then
 			rangeText = string.format("RANGE %d (+%.1f%% class)", displayedRange, rangeBonusPct)
 		end
+		local ownedAmmoLine = ""
+		if weapon.owned and type(weapon.currentAmmoTotal) == "number" and type(weapon.maxAmmoTotal) == "number" and weapon.maxAmmoTotal > 0 then
+			local currentTotal = math.max(0, math.floor((tonumber(weapon.currentAmmoTotal) or 0) + 0.5))
+			local maxTotal = math.max(0, math.floor((tonumber(weapon.maxAmmoTotal) or 0) + 0.5))
+			ownedAmmoLine = string.format("  AMMO %d/%d", currentTotal, maxTotal)
+		end
 		info.Text = string.format(
-			"%s (%s)  |  $%d\nDMG %d  %s  CD %.2fs%s",
+			"%s (%s)  |  $%d\nDMG %d  %s  CD %.2fs%s%s",
 			weapon.name or weapon.id or "?",
 			weapon.weaponClass or "Weapon",
 			weapon.cost or 0,
 			weapon.damage or 0,
 			rangeText,
 			weapon.cooldown or 0,
-			ammoLine
+			ammoLine,
+			ownedAmmoLine
 		)
 		info.Parent = row
 
@@ -232,33 +280,62 @@ local function renderCatalog(catalog)
 		buyCorner.Parent = buyButton
 
 		local disabled = false
+		local isAmmoPurchase = false
+		local refillCost = math.max(0, math.floor((tonumber(weapon.refillCost) or 0) + 0.5))
 		if weapon.owned then
-			disabled = true
-			buyButton.Text = "Owned"
-			buyButton.BackgroundColor3 = Color3.fromRGB(62, 64, 72)
+			if weapon.isRefillable ~= true then
+				disabled = true
+				buyButton.Text = "No Ammo"
+				buyButton.BackgroundColor3 = Color3.fromRGB(62, 64, 72)
+			elseif not canPurchase then
+				disabled = true
+				buyButton.Text = "Wave Active"
+				buyButton.BackgroundColor3 = Color3.fromRGB(78, 52, 52)
+			elseif weapon.canRefill == true and refillCost > 0 then
+				disabled = false
+				isAmmoPurchase = true
+				buyButton.Text = string.format("Refill $%d", refillCost)
+				buyButton.BackgroundColor3 = Color3.fromRGB(52, 96, 68)
+			else
+				disabled = true
+				buyButton.Text = "Full Ammo"
+				buyButton.BackgroundColor3 = Color3.fromRGB(62, 64, 72)
+			end
 		elseif not canPurchase then
 			disabled = true
 			buyButton.Text = "Wave Active"
 			buyButton.BackgroundColor3 = Color3.fromRGB(78, 52, 52)
+		else
+			buyButton.Text = "Buy"
+			buyButton.BackgroundColor3 = Color3.fromRGB(52, 96, 68)
 		end
 
 		if disabled then
 			buyButton.AutoButtonColor = false
 		else
 			buyButton.Activated:Connect(function()
-				local ok, result = pcall(function()
-					return shopBuyWeaponFunction:InvokeServer(weapon.id)
-				end)
+				local ok, result = nil, nil
+				if isAmmoPurchase then
+					ok, result = pcall(function()
+						return shopBuyAmmoFunction:InvokeServer({
+							weaponId = weapon.id,
+						})
+					end)
+				else
+					ok, result = pcall(function()
+						return shopBuyWeaponFunction:InvokeServer(weapon.id)
+					end)
+				end
 
 				if not ok then
-					setStatus("Purchase failed: remote error.", Color3.fromRGB(245, 150, 150))
+					setStatus("Shop action failed: remote error.", Color3.fromRGB(245, 150, 150))
 					return
 				end
 
 				if result and result.success then
-					setStatus(result.message or "Purchase successful.", Color3.fromRGB(165, 230, 185))
+					setStatus(result.message or "Shop action successful.", Color3.fromRGB(165, 230, 185))
 				else
-					setStatus((result and result.message) or "Purchase denied.", Color3.fromRGB(245, 150, 150))
+					setStatus((result and result.message) or "Shop action denied.", Color3.fromRGB(245, 150, 150))
 				end
 
 				if panel.Visible then
@@ -289,6 +366,10 @@ refreshCatalog = function()
 	isRefreshing = false
 
 	if not ok or not catalog or not catalog.success then
+		refillAllPurchaseEnabled = false
+		refillAllButton.AutoButtonColor = false
+		refillAllButton.Text = "Refill All Owned"
+		refillAllButton.BackgroundColor3 = Color3.fromRGB(62, 64, 72)
 		setStatus("Could not load shop data.", Color3.fromRGB(245, 150, 150))
 		return
 	end
@@ -298,7 +379,7 @@ end
 
 local function openShop()
 	panel.Visible = true
-	setStatus("Choose your weapon.", Color3.fromRGB(210, 225, 240))
+	setStatus("Buy weapons or refill owned ammo.", Color3.fromRGB(210, 225, 240))
 	refreshCatalog()
 end
 
@@ -308,6 +389,37 @@ local function closeShop()
 end
 
 closeButton.Activated:Connect(closeShop)
+
+refillAllButton.Activated:Connect(function()
+	if not refillAllPurchaseEnabled then
+		return
+	end
+
+	local ok, result = pcall(function()
+		return shopBuyAmmoFunction:InvokeServer({
+			allOwned = true,
+		})
+	end)
+
+	if not ok then
+		setStatus("Shop action failed: remote error.", Color3.fromRGB(245, 150, 150))
+		return
+	end
+
+	if result and result.success then
+		setStatus(result.message or "Shop action successful.", Color3.fromRGB(165, 230, 185))
+	else
+		setStatus((result and result.message) or "Shop action denied.", Color3.fromRGB(245, 150, 150))
+	end
+
+	if panel.Visible then
+		task.defer(function()
+			if panel.Visible then
+				refreshCatalog()
+			end
+		end)
+	end
+end)
 
 shopOpenRemote.OnClientEvent:Connect(function()
 	openShop()

@@ -6,6 +6,7 @@ local RemoteNames = {
 	ShopOpen = "ShopOpen",
 	ShopGetCatalog = "ShopGetCatalog",
 	ShopBuyWeapon = "ShopBuyWeapon",
+	ShopBuyAmmo = "ShopBuyAmmo",
 	WeaponAim = "WeaponAim",
 	WeaponFire = "WeaponFire",
 	DamageIndicator = "DamageIndicator",

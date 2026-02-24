@@ -6,6 +6,11 @@ local ShopConfig = {
 		Cleared = true,
 		Blocked = true,
 	},
+	AmmoRefill = {
+		FullRefillCostScale = 0.35,
+		MinimumWeaponRefillCost = 10,
+		MinimumPurchaseCost = 1,
+	},
 	Trader = {
 		ModelName = "WeaponTrader",
 		PartName = "TraderRoot",
