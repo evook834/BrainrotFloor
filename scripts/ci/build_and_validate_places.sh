@@ -4,19 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ARTIFACT_DIR="${ARTIFACT_DIR:-$ROOT_DIR/artifacts}"
 ROJO_TIMEOUT_SECONDS="${ROJO_TIMEOUT_SECONDS:-120}"
-TEMP_PROJECT_FILES=()
 
 export PATH="$HOME/.cargo/bin:$HOME/.aftman/bin:$ROOT_DIR/.aftman/bin:$PATH"
 
 mkdir -p "$ARTIFACT_DIR"
-
-cleanup_temp_projects() {
-    local project_file
-    for project_file in "${TEMP_PROJECT_FILES[@]}"; do
-        rm -f "$project_file" || true
-    done
-}
-trap cleanup_temp_projects EXIT
 
 if ! command -v rojo >/dev/null 2>&1; then
     echo "rojo is required but not found in PATH."
@@ -99,140 +90,10 @@ resolve_project_file() {
     local place_name="$1"
     local place_project="$ROOT_DIR/game/places/${place_name}/default.project.json"
     local root_project="$ROOT_DIR/${place_name}.project.json"
-    local compat_project="$ROOT_DIR/.ci-${place_name}.compat.project.json"
 
     if [ -f "$place_project" ]; then
         echo "$place_project"
         return 0
-    fi
-
-    if [ -d "$ROOT_DIR/src/Packages" ]; then
-        if [ "$place_name" = "lobby" ]; then
-            cat >"$compat_project" <<'JSON'
-{
-  "name": "Brainrot Floor Lobby",
-  "servePort": 34872,
-  "tree": {
-    "$className": "DataModel",
-    "ReplicatedStorage": {
-      "$className": "ReplicatedStorage",
-      "$ignoreUnknownInstances": true,
-      "Shared": {
-        "$path": "src/Packages/Shared/ReplicatedStorage/Shared",
-        "$ignoreUnknownInstances": true
-      }
-    },
-    "ServerScriptService": {
-      "$className": "ServerScriptService",
-      "$ignoreUnknownInstances": true,
-      "Shared": {
-        "$path": "src/Packages/Shared/ServerScriptService/Shared",
-        "$ignoreUnknownInstances": true
-      },
-      "Lobby": {
-        "$path": "src/Packages/Lobby/ServerScriptService/Lobby",
-        "$ignoreUnknownInstances": true
-      }
-    },
-    "StarterPlayer": {
-      "$className": "StarterPlayer",
-      "$ignoreUnknownInstances": true,
-      "StarterPlayerScripts": {
-        "$className": "StarterPlayerScripts",
-        "$ignoreUnknownInstances": true,
-        "SharedClient": {
-          "$path": "src/Packages/Shared/StarterPlayer/StarterPlayerScripts/SharedClient",
-          "$ignoreUnknownInstances": true
-        }
-      }
-    },
-    "Workspace": {
-      "$className": "Workspace",
-      "$ignoreUnknownInstances": true,
-      "DifficultyButtons": {
-        "$path": "src/Packages/Lobby/Workspace/DifficultyButtons",
-        "$ignoreUnknownInstances": true
-      }
-    }
-  }
-}
-JSON
-        elif [ "$place_name" = "match" ]; then
-            cat >"$compat_project" <<'JSON'
-{
-  "name": "Brainrot Floor Match",
-  "servePort": 34872,
-  "tree": {
-    "$className": "DataModel",
-    "ReplicatedStorage": {
-      "$className": "ReplicatedStorage",
-      "$ignoreUnknownInstances": true,
-      "Shared": {
-        "$path": "src/Packages/Shared/ReplicatedStorage/Shared",
-        "$ignoreUnknownInstances": true
-      }
-    },
-    "ServerScriptService": {
-      "$className": "ServerScriptService",
-      "$ignoreUnknownInstances": true,
-      "Shared": {
-        "$path": "src/Packages/Shared/ServerScriptService/Shared",
-        "$ignoreUnknownInstances": true
-      },
-      "Match": {
-        "$path": "src/Packages/Match/ServerScriptService/Match",
-        "$ignoreUnknownInstances": true
-      }
-    },
-    "ServerStorage": {
-      "$className": "ServerStorage",
-      "$ignoreUnknownInstances": true,
-      "EnemyTemplates": {
-        "$path": "src/Packages/Match/ServerStorage/EnemyTemplates",
-        "$ignoreUnknownInstances": true
-      },
-      "ShopItems": {
-        "$path": "src/Packages/Match/ServerStorage/ShopItems",
-        "$ignoreUnknownInstances": true
-      }
-    },
-    "StarterPlayer": {
-      "$className": "StarterPlayer",
-      "$ignoreUnknownInstances": true,
-      "StarterPlayerScripts": {
-        "$className": "StarterPlayerScripts",
-        "$ignoreUnknownInstances": true,
-        "SharedClient": {
-          "$path": "src/Packages/Shared/StarterPlayer/StarterPlayerScripts/SharedClient",
-          "$ignoreUnknownInstances": true
-        },
-        "MatchClient": {
-          "$path": "src/Packages/Match/StarterPlayer/StarterPlayerScripts/MatchClient",
-          "$ignoreUnknownInstances": true
-        }
-      }
-    },
-    "Workspace": {
-      "$className": "Workspace",
-      "$ignoreUnknownInstances": true,
-      "EnemyContainer": {
-        "$path": "src/Packages/Match/Workspace/EnemyContainer",
-        "$ignoreUnknownInstances": true
-      },
-      "SpawnPoints": {
-        "$path": "src/Packages/Match/Workspace/SpawnPoints",
-        "$ignoreUnknownInstances": true
-      }
-    }
-  }
-}
-JSON
-        fi
-
-        if [ -f "$compat_project" ]; then
-            echo "$compat_project"
-            return 0
-        fi
     fi
 
     if [ -f "$root_project" ]; then
@@ -261,14 +122,6 @@ ensure_packages_dir "$ROOT_DIR/game/places/match"
 
 LOBBY_PROJECT_FILE="$(resolve_project_file "lobby")"
 MATCH_PROJECT_FILE="$(resolve_project_file "match")"
-
-if [[ "$LOBBY_PROJECT_FILE" == "$ROOT_DIR/.ci-"* ]]; then
-    TEMP_PROJECT_FILES+=("$LOBBY_PROJECT_FILE")
-fi
-
-if [[ "$MATCH_PROJECT_FILE" == "$ROOT_DIR/.ci-"* ]]; then
-    TEMP_PROJECT_FILES+=("$MATCH_PROJECT_FILE")
-fi
 
 echo "Lobby project: $LOBBY_PROJECT_FILE"
 echo "Match project: $MATCH_PROJECT_FILE"

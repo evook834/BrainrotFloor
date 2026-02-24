@@ -35,7 +35,6 @@ Validation/build workflow:
   - Runs optional per-place `wally install` when network is reachable
   - Auto-selects project files:
     - prefers `game/places/<place>/default.project.json`
-    - if `src/Packages` exists, generates temporary compatibility place project files at repo root for that CI run
     - falls back to `<place>.project.json` when place project files are not yet in the branch
   - Validates place mappings with `rojo sourcemap`
   - Builds:
@@ -68,7 +67,6 @@ Publish targets manifest:
   - `lobby` -> uses `game/places/lobby/default.project.json` + `artifacts/lobby-place.rbxlx`
   - `match` -> uses `game/places/match/default.project.json` + `artifacts/match-place.rbxlx`
 - You can override defaults per target with optional `projectFile` and `buildArtifact`.
-- The default manifest in this repo pins `projectFile` to `scripts/ci/projects/*-compat.project.json` for `src/Packages` layout compatibility.
 - When map content changes in Studio, re-export that place's `baseSnapshot` file and commit it once.
 
 Required GitHub environment secrets (`staging` and/or `production`):

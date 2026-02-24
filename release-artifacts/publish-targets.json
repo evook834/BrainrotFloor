@@ -4,15 +4,13 @@
       "name": "lobby",
       "role": "lobby",
       "placeId": 110355050239948,
-      "baseSnapshot": "release-artifacts/lobby-place.rbxlx",
-      "projectFile": "scripts/ci/projects/lobby-compat.project.json"
+      "baseSnapshot": "release-artifacts/lobby-place.rbxlx"
     },
     {
       "name": "match-main",
       "role": "match",
       "placeId": 117308283626623,
-      "baseSnapshot": "release-artifacts/match-place.rbxlx",
-      "projectFile": "scripts/ci/projects/match-compat.project.json"
+      "baseSnapshot": "release-artifacts/match-place.rbxlx"
     }
   ]
 }
