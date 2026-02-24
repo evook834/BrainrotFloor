@@ -1,4 +1,5 @@
 local ClassSystemConfig = require(script.Parent:WaitForChild("ClassSystemConfig"))
+local AmmoPickupConfig = require(script.Parent:WaitForChild("AmmoPickupConfig"))
 local EnemyConfig = require(script.Parent:WaitForChild("EnemyConfig"))
 local PlayerConfig = require(script.Parent:WaitForChild("PlayerConfig"))
 local RemoteNames = require(script.Parent:WaitForChild("RemoteNames"))
@@ -29,6 +30,7 @@ local Config = {
 	Player = PlayerConfig,
 	ClassSystem = ClassSystemConfig,
 	Shop = ShopConfig,
+	AmmoPickup = AmmoPickupConfig,
 }
 
 return Config
