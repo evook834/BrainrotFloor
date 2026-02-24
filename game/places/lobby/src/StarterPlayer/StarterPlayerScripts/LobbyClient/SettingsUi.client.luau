@@ -12,6 +12,7 @@ local MUSIC_CHANNEL = "Music"
 local SFX_CHANNEL = "Sfx"
 local GEAR_ICON = utf8.char(0x2699)
 local REMOTE_WAIT_TIMEOUT_SECONDS = 15
+local HUD_MOVE_MODE_ATTRIBUTE = "LobbyHudMoveModeEnabled"
 
 local HUD_SCREEN_GUI_NAMES = {
 	BrainrotHud = true,
@@ -76,6 +77,7 @@ gui.Name = SETTINGS_GUI_NAME
 gui.ResetOnSpawn = false
 gui.DisplayOrder = 60
 gui.Parent = playerGui
+playerGui:SetAttribute(HUD_MOVE_MODE_ATTRIBUTE, false)
 
 local function styleRounded(container, radius)
 	local corner = Instance.new("UICorner")
@@ -1020,6 +1022,7 @@ end
 
 local function setMoveModeEnabled(enabled)
 	moveModeEnabled = enabled
+	playerGui:SetAttribute(HUD_MOVE_MODE_ATTRIBUTE, moveModeEnabled)
 	if not moveModeEnabled then
 		activeDrag = nil
 	end

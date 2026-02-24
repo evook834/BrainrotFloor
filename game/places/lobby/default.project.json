@@ -36,6 +36,10 @@
         "SharedClient": {
           "$path": "../../shared/client/src/SharedClient",
           "$ignoreUnknownInstances": true
+        },
+        "LobbyClient": {
+          "$path": "src/StarterPlayer/StarterPlayerScripts/LobbyClient",
+          "$ignoreUnknownInstances": true
         }
       }
     }
