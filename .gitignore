@@ -8,4 +8,6 @@ game/places/*/.cache/
 game/places/*/Packages/*
 !game/places/*/Packages/.gitkeep
 artifacts/
-release-artifacts/*.rbxlx
+release-artifacts/
+scripts/
+.cache/
