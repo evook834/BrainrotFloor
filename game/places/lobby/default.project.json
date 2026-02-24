@@ -38,14 +38,6 @@
           "$ignoreUnknownInstances": true
         }
       }
-    },
-    "Workspace": {
-      "$className": "Workspace",
-      "$ignoreUnknownInstances": true,
-      "DifficultyButtons": {
-        "$path": "src/Workspace/DifficultyButtons",
-        "$ignoreUnknownInstances": true
-      }
     }
   }
 }

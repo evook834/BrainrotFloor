@@ -27,9 +27,7 @@
 Validation/build workflow:
 - File: `.github/workflows/ci-places.yml`
 - Triggers:
-  - `pull_request` (all branches)
-  - `push` to `main`
-  - `workflow_dispatch` (manual)
+  - `workflow_dispatch` only (manual)
 - Behavior:
   - Installs toolchain using `scripts/ci/install_toolchain.sh` (`aftman` + tools from `aftman.toml`)
   - Runs optional per-place `wally install` when network is reachable
@@ -151,6 +149,7 @@ Use these exact paths when syncing with Rojo:
 
 Required lobby workspace setup:
 - `Workspace > DifficultyButtons` folder with button `BasePart` instances.
+- This folder is map-owned (Studio snapshot) and is not Rojo-managed.
 - Each button maps to a difficulty (`Easy`, `Normal`, `Hard`) by part name, or by a `Difficulty` attribute.
 - Set `MATCH_PLACE_IDS` in `game/shared/server/src/Shared/MatchmakingConfig.luau` to the shared map pool used for all difficulties.
 - Matchmaking reuses existing servers first; if none exist for that difficulty, it reserves a server on a random place from `MATCH_PLACE_IDS`.
