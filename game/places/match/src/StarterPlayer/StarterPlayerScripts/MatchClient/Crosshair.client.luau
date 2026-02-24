@@ -10,6 +10,14 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local mouse = player:GetMouse()
 local DOT_CURSOR_ICON = "rbxasset://textures/MouseLockedCursor.png"
+local DEFAULT_SCOPE_ZOOM_FOV = 18
+local HIDE_WEAPON_MODEL_WHILE_SCOPED_IDS = {
+	awp = true,
+}
+local SCOPE_UI_EXEMPT_GUI_NAMES = {
+	AmmoHud = true,
+}
+local SCOPE_CIRCLE_MASK_SEGMENTS = 128
 local remotesFolder = ReplicatedStorage:WaitForChild(Config.Remotes.Folder)
 local weaponAimRemote = nil
 local weaponFireRemote = nil
@@ -39,6 +47,110 @@ root.AnchorPoint = Vector2.new(0.5, 0.5)
 root.BackgroundTransparency = 1
 root.Parent = gui
 
+local scopeOverlay = Instance.new("Frame")
+scopeOverlay.Name = "ScopeOverlay"
+scopeOverlay.Size = UDim2.fromScale(1, 1)
+scopeOverlay.Position = UDim2.fromScale(0, 0)
+scopeOverlay.BackgroundTransparency = 1
+scopeOverlay.Visible = false
+scopeOverlay.ZIndex = 5
+scopeOverlay.Parent = gui
+
+local scopeMaskTop = Instance.new("Frame")
+scopeMaskTop.Name = "MaskTop"
+scopeMaskTop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+scopeMaskTop.BorderSizePixel = 0
+scopeMaskTop.ZIndex = 5
+scopeMaskTop.Parent = scopeOverlay
+
+local scopeMaskBottom = Instance.new("Frame")
+scopeMaskBottom.Name = "MaskBottom"
+scopeMaskBottom.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+scopeMaskBottom.BorderSizePixel = 0
+scopeMaskBottom.ZIndex = 5
+scopeMaskBottom.Parent = scopeOverlay
+
+local scopeMaskLeft = Instance.new("Frame")
+scopeMaskLeft.Name = "MaskLeft"
+scopeMaskLeft.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+scopeMaskLeft.BorderSizePixel = 0
+scopeMaskLeft.ZIndex = 5
+scopeMaskLeft.Parent = scopeOverlay
+
+local scopeMaskRight = Instance.new("Frame")
+scopeMaskRight.Name = "MaskRight"
+scopeMaskRight.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+scopeMaskRight.BorderSizePixel = 0
+scopeMaskRight.ZIndex = 5
+scopeMaskRight.Parent = scopeOverlay
+
+local scopeCircleMaskLeftSlices = table.create(SCOPE_CIRCLE_MASK_SEGMENTS)
+local scopeCircleMaskRightSlices = table.create(SCOPE_CIRCLE_MASK_SEGMENTS)
+for index = 1, SCOPE_CIRCLE_MASK_SEGMENTS do
+	local leftSlice = Instance.new("Frame")
+	leftSlice.Name = string.format("CircleMaskLeft_%02d", index)
+	leftSlice.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	leftSlice.BorderSizePixel = 0
+	leftSlice.ZIndex = 5
+	leftSlice.Parent = scopeOverlay
+	scopeCircleMaskLeftSlices[index] = leftSlice
+
+	local rightSlice = Instance.new("Frame")
+	rightSlice.Name = string.format("CircleMaskRight_%02d", index)
+	rightSlice.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	rightSlice.BorderSizePixel = 0
+	rightSlice.ZIndex = 5
+	rightSlice.Parent = scopeOverlay
+	scopeCircleMaskRightSlices[index] = rightSlice
+end
+
+local scopeCircle = Instance.new("Frame")
+scopeCircle.Name = "Circle"
+scopeCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+scopeCircle.Position = UDim2.fromScale(0.5, 0.5)
+scopeCircle.Size = UDim2.fromOffset(360, 360)
+scopeCircle.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+scopeCircle.BackgroundTransparency = 1
+scopeCircle.BorderSizePixel = 0
+scopeCircle.ZIndex = 6
+scopeCircle.Parent = scopeOverlay
+
+local scopeCircleCorner = Instance.new("UICorner")
+scopeCircleCorner.CornerRadius = UDim.new(1, 0)
+scopeCircleCorner.Parent = scopeCircle
+
+local scopeCircleStroke = Instance.new("UIStroke")
+scopeCircleStroke.Color = Color3.fromRGB(28, 28, 28)
+scopeCircleStroke.Transparency = 1
+scopeCircleStroke.Thickness = 2
+scopeCircleStroke.Parent = scopeCircle
+
+local scopeHorizontalLine = Instance.new("Frame")
+scopeHorizontalLine.Name = "HorizontalLine"
+scopeHorizontalLine.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+scopeHorizontalLine.BorderSizePixel = 0
+scopeHorizontalLine.ZIndex = 7
+scopeHorizontalLine.Parent = scopeOverlay
+
+local scopeVerticalLine = Instance.new("Frame")
+scopeVerticalLine.Name = "VerticalLine"
+scopeVerticalLine.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+scopeVerticalLine.BorderSizePixel = 0
+scopeVerticalLine.ZIndex = 7
+scopeVerticalLine.Parent = scopeOverlay
+
+local scopeCenterDot = Instance.new("Frame")
+scopeCenterDot.Name = "CenterDot"
+scopeCenterDot.AnchorPoint = Vector2.new(0.5, 0.5)
+scopeCenterDot.BackgroundColor3 = Color3.fromRGB(14, 14, 14)
+scopeCenterDot.BorderSizePixel = 0
+scopeCenterDot.ZIndex = 8
+scopeCenterDot.Parent = scopeOverlay
+
+local scopeCenterDotCorner = Instance.new("UICorner")
+scopeCenterDotCorner.CornerRadius = UDim.new(1, 0)
+scopeCenterDotCorner.Parent = scopeCenterDot
+
 local currentCharacter = nil
 local currentTool = nil
 local characterConns = {}
@@ -47,6 +159,12 @@ local lastAimSentAt = 0
 local lastAutoFireAt = -math.huge
 local aimUpdateInterval = 0.03
 local isPrimaryFireHeld = false
+local isSecondaryAimHeld = false
+local isScopeActive = false
+local defaultCameraFov = nil
+local scopedWeaponSettingsById = {}
+local hiddenHudGuiStates = setmetatable({}, { __mode = "k" })
+local hiddenScopedToolPartStates = setmetatable({}, { __mode = "k" })
 local dualPoseCharacter = nil
 local dualPoseLeftShoulder = nil
 local dualPoseRightShoulder = nil
@@ -58,8 +176,26 @@ local dualPoseRenderStepName = string.format("DualWieldPose_%d", player.UserId)
 local dualWieldWeaponIds = {}
 
 for _, weaponDef in ipairs((Config.Shop and Config.Shop.Weapons) or {}) do
-	if type(weaponDef) == "table" and type(weaponDef.Id) == "string" and weaponDef.Id ~= "" and weaponDef.DualWield == true then
-		dualWieldWeaponIds[weaponDef.Id] = true
+	if type(weaponDef) == "table" and type(weaponDef.Id) == "string" and weaponDef.Id ~= "" then
+		if weaponDef.DualWield == true then
+			dualWieldWeaponIds[weaponDef.Id] = true
+		end
+
+		local isScopedWeapon = weaponDef.Scoped == true
+			or weaponDef.Scope == true
+			or type(weaponDef.ScopeZoomFov) == "number"
+			or type(weaponDef.ScopeOverlayStyle) == "string"
+		if isScopedWeapon then
+			scopedWeaponSettingsById[weaponDef.Id] = {
+				zoomFov = math.clamp(
+					tonumber(weaponDef.ScopeZoomFov) or tonumber(weaponDef.ZoomFov) or DEFAULT_SCOPE_ZOOM_FOV,
+					8,
+					70
+				),
+				requiresFirstPerson = weaponDef.ScopeRequiresFirstPerson ~= false,
+				autoScopeInFirstPerson = weaponDef.AutoScopeInFirstPerson == true,
+			}
+		end
 	end
 end
 
@@ -318,6 +454,219 @@ local function getCurrentWeaponId()
 	end
 
 	return weaponId
+end
+
+local function getCurrentScopedWeaponSettings()
+	local weaponId = getCurrentWeaponId()
+	if type(weaponId) ~= "string" or weaponId == "" then
+		return nil
+	end
+
+	return scopedWeaponSettingsById[weaponId]
+end
+
+local function updateScopeOverlayLayout()
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return
+	end
+
+	local viewport = camera.ViewportSize
+	if viewport.X <= 0 or viewport.Y <= 0 then
+		return
+	end
+
+	local centerX = viewport.X * 0.5
+	local centerY = viewport.Y * 0.5
+	local diameter = math.floor(math.clamp(math.min(viewport.X, viewport.Y) * 0.76, 240, 980) + 0.5)
+	local radius = diameter * 0.5
+	local circleTop = centerY - radius
+	local circleBottom = centerY + radius
+	local circleLeft = centerX - radius
+	local circleRight = centerX + radius
+
+	scopeCircle.Size = UDim2.fromOffset(diameter, diameter)
+	scopeCircle.Position = UDim2.fromOffset(centerX, centerY)
+
+	scopeMaskTop.Size = UDim2.fromOffset(viewport.X, math.max(0, circleTop))
+	scopeMaskTop.Position = UDim2.fromOffset(0, 0)
+
+	scopeMaskBottom.Size = UDim2.fromOffset(viewport.X, math.max(0, viewport.Y - circleBottom))
+	scopeMaskBottom.Position = UDim2.fromOffset(0, circleBottom)
+
+	scopeMaskLeft.Size = UDim2.fromOffset(math.max(0, circleLeft), math.max(0, diameter))
+	scopeMaskLeft.Position = UDim2.fromOffset(0, circleTop)
+
+	scopeMaskRight.Size = UDim2.fromOffset(math.max(0, viewport.X - circleRight), math.max(0, diameter))
+	scopeMaskRight.Position = UDim2.fromOffset(circleRight, circleTop)
+
+	local segmentHeight = diameter / SCOPE_CIRCLE_MASK_SEGMENTS
+	for index = 1, SCOPE_CIRCLE_MASK_SEGMENTS do
+		local sliceTop = math.floor(circleTop + ((index - 1) * segmentHeight))
+		local sliceBottom = math.floor(circleTop + (index * segmentHeight))
+		if index == SCOPE_CIRCLE_MASK_SEGMENTS then
+			sliceBottom = math.ceil(circleBottom)
+		end
+		if sliceBottom <= sliceTop then
+			sliceBottom = sliceTop + 1
+		end
+
+		local sliceHeight = sliceBottom - sliceTop
+		local sliceCenterY = sliceTop + (sliceHeight * 0.5)
+		local dy = sliceCenterY - centerY
+		local visibleHalfWidth = math.sqrt(math.max(0, (radius * radius) - (dy * dy)))
+		local leftEdge = centerX - visibleHalfWidth
+		local rightEdge = centerX + visibleHalfWidth
+
+		local leftWidth = math.max(0, math.floor(leftEdge))
+		local rightX = math.ceil(rightEdge)
+		local rightWidth = math.max(0, viewport.X - rightX)
+
+		local leftSlice = scopeCircleMaskLeftSlices[index]
+		leftSlice.Size = UDim2.fromOffset(leftWidth, sliceHeight)
+		leftSlice.Position = UDim2.fromOffset(0, sliceTop)
+
+		local rightSlice = scopeCircleMaskRightSlices[index]
+		rightSlice.Size = UDim2.fromOffset(rightWidth, sliceHeight)
+		rightSlice.Position = UDim2.fromOffset(rightX, sliceTop)
+	end
+
+	scopeHorizontalLine.Size = UDim2.fromOffset(diameter, 2)
+	scopeHorizontalLine.Position = UDim2.fromOffset(circleLeft, centerY - 1)
+
+	scopeVerticalLine.Size = UDim2.fromOffset(2, diameter)
+	scopeVerticalLine.Position = UDim2.fromOffset(centerX - 1, circleTop)
+
+	scopeCenterDot.Size = UDim2.fromOffset(6, 6)
+	scopeCenterDot.Position = UDim2.fromOffset(centerX, centerY)
+end
+
+local function isCharacterAlive()
+	if not currentCharacter then
+		return false
+	end
+
+	local humanoid = currentCharacter:FindFirstChildOfClass("Humanoid")
+	return humanoid ~= nil and humanoid.Health > 0
+end
+
+local function isCharacterInFirstPerson()
+	if not currentCharacter then
+		return false
+	end
+
+	if player.CameraMode == Enum.CameraMode.LockFirstPerson then
+		return true
+	end
+
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return false
+	end
+
+	local head = currentCharacter:FindFirstChild("Head")
+	if not (head and head:IsA("BasePart")) then
+		return false
+	end
+
+	return (camera.CFrame.Position - head.Position).Magnitude <= 1.15
+end
+
+local function setHudVisibleForScope(scopeActive)
+	if scopeActive == true then
+		for _, child in ipairs(playerGui:GetChildren()) do
+			local exempt = child:IsA("ScreenGui") and SCOPE_UI_EXEMPT_GUI_NAMES[child.Name] == true
+			if child:IsA("ScreenGui") and child ~= gui and not exempt then
+				if hiddenHudGuiStates[child] == nil then
+					hiddenHudGuiStates[child] = child.Enabled == true
+				end
+				if child.Enabled then
+					child.Enabled = false
+				end
+			end
+		end
+		return
+	end
+
+	for screenGui, wasEnabled in pairs(hiddenHudGuiStates) do
+		if screenGui and screenGui.Parent == playerGui then
+			screenGui.Enabled = wasEnabled == true
+		end
+		hiddenHudGuiStates[screenGui] = nil
+	end
+end
+
+local function shouldHideCurrentScopedWeaponModel()
+	if not currentTool then
+		return false
+	end
+
+	local weaponId = getCurrentWeaponId()
+	if type(weaponId) ~= "string" then
+		return false
+	end
+
+	return HIDE_WEAPON_MODEL_WHILE_SCOPED_IDS[string.lower(weaponId)] == true
+end
+
+local function setScopedWeaponModelHidden(hidden)
+	if hidden == true then
+		if not currentTool then
+			return
+		end
+
+		for _, descendant in ipairs(currentTool:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				if hiddenScopedToolPartStates[descendant] == nil then
+					hiddenScopedToolPartStates[descendant] = descendant.LocalTransparencyModifier
+				end
+				descendant.LocalTransparencyModifier = 1
+			end
+		end
+		return
+	end
+
+	for part, previousLocalTransparency in pairs(hiddenScopedToolPartStates) do
+		if part and part.Parent then
+			part.LocalTransparencyModifier = tonumber(previousLocalTransparency) or 0
+		end
+		hiddenScopedToolPartStates[part] = nil
+	end
+end
+
+local function setScopeActive(active, zoomFov)
+	active = active == true
+	if active == isScopeActive then
+		if active then
+			gui.IgnoreGuiInset = true
+			local camera = workspace.CurrentCamera
+			if camera then
+				camera.FieldOfView = zoomFov
+			end
+			setHudVisibleForScope(true)
+			setScopedWeaponModelHidden(shouldHideCurrentScopedWeaponModel())
+		end
+		return
+	end
+
+	local camera = workspace.CurrentCamera
+	if active then
+		if camera then
+			defaultCameraFov = camera.FieldOfView
+			camera.FieldOfView = zoomFov
+		end
+	else
+		if camera and type(defaultCameraFov) == "number" then
+			camera.FieldOfView = defaultCameraFov
+		end
+		defaultCameraFov = nil
+	end
+
+	isScopeActive = active
+	gui.IgnoreGuiInset = active
+	scopeOverlay.Visible = active
+	setHudVisibleForScope(active)
+	setScopedWeaponModelHidden(active and shouldHideCurrentScopedWeaponModel())
 end
 
 local function isCurrentToolDualWield(weaponId)
@@ -605,7 +954,7 @@ local function getCrosshairViewportPoint()
 	local viewportSize = camera.ViewportSize
 	local x = viewportSize.X * 0.5
 	local y = viewportSize.Y * 0.5
-	if UserInputService.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
+	if not isScopeActive and UserInputService.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
 		local mousePos = UserInputService:GetMouseLocation()
 		local insetTopLeft = GuiService:GetGuiInset()
 		x = mousePos.X - insetTopLeft.X
@@ -766,6 +1115,7 @@ end
 
 local function updateToolConnections(tool)
 	disconnectAll(toolConns)
+	setScopeActive(false, DEFAULT_SCOPE_ZOOM_FOV)
 	currentTool = tool
 	lastAutoFireAt = -math.huge
 	if not currentTool then
@@ -790,6 +1140,7 @@ local function bindCharacter(character)
 	disconnectAll(characterConns)
 	updateToolConnections(nil)
 	currentCharacter = character
+	setScopeActive(false, DEFAULT_SCOPE_ZOOM_FOV)
 	clearDualWieldPose()
 
 	for _, child in ipairs(character:GetChildren()) do
@@ -830,12 +1181,16 @@ UserInputService.InputBegan:Connect(function(inputObject, gameProcessed)
 
 	if inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
 		isPrimaryFireHeld = true
+	elseif inputObject.UserInputType == Enum.UserInputType.MouseButton2 then
+		isSecondaryAimHeld = true
 	end
 end)
 
 UserInputService.InputEnded:Connect(function(inputObject)
 	if inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
 		isPrimaryFireHeld = false
+	elseif inputObject.UserInputType == Enum.UserInputType.MouseButton2 then
+		isSecondaryAimHeld = false
 	end
 end)
 
@@ -849,23 +1204,48 @@ RunService.RenderStepped:Connect(function()
 
 	local crosshairX, crosshairY = getCrosshairViewportPoint()
 	root.Position = UDim2.fromOffset(crosshairX, crosshairY)
+	updateScopeOverlayLayout()
 
 	local showCrosshair = true
 	local shopOpen = isShopOpen()
 
-	if currentCharacter then
-		local humanoid = currentCharacter:FindFirstChildOfClass("Humanoid")
-		if humanoid then
-			if humanoid.Health <= 0 then
-				showCrosshair = false
-			end
+	if not isCharacterAlive() then
+		showCrosshair = false
+	end
+
+	local shouldScope = false
+	local targetScopeZoomFov = DEFAULT_SCOPE_ZOOM_FOV
+	local scopedSettings = getCurrentScopedWeaponSettings()
+	if scopedSettings and currentTool and currentCharacter and currentTool.Parent == currentCharacter then
+		local inFirstPerson = isCharacterInFirstPerson()
+		local meetsViewRequirement = inFirstPerson or scopedSettings.requiresFirstPerson ~= true
+		local wantsScope = isSecondaryAimHeld
+		if not wantsScope and scopedSettings.autoScopeInFirstPerson == true and inFirstPerson then
+			wantsScope = true
+		end
+
+		if
+			wantsScope
+			and meetsViewRequirement
+			and not shopOpen
+			and not UserInputService:GetFocusedTextBox()
+			and isCharacterAlive()
+		then
+			shouldScope = true
+			targetScopeZoomFov = math.clamp(tonumber(scopedSettings.zoomFov) or DEFAULT_SCOPE_ZOOM_FOV, 8, 70)
 		end
 	end
 
-	UserInputService.MouseIconEnabled = true
-	if mouse and mouse.Icon ~= DOT_CURSOR_ICON then
-		mouse.Icon = DOT_CURSOR_ICON
+	setScopeActive(shouldScope, targetScopeZoomFov)
+
+	local shouldShowMouseIcon = not isScopeActive
+	UserInputService.MouseIconEnabled = shouldShowMouseIcon
+	if mouse then
+		local desiredCursor = if shouldShowMouseIcon then DOT_CURSOR_ICON else ""
+		if mouse.Icon ~= desiredCursor then
+			mouse.Icon = desiredCursor
+		end
 	end
 
-	root.Visible = showCrosshair and not shopOpen
+	root.Visible = showCrosshair and not shopOpen and not isScopeActive
 end)

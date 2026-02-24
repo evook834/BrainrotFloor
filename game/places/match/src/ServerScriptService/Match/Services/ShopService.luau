@@ -27,9 +27,14 @@ local weaponById = {}
 local weaponEffectsFolder = nil
 local toolRuntimeState = setmetatable({}, { __mode = "k" })
 local enemyDamageBlinkState = setmetatable({}, { __mode = "k" })
+local enemyBurnState = setmetatable({}, { __mode = "k" })
 local playerAimState = {}
 local playerGroundFireState = {}
 local randomGenerator = Random.new()
+local FIRE_CONE_HALF_ANGLE_DEGREES = 40
+local FIRE_CONE_MIN_DOT = math.cos(math.rad(FIRE_CONE_HALF_ANGLE_DEGREES))
+local BURN_DOT_FALLBACK_TICK_INTERVAL_SECONDS = 0.5
+local applyDamageToEnemy
 
 local function ensureRemote(parent, className, name)
 	local instance = parent:FindFirstChild(name)
@@ -129,6 +134,68 @@ local function getFreshAimState(player)
 	return aimState
 end
 
+local function getHorizontalUnit(vector)
+	local horizontal = Vector3.new(vector.X, 0, vector.Z)
+	if horizontal.Magnitude <= 0.001 then
+		return nil
+	end
+	return horizontal.Unit
+end
+
+local function isDirectionWithinForwardFireArc(rootPart, direction)
+	if typeof(direction) ~= "Vector3" or direction.Magnitude <= 0.001 then
+		return true
+	end
+	if not rootPart or not rootPart:IsA("BasePart") then
+		return true
+	end
+
+	local forwardHorizontal = getHorizontalUnit(rootPart.CFrame.LookVector)
+	local directionHorizontal = getHorizontalUnit(direction)
+	if not forwardHorizontal or not directionHorizontal then
+		return true
+	end
+
+	-- Allow only a narrow horizontal cone around where the character is facing.
+	return forwardHorizontal:Dot(directionHorizontal) >= FIRE_CONE_MIN_DOT
+end
+
+local function clampDirectionToForwardFireArc(rootPart, direction, fallbackDirection)
+	local fallback = fallbackDirection
+	if typeof(fallback) ~= "Vector3" or fallback.Magnitude <= 0.001 then
+		if rootPart and rootPart:IsA("BasePart") then
+			fallback = rootPart.CFrame.LookVector
+		else
+			fallback = Vector3.new(0, 0, -1)
+		end
+	end
+
+	if typeof(direction) ~= "Vector3" or direction.Magnitude <= 0.001 then
+		return fallback.Unit
+	end
+
+	local directionUnit = direction.Unit
+	if isDirectionWithinForwardFireArc(rootPart, directionUnit) then
+		return directionUnit
+	end
+
+	return fallback.Unit
+end
+
+local function canPlayerFireTowardRequestedDirection(player, rootPart, explicitShotDirection)
+	local requestedDirection = explicitShotDirection
+	if typeof(requestedDirection) ~= "Vector3" or requestedDirection.Magnitude <= 0.001 then
+		local aimState = getFreshAimState(player)
+		if aimState and typeof(aimState.lookDirection) == "Vector3" and aimState.lookDirection.Magnitude > 0.001 then
+			requestedDirection = aimState.lookDirection
+		else
+			requestedDirection = rootPart.CFrame.LookVector
+		end
+	end
+
+	return isDirectionWithinForwardFireArc(rootPart, requestedDirection)
+end
+
 local function getPlayerAimDirection(player, character, rootPart, origin)
 	local baseDirection = rootPart.CFrame.LookVector
 	local aimState = getFreshAimState(player)
@@ -165,7 +232,7 @@ local function getPlayerAimDirection(player, character, rootPart, origin)
 		return baseDirection
 	end
 
-	return aimDirection.Unit
+	return clampDirectionToForwardFireArc(rootPart, aimDirection, baseDirection)
 end
 
 local function getPlayerShotRay(player, rootPart, fallbackOrigin, fallbackDirection)
@@ -173,15 +240,15 @@ local function getPlayerShotRay(player, rootPart, fallbackOrigin, fallbackDirect
 	if aimState and typeof(aimState.cameraOrigin) == "Vector3" then
 		local lookDirection = aimState.lookDirection
 		if typeof(lookDirection) == "Vector3" and lookDirection.Magnitude > 0.001 then
-			return aimState.cameraOrigin, lookDirection.Unit
+			return aimState.cameraOrigin, clampDirectionToForwardFireArc(rootPart, lookDirection, fallbackDirection)
 		end
 	end
 
 	if typeof(fallbackOrigin) == "Vector3" and typeof(fallbackDirection) == "Vector3" and fallbackDirection.Magnitude > 0.001 then
-		return fallbackOrigin, fallbackDirection.Unit
+		return fallbackOrigin, clampDirectionToForwardFireArc(rootPart, fallbackDirection, rootPart.CFrame.LookVector)
 	end
 
-	return rootPart.Position + Vector3.new(0, 1.5, 0), rootPart.CFrame.LookVector
+	return rootPart.Position + Vector3.new(0, 1.5, 0), clampDirectionToForwardFireArc(rootPart, rootPart.CFrame.LookVector, rootPart.CFrame.LookVector)
 end
 
 local function getMoneyValue(player)
@@ -301,6 +368,40 @@ local function getDamageIndicatorStyleTag(weaponDef)
 	return nil
 end
 
+local function resolveCriticalHitOutcome(player, weaponDef, damageContext)
+	if damageContext and damageContext.allowCriticalHits == false then
+		return 1, nil
+	end
+	if not player or not player:IsA("Player") then
+		return 1, nil
+	end
+	if type(weaponDef) ~= "table" then
+		return 1, nil
+	end
+
+	local critConfig = ClassService.getCriticalHitConfig(player, weaponDef)
+	if type(critConfig) ~= "table" then
+		return 1, nil
+	end
+
+	local superCriticalChance = math.clamp(tonumber(critConfig.superCriticalChance) or 0, 0, 1)
+	local criticalChance = math.clamp(tonumber(critConfig.criticalChance) or 0, 0, 1)
+	local totalChance = math.clamp(superCriticalChance + criticalChance, 0, 1)
+	if totalChance <= 0 then
+		return 1, nil
+	end
+
+	local roll = randomGenerator:NextNumber()
+	if roll <= superCriticalChance then
+		return math.max(1, tonumber(critConfig.superCriticalMultiplier) or 3), "supercrit"
+	end
+	if roll <= totalChance then
+		return math.max(1, tonumber(critConfig.criticalMultiplier) or 2), "crit"
+	end
+
+	return 1, nil
+end
+
 local function emitDamageIndicator(player, enemyModel, dealtDamage, indicatorStyleTag)
 	if not damageIndicatorRemote then
 		return
@@ -335,9 +436,135 @@ local function emitDamageIndicator(player, enemyModel, dealtDamage, indicatorSty
 	damageIndicatorRemote:FireClient(player, enemyModel, dealtDamage, worldPosition, normalizedStyleTag)
 end
 
-local function applyDamageToEnemy(player, enemyModel, damage, weaponDef)
+local function isEnemyAliveForBurn(enemyModel)
+	if not enemyModel or not enemyModel.Parent then
+		return false
+	end
+
+	local humanoid = enemyModel:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		return humanoid.Health > 0
+	end
+
+	local health = enemyModel:GetAttribute("EnemyHealth")
+	if type(health) ~= "number" then
+		return true
+	end
+
+	return health > 0
+end
+
+local function tryApplyBurnOnHit(player, enemyModel, weaponDef, classMultiplier)
+	if not player or not player:IsA("Player") then
+		return
+	end
 	if not enemyModel or not enemyModel.Parent then
 		return
+	end
+	if type(weaponDef) ~= "table" then
+		return
+	end
+
+	local burnConfig = ClassService.getBurnOnHitConfig(player, weaponDef)
+	if type(burnConfig) ~= "table" then
+		return
+	end
+
+	local chance = math.clamp(tonumber(burnConfig.chance) or 0, 0, 1)
+	if chance <= 0 or randomGenerator:NextNumber() > chance then
+		return
+	end
+
+	local durationSeconds = math.max(0.1, tonumber(burnConfig.durationSeconds) or 3)
+	local tickIntervalSeconds = math.max(
+		0.1,
+		tonumber(burnConfig.tickIntervalSeconds) or BURN_DOT_FALLBACK_TICK_INTERVAL_SECONDS
+	)
+	local damageFractionPerSecond = math.max(0, tonumber(burnConfig.damageFractionPerSecond) or 0)
+	if damageFractionPerSecond <= 0 then
+		return
+	end
+
+	local baseWeaponDamage = math.max(0, tonumber(weaponDef.Damage) or 0)
+	if baseWeaponDamage <= 0 then
+		return
+	end
+
+	local effectiveWeaponDamage = baseWeaponDamage * math.max(0, tonumber(classMultiplier) or 1)
+	local damagePerTick = effectiveWeaponDamage * damageFractionPerSecond * tickIntervalSeconds
+	if damagePerTick <= 0 then
+		return
+	end
+
+	local ticksRemaining = math.max(1, math.floor((durationSeconds / tickIntervalSeconds) + 0.5))
+	local state = enemyBurnState[enemyModel]
+	if not state then
+		state = {
+			token = 0,
+		}
+		enemyBurnState[enemyModel] = state
+	end
+
+	state.token += 1
+	local currentToken = state.token
+	state.ownerPlayer = player
+	state.damagePerTick = damagePerTick
+	state.tickIntervalSeconds = tickIntervalSeconds
+	state.ticksRemaining = ticksRemaining
+
+	task.spawn(function()
+		while true do
+			local liveState = enemyBurnState[enemyModel]
+			if liveState ~= state or state.token ~= currentToken then
+				return
+			end
+			if state.ticksRemaining <= 0 then
+				break
+			end
+
+			task.wait(state.tickIntervalSeconds)
+
+			liveState = enemyBurnState[enemyModel]
+			if liveState ~= state or state.token ~= currentToken then
+				return
+			end
+			if not isEnemyAliveForBurn(enemyModel) then
+				enemyBurnState[enemyModel] = nil
+				return
+			end
+
+			local ownerPlayer = state.ownerPlayer
+			if not ownerPlayer or not ownerPlayer:IsA("Player") or ownerPlayer.Parent ~= Players then
+				enemyBurnState[enemyModel] = nil
+				return
+			end
+
+			applyDamageToEnemy(ownerPlayer, enemyModel, state.damagePerTick, nil, {
+				applyClassMultiplier = false,
+				allowBurnOnHit = false,
+				allowCriticalHits = false,
+			})
+			state.ticksRemaining -= 1
+		end
+
+		local liveState = enemyBurnState[enemyModel]
+		if liveState == state and state.token == currentToken then
+			enemyBurnState[enemyModel] = nil
+		end
+	end)
+end
+
+applyDamageToEnemy = function(player, enemyModel, damage, weaponDef, damageContext)
+	if not enemyModel or not enemyModel.Parent then
+		return
+	end
+
+	local context = damageContext or {}
+	local applyClassMultiplier = context.applyClassMultiplier ~= false
+	local allowBurnOnHit = context.allowBurnOnHit ~= false
+	local explicitIndicatorStyleTag = nil
+	if type(context.indicatorStyleTag) == "string" and context.indicatorStyleTag ~= "" then
+		explicitIndicatorStyleTag = string.lower(context.indicatorStyleTag)
 	end
 
 	local appliedDamage = math.max(0, tonumber(damage) or 0)
@@ -345,15 +572,25 @@ local function applyDamageToEnemy(player, enemyModel, damage, weaponDef)
 		return
 	end
 
+	local classMultiplier = 1
 	if player and player:IsA("Player") and weaponDef then
-		local classMultiplier = ClassService.getWeaponDamageMultiplier(player, weaponDef)
-		if classMultiplier <= 0 then
-			return
+		local computedMultiplier = ClassService.getWeaponDamageMultiplier(player, weaponDef)
+		if computedMultiplier <= 0 then
+			if applyClassMultiplier then
+				return
+			end
+		else
+			classMultiplier = computedMultiplier
+			if applyClassMultiplier then
+				appliedDamage *= classMultiplier
+			end
 		end
-
-		appliedDamage *= classMultiplier
 	end
-	local indicatorStyleTag = getDamageIndicatorStyleTag(weaponDef)
+
+	local criticalDamageMultiplier, criticalIndicatorStyleTag = resolveCriticalHitOutcome(player, weaponDef, context)
+	appliedDamage *= math.max(1, tonumber(criticalDamageMultiplier) or 1)
+
+	local indicatorStyleTag = criticalIndicatorStyleTag or explicitIndicatorStyleTag or getDamageIndicatorStyleTag(weaponDef)
 
 	local humanoid = enemyModel:FindFirstChildOfClass("Humanoid")
 	if humanoid then
@@ -370,6 +607,9 @@ local function applyDamageToEnemy(player, enemyModel, damage, weaponDef)
 			if player and player:IsA("Player") then
 				ClassService.recordDamage(player, dealtDamage, weaponDef)
 				emitDamageIndicator(player, enemyModel, dealtDamage, indicatorStyleTag)
+			end
+			if allowBurnOnHit and currentHealth > 0 then
+				tryApplyBurnOnHit(player, enemyModel, weaponDef, classMultiplier)
 			end
 		end
 		if previousHealth > 0 and currentHealth <= 0 then
@@ -400,6 +640,9 @@ local function applyDamageToEnemy(player, enemyModel, damage, weaponDef)
 			ClassService.recordDamage(player, dealtDamage, weaponDef)
 			emitDamageIndicator(player, enemyModel, dealtDamage, indicatorStyleTag)
 		end
+		if allowBurnOnHit and health > 0 then
+			tryApplyBurnOnHit(player, enemyModel, weaponDef, classMultiplier)
+		end
 	end
 
 	if health <= 0 then
@@ -419,6 +662,28 @@ local function resolveWeaponClass(weaponDef)
 	end
 
 	return "Ranged"
+end
+
+local function normalizeWeaponToken(value)
+	if type(value) ~= "string" then
+		return ""
+	end
+
+	local token = string.lower(value)
+	token = string.gsub(token, "%s+", "")
+	return token
+end
+
+local function isSniperWeaponDefinition(weaponDef)
+	if type(weaponDef) ~= "table" then
+		return false
+	end
+
+	local classIdToken = normalizeWeaponToken(weaponDef.ClassId)
+	local classTagToken = normalizeWeaponToken(weaponDef.ClassTag)
+	local weaponClassToken = normalizeWeaponToken(resolveWeaponClass(weaponDef))
+
+	return classIdToken == "sniper" or classTagToken == "sniper" or weaponClassToken == "sniper"
 end
 
 local function getMagazineSize(weaponDef, player)
@@ -1404,13 +1669,17 @@ local function applyBulletSpread(direction, spreadDegrees)
 end
 
 local function fireBulletShot(player, character, origin, direction, weaponDef, shotOrigin, shotDirection)
+	local isSniperWeapon = isSniperWeaponDefinition(weaponDef)
 	local baseRange = math.max(1, tonumber(weaponDef.Range) or 40)
 	local range = baseRange * math.max(0.1, ClassService.getWeaponBulletRangeMultiplier(player, weaponDef))
 	local rayOrigin = typeof(shotOrigin) == "Vector3" and shotOrigin or origin
 	local rayDirection = typeof(shotDirection) == "Vector3" and shotDirection.Unit or direction
-	local spreadDegrees = ClassService.getWeaponSpreadDegrees(player, weaponDef)
-	if type(spreadDegrees) ~= "number" then
-		spreadDegrees = weaponDef.SpreadDegrees
+	local spreadDegrees = 0
+	if not isSniperWeapon then
+		spreadDegrees = ClassService.getWeaponSpreadDegrees(player, weaponDef)
+		if type(spreadDegrees) ~= "number" then
+			spreadDegrees = weaponDef.SpreadDegrees
+		end
 	end
 	rayDirection = applyBulletSpread(rayDirection, spreadDegrees)
 	local raycastParams = buildWeaponRaycastParams(character, {})
@@ -1424,7 +1693,14 @@ local function fireBulletShot(player, character, origin, direction, weaponDef, s
 	end
 
 	if not enemyTarget then
-		local fallbackEnemy, fallbackImpact = findEnemyAlongSegment(character, rayOrigin, hitPosition, 0.75)
+		local fallbackRadius = 0.75
+		local fallbackEnd = hitPosition
+		if isSniperWeapon then
+			fallbackRadius = math.max(2.5, tonumber(weaponDef.SniperHitAssistRadius) or 2.5)
+			fallbackEnd = rayOrigin + (rayDirection * range)
+		end
+
+		local fallbackEnemy, fallbackImpact = findEnemyAlongSegment(character, rayOrigin, fallbackEnd, fallbackRadius)
 		if fallbackEnemy then
 			enemyTarget = fallbackEnemy
 			if fallbackImpact then
@@ -2249,6 +2525,11 @@ local function configureWeaponTool(tool, weaponDef, owner)
 			return
 		end
 
+		-- Global anti-backshot guard: applies to every weapon class routed through this fire path.
+		if not canPlayerFireTowardRequestedDirection(owner, rootPart, explicitShotDirection) then
+			return
+		end
+
 		if not tryConsumeAmmo(tool, weaponDef, state, owner) then
 			return
 		end
@@ -2266,7 +2547,7 @@ local function configureWeaponTool(tool, weaponDef, owner)
 		local shotOrigin, shotDirection = nil, nil
 		if typeof(explicitShotOrigin) == "Vector3" and typeof(explicitShotDirection) == "Vector3" and explicitShotDirection.Magnitude > 0.001 then
 			shotOrigin = explicitShotOrigin
-			shotDirection = explicitShotDirection.Unit
+			shotDirection = clampDirectionToForwardFireArc(rootPart, explicitShotDirection, direction)
 		else
 			shotOrigin, shotDirection = getPlayerShotRay(owner, rootPart, origin, direction)
 		end
@@ -2490,6 +2771,43 @@ local function playerOwnsWeapon(player, weaponId)
 	return false
 end
 
+local function getRequiredOwnedWeaponId(weaponDef)
+	if type(weaponDef) ~= "table" then
+		return nil
+	end
+
+	local requiredWeaponId = weaponDef.RequiresWeaponId or weaponDef.UpgradeFromWeaponId
+	if type(requiredWeaponId) ~= "string" or requiredWeaponId == "" then
+		return nil
+	end
+	if requiredWeaponId == weaponDef.Id then
+		return nil
+	end
+	if not weaponById[requiredWeaponId] then
+		return nil
+	end
+
+	return requiredWeaponId
+end
+
+local function getRequiredOwnedWeaponName(weaponId)
+	local requiredWeaponDef = weaponById[weaponId]
+	if requiredWeaponDef and type(requiredWeaponDef.DisplayName) == "string" and requiredWeaponDef.DisplayName ~= "" then
+		return requiredWeaponDef.DisplayName
+	end
+
+	return weaponId
+end
+
+local function getUpgradeRestrictionMessage(weaponDef)
+	local requiredWeaponId = getRequiredOwnedWeaponId(weaponDef)
+	if not requiredWeaponId then
+		return "You do not meet this weapon's upgrade requirement."
+	end
+
+	return string.format("Requires %s first.", getRequiredOwnedWeaponName(requiredWeaponId))
+end
+
 local function canPurchaseNow()
 	if not remotesFolder then
 		return true, "Unknown"
@@ -2711,6 +3029,9 @@ local function getCatalogForPlayer(player)
 		local effectiveRange = math.floor((baseRange * rangeMultiplier) + 0.5)
 		local rangeBonusPct = math.max(0, (rangeMultiplier - 1) * 100)
 		local isOwned = playerOwnsWeapon(player, weaponDef.Id)
+		local requiredWeaponId = getRequiredOwnedWeaponId(weaponDef)
+		local requiredWeaponName = if requiredWeaponId then getRequiredOwnedWeaponName(requiredWeaponId) else nil
+		local isUpgradeLocked = requiredWeaponId ~= nil and not playerOwnsWeapon(player, requiredWeaponId)
 		local refillQuote = quotesByWeaponId[weaponDef.Id]
 		local refillCost = if refillQuote then refillQuote.cost else 0
 		local canRefill = if refillQuote then refillQuote.canRefill else false
@@ -2728,6 +3049,9 @@ local function getCatalogForPlayer(player)
 			cooldown = weaponDef.Cooldown,
 			magazineSize = getMagazineSize(weaponDef, player),
 			reloadSeconds = getReloadSeconds(weaponDef, player),
+			requiresWeaponId = requiredWeaponId,
+			requiresWeaponName = requiredWeaponName,
+			upgradeLocked = isUpgradeLocked,
 			owned = isOwned,
 			isRefillable = isRefillable,
 			refillCost = if isOwned then refillCost else 0,
@@ -2807,6 +3131,14 @@ local function buyWeapon(player, weaponId)
 		return {
 			success = false,
 			message = getClassRestrictionMessage(player),
+		}
+	end
+
+	local requiredWeaponId = getRequiredOwnedWeaponId(weaponDef)
+	if requiredWeaponId and not playerOwnsWeapon(player, requiredWeaponId) then
+		return {
+			success = false,
+			message = getUpgradeRestrictionMessage(weaponDef),
 		}
 	end
 

@@ -250,8 +250,16 @@ local function renderCatalog(catalog)
 			local maxTotal = math.max(0, math.floor((tonumber(weapon.maxAmmoTotal) or 0) + 0.5))
 			ownedAmmoLine = string.format("  AMMO %d/%d", currentTotal, maxTotal)
 		end
+		local upgradeLine = ""
+		if not weapon.owned and type(weapon.requiresWeaponName) == "string" and weapon.requiresWeaponName ~= "" then
+			if weapon.upgradeLocked == true then
+				upgradeLine = string.format("  REQUIRES %s", string.upper(weapon.requiresWeaponName))
+			else
+				upgradeLine = string.format("  UPGRADE FROM %s", string.upper(weapon.requiresWeaponName))
+			end
+		end
 		info.Text = string.format(
-			"%s (%s)  |  $%d\nDMG %d  %s  CD %.2fs%s%s",
+			"%s (%s)  |  $%d\nDMG %d  %s  CD %.2fs%s%s%s",
 			weapon.name or weapon.id or "?",
 			weapon.weaponClass or "Weapon",
 			weapon.cost or 0,
@@ -259,7 +267,8 @@ local function renderCatalog(catalog)
 			rangeText,
 			weapon.cooldown or 0,
 			ammoLine,
-			ownedAmmoLine
+			ownedAmmoLine,
+			upgradeLine
 		)
 		info.Parent = row
 
@@ -305,6 +314,11 @@ local function renderCatalog(catalog)
 			disabled = true
 			buyButton.Text = "Wave Active"
 			buyButton.BackgroundColor3 = Color3.fromRGB(78, 52, 52)
+		elseif weapon.upgradeLocked == true then
+			disabled = true
+			local requiredName = tostring(weapon.requiresWeaponName or weapon.requiresWeaponId or "Upgrade")
+			buyButton.Text = string.format("Needs %s", requiredName)
+			buyButton.BackgroundColor3 = Color3.fromRGB(76, 70, 52)
 		else
 			buyButton.Text = "Buy"
 			buyButton.BackgroundColor3 = Color3.fromRGB(52, 96, 68)

@@ -291,6 +291,9 @@ local bonusKeyOrder = {
 	{ key = "reloadSpeedPct", label = "Reload Speed" },
 	{ key = "bulletRangePct", label = "Weapon Range" },
 	{ key = "bulletSpreadReductionPct", label = "Spread Reduction" },
+	{ key = "burnChancePct", label = "Burn Chance" },
+	{ key = "criticalHitChancePct", label = "Critical Hit Chance" },
+	{ key = "superCriticalHitChancePct", label = "Super Critical Hit Chance" },
 }
 
 local knownBonusKeys = {}

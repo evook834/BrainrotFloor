@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterGui = game:GetService("StarterGui")
 local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
@@ -12,6 +13,7 @@ local MUSIC_CHANNEL = "Music"
 local SFX_CHANNEL = "Sfx"
 local GEAR_ICON = utf8.char(0x2699)
 local REMOTE_WAIT_TIMEOUT_SECONDS = 15
+local UI_HIDDEN_NOTICE_DELAY_SECONDS = 3
 
 local HUD_SCREEN_GUI_NAMES = {
 	BrainrotHud = true,
@@ -43,6 +45,9 @@ local moveModeEnabled = false
 local activeDrag = nil
 local selectedHudRoot = nil
 local settingsSaveToken = 0
+local hiddenScreenGuiEnabledStates = {}
+local uiHidden = false
+local uiHiddenNoticeToken = 0
 
 local remotesFolder = ReplicatedStorage:WaitForChild(Config.Remotes.Folder, REMOTE_WAIT_TIMEOUT_SECONDS)
 local settingsGetFunction = nil
@@ -444,6 +449,11 @@ for _, child in ipairs(playerGui:GetChildren()) do
 end
 
 playerGui.ChildAdded:Connect(function(child)
+	if uiHidden and child:IsA("ScreenGui") and hiddenScreenGuiEnabledStates[child] == nil then
+		hiddenScreenGuiEnabledStates[child] = child.Enabled
+		child.Enabled = false
+	end
+
 	if isHudScreenGui(child) then
 		trackScreenGui(child)
 	end
@@ -873,10 +883,34 @@ resetScaleButton.TextSize = 13
 resetScaleButton.Parent = gameplayPage
 styleRounded(resetScaleButton, 6)
 
+local fullHideButton = Instance.new("TextButton")
+fullHideButton.Name = "FullHideButton"
+fullHideButton.Size = UDim2.fromOffset(208, 34)
+fullHideButton.Position = UDim2.fromOffset(10, 190)
+fullHideButton.BackgroundColor3 = Color3.fromRGB(62, 94, 54)
+fullHideButton.BorderSizePixel = 0
+fullHideButton.Text = "Hide All UI + HUD"
+fullHideButton.TextColor3 = Color3.fromRGB(242, 248, 255)
+fullHideButton.Font = Enum.Font.GothamBold
+fullHideButton.TextSize = 13
+fullHideButton.Parent = gameplayPage
+styleRounded(fullHideButton, 8)
+
+local fullHideStatusLabel = Instance.new("TextLabel")
+fullHideStatusLabel.Name = "FullHideStatus"
+fullHideStatusLabel.Size = UDim2.new(1, -20, 0, 20)
+fullHideStatusLabel.Position = UDim2.fromOffset(10, 228)
+fullHideStatusLabel.BackgroundTransparency = 1
+fullHideStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+fullHideStatusLabel.TextColor3 = Color3.fromRGB(182, 198, 216)
+fullHideStatusLabel.Font = Enum.Font.Gotham
+fullHideStatusLabel.TextSize = 12
+fullHideStatusLabel.Parent = gameplayPage
+
 local gameplayHint = Instance.new("TextLabel")
 gameplayHint.Name = "Hint"
 gameplayHint.Size = UDim2.new(1, -20, 0, 32)
-gameplayHint.Position = UDim2.fromOffset(10, 196)
+gameplayHint.Position = UDim2.fromOffset(10, 252)
 gameplayHint.BackgroundTransparency = 1
 gameplayHint.Text = "Move mode: left-click one HUD element and drag it. Only that UI moves."
 gameplayHint.TextWrapped = true
@@ -929,6 +963,15 @@ local function updateGameplayLabels()
 	resetPositionButton.Active = moveModeEnabled and selectedHudRoot ~= nil
 	resetPositionButton.AutoButtonColor = resetPositionButton.Active
 	resetPositionButton.BackgroundTransparency = if resetPositionButton.Active then 0 else 0.35
+	if uiHidden then
+		fullHideButton.BackgroundColor3 = Color3.fromRGB(120, 78, 52)
+		fullHideButton.Text = "Show All UI + HUD"
+		fullHideStatusLabel.Text = "UI hidden. Press F10 to restore."
+	else
+		fullHideButton.BackgroundColor3 = Color3.fromRGB(62, 94, 54)
+		fullHideButton.Text = "Hide All UI + HUD"
+		fullHideStatusLabel.Text = "Tip: Press F10 to toggle full UI visibility."
+	end
 end
 
 local function setActiveTab(tabName)
@@ -1033,6 +1076,68 @@ local function setMoveModeEnabled(enabled)
 	updateGameplayLabels()
 end
 
+local function showUiHiddenHintNotification()
+	local payload = {
+		Title = "UI Hidden",
+		Text = "Press F10 to show UI + HUD.",
+		Duration = 5,
+	}
+
+	for _ = 1, 3 do
+		local ok = pcall(function()
+			StarterGui:SetCore("SendNotification", payload)
+		end)
+		if ok then
+			return
+		end
+		task.wait(0.35)
+	end
+end
+
+local function setUiHidden(enabled)
+	if uiHidden == enabled then
+		return
+	end
+
+	uiHiddenNoticeToken += 1
+	local noticeToken = uiHiddenNoticeToken
+	uiHidden = enabled
+	if uiHidden then
+		panel.Visible = false
+		setMoveModeEnabled(false)
+		selectedHudRoot = nil
+		activeDrag = nil
+
+		for _, child in ipairs(playerGui:GetChildren()) do
+			if child:IsA("ScreenGui") and hiddenScreenGuiEnabledStates[child] == nil then
+				hiddenScreenGuiEnabledStates[child] = child.Enabled
+				child.Enabled = false
+			end
+		end
+	else
+		for screenGui, wasEnabled in pairs(hiddenScreenGuiEnabledStates) do
+			if screenGui.Parent and screenGui:IsDescendantOf(playerGui) then
+				screenGui.Enabled = wasEnabled == true
+			end
+			hiddenScreenGuiEnabledStates[screenGui] = nil
+		end
+	end
+
+	if uiHidden then
+		task.delay(UI_HIDDEN_NOTICE_DELAY_SECONDS, function()
+			if noticeToken ~= uiHiddenNoticeToken then
+				return
+			end
+			if not uiHidden then
+				return
+			end
+			showUiHiddenHintNotification()
+		end)
+	end
+
+	updateGameplayLabels()
+end
+
 local function beginDrag(root, screenPos)
 	local rootState = trackedHudRoots[root]
 	if not rootState or not rootState.canDrag then
@@ -1112,6 +1217,10 @@ sfxMuteButton.Activated:Connect(function()
 	queueSettingsSave()
 end)
 
+fullHideButton.Activated:Connect(function()
+	setUiHidden(not uiHidden)
+end)
+
 moveModeButton.Activated:Connect(function()
 	setMoveModeEnabled(not moveModeEnabled)
 end)
@@ -1139,6 +1248,11 @@ resetPositionButton.Activated:Connect(function()
 end)
 
 UserInputService.InputBegan:Connect(function(inputObject, _gameProcessed)
+	if inputObject.UserInputType == Enum.UserInputType.Keyboard and inputObject.KeyCode == Enum.KeyCode.F10 then
+		setUiHidden(not uiHidden)
+		return
+	end
+
 	if not moveModeEnabled then
 		return
 	end

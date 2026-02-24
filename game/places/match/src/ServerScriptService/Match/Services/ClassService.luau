@@ -539,6 +539,14 @@ function ClassService.getWeaponBulletRangeMultiplier(player, weaponDef)
 	return classCombatRules.getWeaponBulletRangeMultiplier(player, weaponDef)
 end
 
+function ClassService.getBurnOnHitConfig(player, weaponDef)
+	return classCombatRules.getBurnOnHitConfig(player, weaponDef)
+end
+
+function ClassService.getCriticalHitConfig(player, weaponDef)
+	return classCombatRules.getCriticalHitConfig(player, weaponDef)
+end
+
 function ClassService.recordDamage(player, damage, weaponDef)
 	if not player or not player:IsA("Player") then
 		return

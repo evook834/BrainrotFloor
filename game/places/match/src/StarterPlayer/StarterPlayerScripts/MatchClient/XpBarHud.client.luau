@@ -56,6 +56,9 @@ local function getActivePerkText(classData)
 		{ label = "Mag", value = tonumber(bonuses.magazineSizePct) or 0 },
 		{ label = "Range", value = tonumber(bonuses.bulletRangePct) or 0 },
 		{ label = "Spread", value = tonumber(bonuses.bulletSpreadReductionPct) or 0 },
+		{ label = "Burn", value = tonumber(bonuses.burnChancePct) or 0 },
+		{ label = "Crit", value = tonumber(bonuses.criticalHitChancePct) or 0 },
+		{ label = "Super Crit", value = tonumber(bonuses.superCriticalHitChancePct) or 0 },
 	}
 
 	local bestLabel = nil

@@ -178,6 +178,46 @@ function ClassCombatRules.new(config)
 		return math.max(0.1, bonuses.bulletRangeMultiplier or 1)
 	end
 
+	function api.getBurnOnHitConfig(player, weaponDef)
+		local bonuses = getPlayerWeaponBonuses(player, weaponDef)
+		if not bonuses then
+			return nil
+		end
+
+		local chance = math.clamp(tonumber(bonuses.burnChance) or 0, 0, 1)
+		local damageFractionPerSecond = math.max(0, tonumber(bonuses.burnDamageFractionPerSecond) or 0)
+		if chance <= 0 or damageFractionPerSecond <= 0 then
+			return nil
+		end
+
+		return {
+			chance = chance,
+			durationSeconds = math.max(0.1, tonumber(bonuses.burnDurationSeconds) or 3),
+			tickIntervalSeconds = math.max(0.1, tonumber(bonuses.burnTickIntervalSeconds) or 0.5),
+			damageFractionPerSecond = damageFractionPerSecond,
+		}
+	end
+
+	function api.getCriticalHitConfig(player, weaponDef)
+		local bonuses = getPlayerWeaponBonuses(player, weaponDef)
+		if not bonuses then
+			return nil
+		end
+
+		local criticalChance = math.clamp(tonumber(bonuses.criticalHitChance) or 0, 0, 1)
+		local superCriticalChance = math.clamp(tonumber(bonuses.superCriticalHitChance) or 0, 0, 1)
+		if criticalChance <= 0 and superCriticalChance <= 0 then
+			return nil
+		end
+
+		return {
+			criticalChance = criticalChance,
+			superCriticalChance = superCriticalChance,
+			criticalMultiplier = 2,
+			superCriticalMultiplier = 3,
+		}
+	end
+
 	return api
 end
 

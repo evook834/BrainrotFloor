@@ -19,6 +19,11 @@ local bonusPctKeyAliases = {
 	BulletSpreadReduction = "bulletSpreadReductionPct",
 	SpreadReduction = "bulletSpreadReductionPct",
 	Accuracy = "bulletSpreadReductionPct",
+	BurnChance = "burnChancePct",
+	CriticalHitChance = "criticalHitChancePct",
+	CritChance = "criticalHitChancePct",
+	SuperCriticalHitChance = "superCriticalHitChancePct",
+	SuperCritChance = "superCriticalHitChancePct",
 }
 
 local function resolveBonusPctKeyFromPerLevel(rawBonusKey)
@@ -52,6 +57,9 @@ local function summarizeBonuses(bonuses)
 	local reloadTimeMultiplier = resolvedBonuses.reloadTimeMultiplier or 1
 	local bulletRangeMultiplier = resolvedBonuses.bulletRangeMultiplier or 1
 	local bulletSpreadMultiplier = resolvedBonuses.bulletSpreadMultiplier or 1
+	local burnChance = math.clamp(tonumber(resolvedBonuses.burnChance) or 0, 0, 1)
+	local criticalHitChance = math.clamp(tonumber(resolvedBonuses.criticalHitChance) or 0, 0, 1)
+	local superCriticalHitChance = math.clamp(tonumber(resolvedBonuses.superCriticalHitChance) or 0, 0, 1)
 	local reloadSpeedMultiplier = 1 / math.max(0.1, reloadTimeMultiplier)
 
 	return {
@@ -76,6 +84,9 @@ local function summarizeBonuses(bonuses)
 		reloadSpeedPct = (reloadSpeedMultiplier - 1) * 100,
 		bulletRangePct = (bulletRangeMultiplier - 1) * 100,
 		bulletSpreadReductionPct = (1 - bulletSpreadMultiplier) * 100,
+		burnChancePct = burnChance * 100,
+		criticalHitChancePct = criticalHitChance * 100,
+		superCriticalHitChancePct = superCriticalHitChance * 100,
 	}
 end
 
@@ -234,6 +245,36 @@ function ClassProgression.getBonusesAtLevel(classDef, level)
 		0.8
 	)
 	local bulletSpreadMultiplier = 1 - spreadReduction
+	local baseBurnChance = math.clamp(math.max(0, tonumber(bonuses.BurnChance) or 0), 0, 1)
+	local burnChancePerLevel = math.max(0, tonumber(bonuses.BurnChancePerLevel) or 0)
+	local burnChance = math.clamp(baseBurnChance + (burnChancePerLevel * bonusLevels), 0, 1)
+	local baseCriticalHitChance = math.clamp(
+		math.max(0, tonumber(bonuses.CriticalHitChance) or tonumber(bonuses.CritChance) or 0),
+		0,
+		1
+	)
+	local criticalHitChancePerLevel = math.max(
+		0,
+		tonumber(bonuses.CriticalHitChancePerLevel) or tonumber(bonuses.CritChancePerLevel) or 0
+	)
+	local criticalHitChance = math.clamp(baseCriticalHitChance + (criticalHitChancePerLevel * bonusLevels), 0, 1)
+	local baseSuperCriticalHitChance = math.clamp(
+		math.max(0, tonumber(bonuses.SuperCriticalHitChance) or tonumber(bonuses.SuperCritChance) or 0),
+		0,
+		1
+	)
+	local superCriticalHitChancePerLevel = math.max(
+		0,
+		tonumber(bonuses.SuperCriticalHitChancePerLevel) or tonumber(bonuses.SuperCritChancePerLevel) or 0
+	)
+	local superCriticalHitChance = math.clamp(
+		baseSuperCriticalHitChance + (superCriticalHitChancePerLevel * bonusLevels),
+		0,
+		1
+	)
+	local burnDurationSeconds = math.max(0.1, tonumber(bonuses.BurnDurationSeconds) or 3)
+	local burnDamageFractionPerSecond = math.max(0, tonumber(bonuses.BurnDamageFractionPerSecond) or 0)
+	local burnTickIntervalSeconds = math.max(0.1, tonumber(bonuses.BurnTickIntervalSeconds) or 0.5)
 
 	return {
 		damageMultiplier = math.max(0, damageMultiplier),
@@ -247,6 +288,12 @@ function ClassProgression.getBonusesAtLevel(classDef, level)
 		reloadTimeMultiplier = math.max(0.1, reloadTimeMultiplier),
 		bulletRangeMultiplier = math.max(0.1, bulletRangeMultiplier),
 		bulletSpreadMultiplier = math.max(0.2, bulletSpreadMultiplier),
+		burnChance = burnChance,
+		criticalHitChance = criticalHitChance,
+		superCriticalHitChance = superCriticalHitChance,
+		burnDurationSeconds = burnDurationSeconds,
+		burnDamageFractionPerSecond = burnDamageFractionPerSecond,
+		burnTickIntervalSeconds = burnTickIntervalSeconds,
 	}
 end
 
