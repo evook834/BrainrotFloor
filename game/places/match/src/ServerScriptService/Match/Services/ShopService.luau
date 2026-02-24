@@ -454,12 +454,32 @@ local function getReloadSeconds(weaponDef, player)
 	return math.max(0.2, reloadSeconds)
 end
 
+local function getReserveAmmoCapacity(weaponDef, magazineSize)
+	if type(magazineSize) ~= "number" or magazineSize <= 0 then
+		return nil
+	end
+
+	local explicitReserve = tonumber(weaponDef.ReserveAmmo)
+	if type(explicitReserve) == "number" then
+		return math.max(0, math.floor(explicitReserve + 0.5))
+	end
+
+	local spareMagazines = tonumber(weaponDef.SpareMagazines)
+	if type(spareMagazines) == "number" then
+		return math.max(0, math.floor(spareMagazines + 0.5)) * magazineSize
+	end
+
+	return magazineSize * 4
+end
+
 local function syncToolCombatStats(tool, weaponDef, state, owner)
 	local magazineSize = getMagazineSize(weaponDef, owner)
 	local reloadSeconds = getReloadSeconds(weaponDef, owner)
+	local reserveAmmoCapacity = getReserveAmmoCapacity(weaponDef, magazineSize)
 
 	state.magazineSize = magazineSize
 	state.reloadSeconds = reloadSeconds
+	state.reserveAmmoCapacity = reserveAmmoCapacity
 
 	tool:SetAttribute("MagazineSize", magazineSize)
 	tool:SetAttribute("ReloadSeconds", reloadSeconds)
@@ -471,14 +491,18 @@ local function getToolState(tool, weaponDef, owner)
 		return state
 	end
 
+	local magazineSize = getMagazineSize(weaponDef, owner)
+	local reserveAmmoCapacity = getReserveAmmoCapacity(weaponDef, magazineSize)
 	state = {
 		lastActivatedAt = -math.huge,
-		ammo = getMagazineSize(weaponDef, owner),
+		ammo = magazineSize,
+		reserveAmmo = reserveAmmoCapacity,
 		isReloading = false,
 		isBursting = false,
 		baseGrip = tool.Grip,
 		swingToken = 0,
-		magazineSize = getMagazineSize(weaponDef, owner),
+		magazineSize = magazineSize,
+		reserveAmmoCapacity = reserveAmmoCapacity,
 		reloadSeconds = getReloadSeconds(weaponDef, owner),
 	}
 	toolRuntimeState[tool] = state
@@ -491,23 +515,45 @@ local function updateAmmoAttributes(tool, weaponDef, state, owner)
 	if not magazineSize then
 		tool:SetAttribute("MaxAmmo", nil)
 		tool:SetAttribute("CurrentAmmo", nil)
+		tool:SetAttribute("ReserveAmmo", nil)
+		tool:SetAttribute("ReserveAmmoMax", nil)
+		tool:SetAttribute("TotalAmmo", nil)
+		tool:SetAttribute("TotalAmmoMax", nil)
 		tool:SetAttribute("IsReloading", false)
 		tool.ToolTip = tostring(weaponDef.DisplayName or tool.Name)
 		return
 	end
 
-	if type(state.ammo) ~= "number" then
-		state.ammo = magazineSize
+	state.ammo = math.max(0, math.floor((tonumber(state.ammo) or magazineSize) + 0.5))
+	state.ammo = math.min(state.ammo, magazineSize)
+	state.reserveAmmoCapacity = math.max(0, math.floor((tonumber(state.reserveAmmoCapacity) or 0) + 0.5))
+	state.reserveAmmo = math.max(0, math.floor((tonumber(state.reserveAmmo) or state.reserveAmmoCapacity) + 0.5))
+	if state.reserveAmmo > state.reserveAmmoCapacity then
+		state.reserveAmmo = state.reserveAmmoCapacity
 	end
 
+	local totalAmmo = state.ammo + state.reserveAmmo
+	local totalAmmoCapacity = magazineSize + state.reserveAmmoCapacity
 	tool:SetAttribute("MaxAmmo", magazineSize)
 	tool:SetAttribute("CurrentAmmo", state.ammo)
+	tool:SetAttribute("ReserveAmmo", state.reserveAmmo)
+	tool:SetAttribute("ReserveAmmoMax", state.reserveAmmoCapacity)
+	tool:SetAttribute("TotalAmmo", totalAmmo)
+	tool:SetAttribute("TotalAmmoMax", totalAmmoCapacity)
 	tool:SetAttribute("IsReloading", state.isReloading == true)
 
 	if state.isReloading then
 		tool.ToolTip = string.format("%s | Reloading...", tostring(weaponDef.DisplayName or tool.Name))
+	elseif totalAmmo <= 0 then
+		tool.ToolTip = string.format("%s | Out of ammo", tostring(weaponDef.DisplayName or tool.Name))
 	else
-		tool.ToolTip = string.format("%s | Ammo %d/%d", tostring(weaponDef.DisplayName or tool.Name), state.ammo, magazineSize)
+		tool.ToolTip = string.format(
+			"%s | Ammo %d/%d | Reserve %d",
+			tostring(weaponDef.DisplayName or tool.Name),
+			state.ammo,
+			magazineSize,
+			state.reserveAmmo
+		)
 	end
 end
 
@@ -515,6 +561,14 @@ local function startReload(tool, weaponDef, state, owner)
 	syncToolCombatStats(tool, weaponDef, state, owner)
 	local magazineSize = state.magazineSize
 	if not magazineSize or state.isReloading then
+		return
+	end
+
+	state.ammo = math.max(0, math.floor((tonumber(state.ammo) or magazineSize) + 0.5))
+	state.ammo = math.min(state.ammo, magazineSize)
+	state.reserveAmmo = math.max(0, math.floor((tonumber(state.reserveAmmo) or 0) + 0.5))
+	if state.ammo >= magazineSize or state.reserveAmmo <= 0 then
+		updateAmmoAttributes(tool, weaponDef, state, owner)
 		return
 	end
 
@@ -527,7 +581,12 @@ local function startReload(tool, weaponDef, state, owner)
 		syncToolCombatStats(tool, weaponDef, state, owner)
 		local refreshedMagazineSize = state.magazineSize
 		if refreshedMagazineSize then
-			state.ammo = refreshedMagazineSize
+			local currentAmmo = math.max(0, math.floor((tonumber(state.ammo) or 0) + 0.5))
+			local reserveAmmo = math.max(0, math.floor((tonumber(state.reserveAmmo) or 0) + 0.5))
+			local neededAmmo = math.max(0, refreshedMagazineSize - currentAmmo)
+			local loadedAmmo = math.min(neededAmmo, reserveAmmo)
+			state.ammo = currentAmmo + loadedAmmo
+			state.reserveAmmo = reserveAmmo - loadedAmmo
 		end
 		if tool.Parent then
 			updateAmmoAttributes(tool, weaponDef, state, owner)
@@ -546,19 +605,23 @@ local function tryConsumeAmmo(tool, weaponDef, state, owner)
 		return false
 	end
 
-	if type(state.ammo) ~= "number" then
-		state.ammo = magazineSize
-	end
+	state.ammo = math.max(0, math.floor((tonumber(state.ammo) or magazineSize) + 0.5))
+	state.ammo = math.min(state.ammo, magazineSize)
+	state.reserveAmmo = math.max(0, math.floor((tonumber(state.reserveAmmo) or 0) + 0.5))
 
 	if state.ammo <= 0 then
-		startReload(tool, weaponDef, state, owner)
+		if state.reserveAmmo > 0 then
+			startReload(tool, weaponDef, state, owner)
+		else
+			updateAmmoAttributes(tool, weaponDef, state, owner)
+		end
 		return false
 	end
 
 	state.ammo -= 1
 	updateAmmoAttributes(tool, weaponDef, state, owner)
 
-	if state.ammo <= 0 then
+	if state.ammo <= 0 and state.reserveAmmo > 0 then
 		startReload(tool, weaponDef, state, owner)
 	end
 

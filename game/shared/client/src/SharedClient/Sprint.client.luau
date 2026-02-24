@@ -4,7 +4,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterGui = game:GetService("StarterGui")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
-local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 
@@ -34,98 +33,6 @@ gui.Name = "SprintStaminaHud"
 gui.ResetOnSpawn = false
 gui.DisplayOrder = 26
 gui.Parent = playerGui
-
-local function showLobbyWelcomeBanner()
-	local difficultyButtons = Workspace:FindFirstChild("DifficultyButtons")
-	if not difficultyButtons then
-		difficultyButtons = Workspace:WaitForChild("DifficultyButtons", 2)
-	end
-	if not difficultyButtons then
-		return
-	end
-
-	local existingWelcomeGui = playerGui:FindFirstChild("LobbyWelcomeHud")
-	if existingWelcomeGui then
-		existingWelcomeGui:Destroy()
-	end
-
-	local welcomeGui = Instance.new("ScreenGui")
-	welcomeGui.Name = "LobbyWelcomeHud"
-	welcomeGui.ResetOnSpawn = false
-	welcomeGui.DisplayOrder = 80
-	welcomeGui.Parent = playerGui
-
-	local banner = Instance.new("Frame")
-	banner.Name = "Banner"
-	banner.Size = UDim2.new(0, 560, 0, 92)
-	banner.Position = UDim2.fromScale(0.5, 0.12)
-	banner.AnchorPoint = Vector2.new(0.5, 0)
-	banner.BackgroundColor3 = Color3.fromRGB(18, 24, 34)
-	banner.BackgroundTransparency = 1
-	banner.BorderSizePixel = 0
-	banner.Parent = welcomeGui
-
-	local bannerCorner = Instance.new("UICorner")
-	bannerCorner.CornerRadius = UDim.new(0, 14)
-	bannerCorner.Parent = banner
-
-	local bannerStroke = Instance.new("UIStroke")
-	bannerStroke.Color = Color3.fromRGB(125, 175, 230)
-	bannerStroke.Transparency = 1
-	bannerStroke.Thickness = 1
-	bannerStroke.Parent = banner
-
-	local title = Instance.new("TextLabel")
-	title.Name = "Title"
-	title.Size = UDim2.new(1, -24, 0, 44)
-	title.Position = UDim2.fromOffset(12, 10)
-	title.BackgroundTransparency = 1
-	title.Text = "Welcome to the Lobby"
-	title.TextColor3 = Color3.fromRGB(240, 247, 255)
-	title.TextTransparency = 1
-	title.Font = Enum.Font.GothamBold
-	title.TextSize = 32
-	title.Parent = banner
-
-	local subtitle = Instance.new("TextLabel")
-	subtitle.Name = "Subtitle"
-	subtitle.Size = UDim2.new(1, -24, 0, 30)
-	subtitle.Position = UDim2.fromOffset(12, 52)
-	subtitle.BackgroundTransparency = 1
-	subtitle.Text = "Pick a difficulty button to start a match."
-	subtitle.TextColor3 = Color3.fromRGB(196, 220, 245)
-	subtitle.TextTransparency = 1
-	subtitle.Font = Enum.Font.GothamSemibold
-	subtitle.TextSize = 19
-	subtitle.Parent = banner
-
-	local fadeInInfo = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-	local fadeOutInfo = TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-
-	TweenService:Create(banner, fadeInInfo, {BackgroundTransparency = 0.16}):Play()
-	TweenService:Create(bannerStroke, fadeInInfo, {Transparency = 0.2}):Play()
-	TweenService:Create(title, fadeInInfo, {TextTransparency = 0}):Play()
-	TweenService:Create(subtitle, fadeInInfo, {TextTransparency = 0}):Play()
-
-	task.delay(4, function()
-		if not welcomeGui.Parent then
-			return
-		end
-
-		TweenService:Create(banner, fadeOutInfo, {BackgroundTransparency = 1}):Play()
-		TweenService:Create(bannerStroke, fadeOutInfo, {Transparency = 1}):Play()
-		TweenService:Create(title, fadeOutInfo, {TextTransparency = 1}):Play()
-		TweenService:Create(subtitle, fadeOutInfo, {TextTransparency = 1}):Play()
-
-		task.delay(0.5, function()
-			if welcomeGui.Parent then
-				welcomeGui:Destroy()
-			end
-		end)
-	end)
-end
-
-task.defer(showLobbyWelcomeBanner)
 
 local container = Instance.new("Frame")
 container.Name = "VitalsContainer"

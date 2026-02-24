@@ -318,6 +318,8 @@ local returnToLobbyRequested = false
 local returnToLobbyRequestToken = 0
 local gameOverMouseUnlockConnection = nil
 local savedCameraMode = nil
+local hiddenScreenGuiEnabledStates = {}
+local gameOverHudVisibilityConnection = nil
 
 local returnToLobbyRemote = nil
 local mapVoteRemote = nil
@@ -628,6 +630,53 @@ local function setReturnToLobbyButtonEnabled(enabled, text)
 	returnToLobbyButton.Text = text
 end
 
+local function hideScreenGuiForGameOver(screenGui)
+	if screenGui == gui then
+		return
+	end
+
+	if hiddenScreenGuiEnabledStates[screenGui] == nil then
+		hiddenScreenGuiEnabledStates[screenGui] = screenGui.Enabled
+	end
+	screenGui.Enabled = false
+end
+
+local function restoreHiddenScreenGuis()
+	for screenGui, wasEnabled in pairs(hiddenScreenGuiEnabledStates) do
+		if screenGui.Parent == playerGui then
+			screenGui.Enabled = wasEnabled
+		end
+		hiddenScreenGuiEnabledStates[screenGui] = nil
+	end
+end
+
+local function stopGameOverHudVisibilityLoop(restoreGuis)
+	if gameOverHudVisibilityConnection then
+		gameOverHudVisibilityConnection:Disconnect()
+		gameOverHudVisibilityConnection = nil
+	end
+
+	if restoreGuis then
+		restoreHiddenScreenGuis()
+	end
+end
+
+local function startGameOverHudVisibilityLoop()
+	stopGameOverHudVisibilityLoop(false)
+
+	for _, child in ipairs(playerGui:GetChildren()) do
+		if child:IsA("ScreenGui") then
+			hideScreenGuiForGameOver(child)
+		end
+	end
+
+	gameOverHudVisibilityConnection = playerGui.ChildAdded:Connect(function(child)
+		if child:IsA("ScreenGui") then
+			hideScreenGuiForGameOver(child)
+		end
+	end)
+end
+
 local function stopGameOverMouseUnlockLoop()
 	if gameOverMouseUnlockConnection then
 		gameOverMouseUnlockConnection:Disconnect()
@@ -672,6 +721,8 @@ local function setGameOverActive(active, reason)
 		hideCountdown()
 		hideRespawnCountdown()
 		resetMapVoteUi()
+		frame.Visible = false
+		startGameOverHudVisibilityLoop()
 		gameOverMessage.Text = getGameOverMessage(reason)
 		returnToLobbyButton.Visible = true
 		returnToLobbyStatus.Visible = true
@@ -689,6 +740,8 @@ local function setGameOverActive(active, reason)
 		return
 	end
 
+	stopGameOverHudVisibilityLoop(true)
+	frame.Visible = true
 	gameOverMessage.Text = ""
 	returnToLobbyButton.Visible = false
 	returnToLobbyStatus.Visible = false

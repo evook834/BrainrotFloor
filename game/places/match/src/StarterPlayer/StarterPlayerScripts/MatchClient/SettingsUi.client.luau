@@ -17,6 +17,7 @@ local HUD_SCREEN_GUI_NAMES = {
 	ClassXpBarHud = true,
 	SprintStaminaHud = true,
 	CombatCrosshairUi = true,
+	AmmoHud = true,
 }
 
 local NON_DRAGGABLE_HUD_ROOTS = {

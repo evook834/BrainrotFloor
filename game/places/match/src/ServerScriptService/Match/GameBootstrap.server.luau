@@ -76,7 +76,7 @@ local function safeCall(label, callback)
 end
 
 local MAP_VOTE_REVEAL_DELAY_SECONDS = math.max(0, toNumber(MatchmakingConfig.MAP_VOTE_REVEAL_DELAY_SECONDS, 5))
-local MAP_VOTE_DURATION_SECONDS = math.max(1, toNumber(MatchmakingConfig.MAP_VOTE_DURATION_SECONDS, 15))
+local MAP_VOTE_DURATION_SECONDS = math.max(1, toNumber(MatchmakingConfig.MAP_VOTE_DURATION_SECONDS, 60))
 
 local matchServers = MemoryStoreService:GetSortedMap(MatchmakingConfig.MEMORYSTORE_MAP_NAME)
 local randomGenerator = Random.new()
