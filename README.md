@@ -91,6 +91,7 @@ Optional:
 ## What to add in Studio
 1. Add enemy models (with `Humanoid` and `HumanoidRootPart`) under `ServerStorage > EnemyTemplates`.
 2. Add spawn parts under `Workspace > SpawnPoints`.
+   These folders are map-owned (Studio snapshots) and not Rojo-managed.
 3. Hit Play to test wave spawning.
 
 ## Existing place file

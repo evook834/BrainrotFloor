@@ -28,6 +28,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Cache toolchain binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/aftman
+            ~/.aftman
+            .aftman
+          key: ${{ runner.os }}-toolchain-${{ hashFiles('aftman.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-toolchain-
+
+      - name: Cache Wally packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            game/places/lobby/Packages
+            game/places/match/Packages
+          key: ${{ runner.os }}-wally-packages-${{ hashFiles('game/places/**/wally.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-wally-packages-
+
       - name: Install toolchain
         run: scripts/ci/install_toolchain.sh
 

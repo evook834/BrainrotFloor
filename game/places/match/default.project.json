@@ -27,18 +27,6 @@
         "$ignoreUnknownInstances": true
       }
     },
-    "ServerStorage": {
-      "$className": "ServerStorage",
-      "$ignoreUnknownInstances": true,
-      "EnemyTemplates": {
-        "$path": "src/ServerStorage/EnemyTemplates",
-        "$ignoreUnknownInstances": true
-      },
-      "ShopItems": {
-        "$path": "src/ServerStorage/ShopItems",
-        "$ignoreUnknownInstances": true
-      }
-    },
     "StarterPlayer": {
       "$className": "StarterPlayer",
       "$ignoreUnknownInstances": true,
@@ -53,18 +41,6 @@
           "$path": "src/StarterPlayer/StarterPlayerScripts/MatchClient",
           "$ignoreUnknownInstances": true
         }
-      }
-    },
-    "Workspace": {
-      "$className": "Workspace",
-      "$ignoreUnknownInstances": true,
-      "EnemyContainer": {
-        "$path": "src/Workspace/EnemyContainer",
-        "$ignoreUnknownInstances": true
-      },
-      "SpawnPoints": {
-        "$path": "src/Workspace/SpawnPoints",
-        "$ignoreUnknownInstances": true
       }
     }
   }
