@@ -629,7 +629,7 @@ local function setScopedWeaponModelHidden(hidden)
 		for _, descendant in ipairs(currentTool:GetDescendants()) do
 			if descendant:IsA("BasePart") then
 				if hiddenScopedToolPartStates[descendant] == nil then
-					hiddenScopedToolPartStates[descendant] = descendant.LocalTransparencyModifier
+					hiddenScopedToolPartStates[descendant] = true
 				end
 				descendant.LocalTransparencyModifier = 1
 			end
@@ -637,9 +637,9 @@ local function setScopedWeaponModelHidden(hidden)
 		return
 	end
 
-	for part, previousLocalTransparency in pairs(hiddenScopedToolPartStates) do
+	for part in pairs(hiddenScopedToolPartStates) do
 		if part and part.Parent then
-			part.LocalTransparencyModifier = tonumber(previousLocalTransparency) or 0
+			part.LocalTransparencyModifier = 0
 		end
 		hiddenScopedToolPartStates[part] = nil
 	end
@@ -1160,6 +1160,23 @@ local function isSentryPreviewSourcePart(part)
 	return part.Transparency < 0.995
 end
 
+local function resolveCurrentSentryPlacementRotationOffsetCFrame()
+	if not currentTool then
+		return CFrame.new()
+	end
+
+	local rotationDeg = currentTool:GetAttribute("TurretPlacementRotationDeg")
+	if typeof(rotationDeg) ~= "Vector3" then
+		return CFrame.new()
+	end
+
+	return CFrame.Angles(
+		math.rad(rotationDeg.X),
+		math.rad(rotationDeg.Y),
+		math.rad(rotationDeg.Z)
+	)
+end
+
 local function ensureSentryPlacementPreviewModel()
 	if not currentTool then
 		clearSentryPlacementPreview()
@@ -1288,6 +1305,7 @@ local function updateSentryPlacementPreview(show, hitPosition, hitNormal, lookDi
 	local boundsSize = sentryPlacementPreviewBoundsSize or Vector3.new(3, 3, 3)
 	local placementPosition = hitPosition + Vector3.new(0, (boundsSize.Y * 0.5) + 0.05, 0)
 	local placementCFrame = CFrame.lookAt(placementPosition, placementPosition + flatLook.Unit)
+	placementCFrame *= resolveCurrentSentryPlacementRotationOffsetCFrame()
 
 	for _, entry in ipairs(sentryPlacementPreviewParts) do
 		local part = entry.part

@@ -47,6 +47,8 @@ local SENTRY_TURRET_FOLDER_NAME = "SentryTurrets"
 local MAX_SENTRY_COUNT_PER_PLAYER = 3
 local SENTRY_REPAIR_INTERRUPT_SECONDS = 0.45
 local DEFAULT_SENTRY_MAX_AMMO = 300
+local TURRET_ROCKET_BURST_MODE_TOKEN = "rocketburst"
+local DEFAULT_TURRET_ROCKET_SPREAD_DEGREES = 4
 local applyDamageToEnemy
 local sentryRuntime = nil
 local classChangedCleanupDisconnect = nil
@@ -693,6 +695,11 @@ local function normalizeWeaponToken(value)
 	return token
 end
 
+local function isMeleeWeaponClass(weaponClass)
+	local weaponClassToken = normalizeWeaponToken(weaponClass)
+	return weaponClassToken == "melee" or weaponClassToken == "sword"
+end
+
 local function isSniperWeaponDefinition(weaponDef)
 	if type(weaponDef) ~= "table" then
 		return false
@@ -977,7 +984,7 @@ local function projectPointOnSegment(point, segmentStart, segmentEnd)
 	return segmentStart + segment * t, t
 end
 
-local function hasClearPathToEnemy(character, startPos, enemyModel, enemyRoot)
+local function hasClearPathToEnemy(character, startPos, enemyModel, enemyRoot, allowEnemyOcclusion)
 	local params = buildWeaponRaycastParams(character, {})
 	local direction = enemyRoot.Position - startPos
 	if direction.Magnitude <= 0.01 then
@@ -990,6 +997,9 @@ local function hasClearPathToEnemy(character, startPos, enemyModel, enemyRoot)
 	end
 
 	local hitEnemy = resolveEnemyFromRaycastResult(result)
+	if allowEnemyOcclusion and hitEnemy then
+		return true
+	end
 	return hitEnemy == enemyModel
 end
 
@@ -1032,7 +1042,7 @@ local function getEffectiveEnemyHitRadius(enemyModel, enemyRoot)
 	return math.clamp(radius, 1.2, 10)
 end
 
-local function findEnemyAlongSegment(character, segmentStart, segmentEnd, extraRadius)
+local function findEnemyAlongSegment(character, segmentStart, segmentEnd, extraRadius, allowEnemyOcclusion)
 	local enemyContainer = getEnemyContainer()
 	if not enemyContainer then
 		return nil, nil
@@ -1050,7 +1060,7 @@ local function findEnemyAlongSegment(character, segmentStart, segmentEnd, extraR
 				local nearestPoint = projectPointOnSegment(enemyRoot.Position, segmentStart, segmentEnd)
 				local distanceFromPath = (enemyRoot.Position - nearestPoint).Magnitude
 				local allowedRadius = getEffectiveEnemyHitRadius(enemyModel, enemyRoot) + radiusPadding
-				if distanceFromPath <= allowedRadius and hasClearPathToEnemy(character, segmentStart, enemyModel, enemyRoot) then
+				if distanceFromPath <= allowedRadius and hasClearPathToEnemy(character, segmentStart, enemyModel, enemyRoot, allowEnemyOcclusion) then
 					local alongDistance = (nearestPoint - segmentStart).Magnitude
 					if alongDistance < closestDistance then
 						closestDistance = alongDistance
@@ -1065,7 +1075,7 @@ local function findEnemyAlongSegment(character, segmentStart, segmentEnd, extraR
 	return closestEnemy, impactPoint
 end
 
-local function getEnemiesInCone(character, origin, lookDirection, range, arcDegrees)
+local function getEnemiesInCone(character, origin, lookDirection, range, arcDegrees, allowEnemyOcclusion)
 	local enemyContainer = getEnemyContainer()
 	if not enemyContainer then
 		return {}
@@ -1087,7 +1097,7 @@ local function getEnemiesInCone(character, origin, lookDirection, range, arcDegr
 					local facingDot = normalizedLook:Dot(direction)
 					local angularSlackRadians = math.atan(targetRadius / math.max(distance, 0.01))
 					local enemyMinDot = math.cos(math.min(math.rad(179), halfArcRadians + angularSlackRadians))
-					if facingDot >= enemyMinDot and hasClearPathToEnemy(character, origin, enemyModel, enemyRoot) then
+					if facingDot >= enemyMinDot and hasClearPathToEnemy(character, origin, enemyModel, enemyRoot, allowEnemyOcclusion) then
 						table.insert(enemies, enemyModel)
 					end
 				end
@@ -1098,7 +1108,7 @@ local function getEnemiesInCone(character, origin, lookDirection, range, arcDegr
 	return enemies
 end
 
-local function applyBlastDamage(player, centerPosition, radius, maxDamage, weaponDef)
+local function applyBlastDamage(player, centerPosition, radius, maxDamage, weaponDef, damageContext)
 	local enemyContainer = getEnemyContainer()
 	if not enemyContainer then
 		return
@@ -1112,7 +1122,7 @@ local function applyBlastDamage(player, centerPosition, radius, maxDamage, weapo
 				if distance <= radius then
 					local falloff = 1 - (distance / math.max(radius, 0.01))
 					local damageScale = math.clamp(0.3 + falloff * 0.7, 0.3, 1)
-					applyDamageToEnemy(player, enemyModel, maxDamage * damageScale, weaponDef)
+					applyDamageToEnemy(player, enemyModel, maxDamage * damageScale, weaponDef, damageContext)
 				end
 			end
 		end
@@ -1534,7 +1544,7 @@ local function fireMeleeAttack(player, character, origin, direction, weaponDef, 
 
 	local targetsByModel = {}
 	local function collectTargets(hitOrigin, hitDirection, hitRange, hitArcDegrees)
-		local hits = getEnemiesInCone(character, hitOrigin, hitDirection, hitRange, hitArcDegrees)
+		local hits = getEnemiesInCone(character, hitOrigin, hitDirection, hitRange, hitArcDegrees, true)
 		for _, enemyModel in ipairs(hits) do
 			targetsByModel[enemyModel] = true
 		end
@@ -1554,7 +1564,7 @@ local function fireMeleeAttack(player, character, origin, direction, weaponDef, 
 
 	if next(targetsByModel) == nil then
 		local fallbackEnd = loweredOrigin + downwardDirection * (range + groundRangeBonus)
-		local fallbackEnemy = findEnemyAlongSegment(character, loweredOrigin, fallbackEnd, groundExtraRadius)
+		local fallbackEnemy = findEnemyAlongSegment(character, loweredOrigin, fallbackEnd, groundExtraRadius, true)
 		if fallbackEnemy then
 			targetsByModel[fallbackEnemy] = true
 		end
@@ -1596,7 +1606,7 @@ local function fireFlamethrower(player, character, weaponDef, state, handle)
 				spawnFlamethrowerGroundFire(player, weaponDef, impactResult)
 			end
 
-			local targets = getEnemiesInCone(character, origin, direction, range, arcDegrees)
+			local targets = getEnemiesInCone(character, origin, direction, range, arcDegrees, true)
 			for _, enemyModel in ipairs(targets) do
 				applyDamageToEnemy(player, enemyModel, tickDamage, weaponDef)
 			end
@@ -1608,7 +1618,7 @@ local function fireFlamethrower(player, character, weaponDef, state, handle)
 	end)
 end
 
-local function fireRocket(player, character, origin, direction, weaponDef, shotOrigin, shotDirection)
+local function fireRocket(player, character, origin, direction, weaponDef, shotOrigin, shotDirection, damageContext)
 	local speed = math.max(30, tonumber(weaponDef.ProjectileSpeed) or 140)
 	local range = math.max(30, tonumber(weaponDef.Range) or 120)
 	local blastRadius = math.max(4, tonumber(weaponDef.BlastRadius) or 16)
@@ -1685,7 +1695,7 @@ local function fireRocket(player, character, origin, direction, weaponDef, shotO
 
 			if raycastResult or directTarget then
 				if directTarget then
-					applyDamageToEnemy(player, directTarget, blastDamage, weaponDef)
+					applyDamageToEnemy(player, directTarget, blastDamage, weaponDef, damageContext)
 				end
 
 				break
@@ -1694,7 +1704,7 @@ local function fireRocket(player, character, origin, direction, weaponDef, shotO
 
 		if rocket.Parent then
 			createExplosionEffect(currentPosition, blastRadius)
-			applyBlastDamage(player, currentPosition, blastRadius, blastDamage, weaponDef)
+			applyBlastDamage(player, currentPosition, blastRadius, blastDamage, weaponDef, damageContext)
 			rocket:Destroy()
 		end
 	end)
@@ -1833,7 +1843,7 @@ local function createFallbackWeaponTool(weaponDef)
 	handle.Parent = tool
 
 	local weaponClass = resolveWeaponClass(weaponDef)
-	if weaponClass == "Melee" then
+	if isMeleeWeaponClass(weaponClass) then
 		handle.Size = Vector3.new(0.7, 0.7, 2.8)
 	elseif weaponClass == "Flamethrower" then
 		handle.Size = Vector3.new(1.2, 1, 3.4)
@@ -2539,6 +2549,195 @@ local function findTurretTarget(record, muzzleOrigin)
 	return nil, nil
 end
 
+local function getTurretBurstRocketDirection(baseDirection, rocketIndex, rocketCount, spreadDegrees)
+	local normalizedDirection = baseDirection
+	if typeof(normalizedDirection) ~= "Vector3" or normalizedDirection.Magnitude <= 0.001 then
+		normalizedDirection = Vector3.new(0, 0, -1)
+	else
+		normalizedDirection = normalizedDirection.Unit
+	end
+
+	if rocketCount <= 1 or spreadDegrees <= 0 then
+		return normalizedDirection
+	end
+
+	local spacingRadians = math.rad(spreadDegrees)
+	local offsetRadians = (rocketIndex - ((rocketCount + 1) * 0.5)) * spacingRadians
+	local rotation = CFrame.fromAxisAngle(Vector3.yAxis, offsetRadians)
+	local rotated = rotation:VectorToWorldSpace(normalizedDirection)
+	if rotated.Magnitude <= 0.001 then
+		return normalizedDirection
+	end
+
+	return rotated.Unit
+end
+
+local function fireTurretRocketBurst(record, muzzleOrigin, lookDirection, turretShotDamage)
+	local ammo = math.max(0, math.floor((tonumber(record.ammo) or 0) + 0.5))
+	if ammo <= 0 then
+		return 0
+	end
+
+	local rocketCount = math.max(1, math.floor((tonumber(record.turretRocketCount) or 1) + 0.5))
+	local rocketsToFire = math.min(rocketCount, ammo)
+	if rocketsToFire <= 0 then
+		return 0
+	end
+
+	local rocketRange = math.max(20, tonumber(record.turretRocketRange) or tonumber(record.acquireRange) or 120)
+	local rocketBlastRadius = math.max(4, tonumber(record.turretRocketBlastRadius) or 8)
+	local rocketProjectileSpeed = math.max(30, tonumber(record.turretRocketProjectileSpeed) or 140)
+	local rocketSpreadDegrees = math.max(0, tonumber(record.turretRocketSpreadDegrees) or DEFAULT_TURRET_ROCKET_SPREAD_DEGREES)
+
+	local rocketWeaponDef = {
+		Damage = turretShotDamage,
+		Range = rocketRange,
+		BlastRadius = rocketBlastRadius,
+		ProjectileSpeed = rocketProjectileSpeed,
+	}
+	local damageContext = {
+		applyClassMultiplier = false,
+		allowBurnOnHit = false,
+		allowCriticalHits = false,
+	}
+
+	for rocketIndex = 1, rocketsToFire do
+		local rocketDirection = getTurretBurstRocketDirection(lookDirection, rocketIndex, rocketsToFire, rocketSpreadDegrees)
+		fireRocket(record.owner, record.model, muzzleOrigin, rocketDirection, rocketWeaponDef, muzzleOrigin, rocketDirection, damageContext)
+	end
+
+	return rocketsToFire
+end
+
+local function getHorizontalUnitDirection(vector)
+	if typeof(vector) ~= "Vector3" then
+		return nil
+	end
+
+	local horizontal = Vector3.new(vector.X, 0, vector.Z)
+	if horizontal.Magnitude <= 0.001 then
+		return nil
+	end
+
+	return horizontal.Unit
+end
+
+local function alignPivotYawToDirection(pivotCFrame, desiredLookDirection, desiredPosition)
+	local pivotPosition = desiredPosition
+	if typeof(pivotPosition) ~= "Vector3" then
+		pivotPosition = pivotCFrame.Position
+	end
+
+	local targetForward = getHorizontalUnitDirection(desiredLookDirection)
+	local currentForward = getHorizontalUnitDirection(pivotCFrame.LookVector)
+	if not currentForward then
+		currentForward = getHorizontalUnitDirection(pivotCFrame.RightVector)
+	end
+
+	if not targetForward then
+		targetForward = currentForward or Vector3.new(0, 0, -1)
+	end
+
+	if not currentForward then
+		return CFrame.lookAt(pivotPosition, pivotPosition + targetForward)
+	end
+
+	local yawDot = math.clamp(currentForward:Dot(targetForward), -1, 1)
+	local yawRadians = math.acos(yawDot)
+	if currentForward:Cross(targetForward).Y < 0 then
+		yawRadians = -yawRadians
+	end
+
+	local baseRotation = pivotCFrame - pivotCFrame.Position
+	local yawRotation = CFrame.fromAxisAngle(Vector3.yAxis, yawRadians)
+	return CFrame.new(pivotPosition) * yawRotation * baseRotation
+end
+
+local function resolveSentryPlacementReferencePart(sentryModel)
+	if not sentryModel or not sentryModel:IsA("Model") then
+		return nil
+	end
+
+	local handle = sentryModel:FindFirstChild("Handle", true)
+	if handle and handle:IsA("BasePart") then
+		return handle
+	end
+
+	return ModelRootResolver.resolveRootPart(sentryModel)
+end
+
+local function resolveSentryPlacementPivotCFrame(sentryModel, referencePlacementCFrame)
+	local referencePart = resolveSentryPlacementReferencePart(sentryModel)
+	if not referencePart then
+		return referencePlacementCFrame
+	end
+
+	local currentPivot = sentryModel:GetPivot()
+	local referenceToPivot = referencePart.CFrame:ToObjectSpace(currentPivot)
+	return referencePlacementCFrame * referenceToPivot
+end
+
+local function resolveSentryPlacementRotationOffsetCFrame(weaponDef)
+	if type(weaponDef) ~= "table" then
+		return CFrame.new()
+	end
+
+	local rotationDeg = weaponDef.TurretPlacementRotationDeg
+	if typeof(rotationDeg) ~= "Vector3" then
+		return CFrame.new()
+	end
+
+	return CFrame.Angles(
+		math.rad(rotationDeg.X),
+		math.rad(rotationDeg.Y),
+		math.rad(rotationDeg.Z)
+	)
+end
+
+local function applySentryPlacementRotationOffset(referencePlacementCFrame, weaponDef)
+	return referencePlacementCFrame * resolveSentryPlacementRotationOffsetCFrame(weaponDef)
+end
+
+local function resolveUprightSentryReferencePlacementCFrame(sentryModel, referencePlacementCFrame, desiredLookDirection)
+	local desiredFlatLook = getHorizontalUnitDirection(desiredLookDirection)
+	local forwardAxis = referencePlacementCFrame.LookVector
+	local rightAxis = referencePlacementCFrame.RightVector
+
+	local candidateRotations = {
+		CFrame.new(),
+		CFrame.fromAxisAngle(forwardAxis, math.pi),
+		CFrame.fromAxisAngle(forwardAxis, math.pi * 0.5),
+		CFrame.fromAxisAngle(forwardAxis, -math.pi * 0.5),
+		CFrame.fromAxisAngle(rightAxis, math.pi * 0.5),
+		CFrame.fromAxisAngle(rightAxis, -math.pi * 0.5),
+		CFrame.fromAxisAngle(rightAxis, math.pi),
+	}
+
+	local bestReferencePlacementCFrame = referencePlacementCFrame
+	local bestScore = -math.huge
+
+	for _, rotation in ipairs(candidateRotations) do
+		local candidateReferencePlacementCFrame = referencePlacementCFrame * rotation
+		local candidatePivotCFrame = resolveSentryPlacementPivotCFrame(sentryModel, candidateReferencePlacementCFrame)
+		local upScore = candidatePivotCFrame.UpVector.Y
+		local facingScore = 0
+		if desiredFlatLook then
+			local candidateFlatLook = getHorizontalUnitDirection(candidatePivotCFrame.LookVector)
+			if candidateFlatLook then
+				facingScore = desiredFlatLook:Dot(candidateFlatLook)
+			end
+		end
+
+		local totalScore = upScore * 10 + facingScore
+		if totalScore > bestScore then
+			bestScore = totalScore
+			bestReferencePlacementCFrame = candidateReferencePlacementCFrame
+		end
+	end
+
+	return bestReferencePlacementCFrame
+end
+
 local function startTurretCombatLoop(record)
 	task.spawn(function()
 		while record.model.Parent and record.humanoid.Parent and record.humanoid.Health > 0 do
@@ -2587,19 +2786,39 @@ local function startTurretCombatLoop(record)
 			if turretShotDamage <= 0 then
 				continue
 			end
-			createMuzzleFlash(muzzleOrigin, Color3.fromRGB(120, 225, 255), 0.22, 0.05)
-			createTracerSegment(muzzleOrigin, enemyRoot.Position, Color3.fromRGB(120, 225, 255), 0.1, 0.05)
-			applyDamageToEnemy(record.owner, enemyModel, turretShotDamage, nil, {
-				applyClassMultiplier = false,
-				allowBurnOnHit = false,
-				allowCriticalHits = false,
-			})
-			record.ammo = math.max(0, record.ammo - 1)
+
+			local shotsConsumed = 1
+			if normalizeWeaponToken(record.turretAttackMode) == TURRET_ROCKET_BURST_MODE_TOKEN then
+				createMuzzleFlash(muzzleOrigin, Color3.fromRGB(255, 190, 120), 0.26, 0.06)
+				shotsConsumed = fireTurretRocketBurst(record, muzzleOrigin, lookDirection, turretShotDamage)
+				if shotsConsumed <= 0 then
+					continue
+				end
+			else
+				createMuzzleFlash(muzzleOrigin, Color3.fromRGB(120, 225, 255), 0.22, 0.05)
+				createTracerSegment(muzzleOrigin, enemyRoot.Position, Color3.fromRGB(120, 225, 255), 0.1, 0.05)
+				applyDamageToEnemy(record.owner, enemyModel, turretShotDamage, nil, {
+					applyClassMultiplier = false,
+					allowBurnOnHit = false,
+					allowCriticalHits = false,
+				})
+			end
+
+			record.ammo = math.max(0, record.ammo - shotsConsumed)
 			syncSentryAmmoAttributes(record)
 
 			local flatLook = Vector3.new(lookDirection.X, 0, lookDirection.Z)
 			if flatLook.Magnitude > 0.01 then
-				record.model:PivotTo(CFrame.lookAt(rootPart.Position, rootPart.Position + flatLook.Unit))
+				local referencePart = resolveSentryPlacementReferencePart(record.model)
+				if referencePart then
+					local desiredReferencePlacementCFrame = CFrame.lookAt(referencePart.Position, referencePart.Position + flatLook.Unit)
+					desiredReferencePlacementCFrame = resolveUprightSentryReferencePlacementCFrame(record.model, desiredReferencePlacementCFrame, flatLook)
+					desiredReferencePlacementCFrame = applySentryPlacementRotationOffset(desiredReferencePlacementCFrame, record.weaponDef)
+					record.model:PivotTo(resolveSentryPlacementPivotCFrame(record.model, desiredReferencePlacementCFrame))
+				else
+					local currentPivot = record.model:GetPivot()
+					record.model:PivotTo(alignPivotYawToDirection(currentPivot, flatLook, rootPart.Position))
+				end
 			end
 		end
 
@@ -2704,7 +2923,10 @@ local function resolveSentryPlacementCFrame(player, character, rootPart, sentryM
 	end
 
 	local placementPosition = hitResult.Position + Vector3.new(0, (boundsSize.Y * 0.5) + 0.05, 0)
-	local placementCFrame = CFrame.lookAt(placementPosition, placementPosition + lookDirection.Unit)
+	local referencePlacementCFrame = CFrame.lookAt(placementPosition, placementPosition + lookDirection.Unit)
+	referencePlacementCFrame = resolveUprightSentryReferencePlacementCFrame(sentryModel, referencePlacementCFrame, lookDirection)
+	referencePlacementCFrame = applySentryPlacementRotationOffset(referencePlacementCFrame, weaponDef)
+	local placementCFrame = resolveSentryPlacementPivotCFrame(sentryModel, referencePlacementCFrame)
 	local overlapParams = OverlapParams.new()
 	overlapParams.FilterType = Enum.RaycastFilterType.Exclude
 	local overlapExclusions = { character, getEffectsFolder() }
@@ -2714,7 +2936,7 @@ local function resolveSentryPlacementCFrame(player, character, rootPart, sentryM
 	overlapParams.FilterDescendantsInstances = overlapExclusions
 
 	local padding = Vector3.new(0.25, 0.25, 0.25)
-	local overlaps = Workspace:GetPartBoundsInBox(placementCFrame, boundsSize + padding, overlapParams)
+	local overlaps = Workspace:GetPartBoundsInBox(referencePlacementCFrame, boundsSize + padding, overlapParams)
 	for _, part in ipairs(overlaps) do
 		if part and part.Parent and part.CanCollide then
 			return nil
@@ -2763,6 +2985,12 @@ local function deploySentryTurret(player, character, rootPart, weaponDef, explic
 	local turretFireCooldown = math.max(0.05, tonumber(weaponDef.TurretFireCooldown) or 0.2)
 	local turretAcquireRange = math.max(100, tonumber(weaponDef.TurretAcquireRange) or 100000)
 	local turretThinkInterval = math.max(0.05, tonumber(weaponDef.TurretThinkInterval) or 0.08)
+	local turretAttackMode = normalizeWeaponToken(weaponDef.TurretAttackMode or "Bullet")
+	local turretRocketCount = math.max(1, math.floor((tonumber(weaponDef.TurretRocketCount) or 1) + 0.5))
+	local turretRocketBlastRadius = math.max(4, tonumber(weaponDef.TurretRocketBlastRadius) or 8)
+	local turretRocketProjectileSpeed = math.max(30, tonumber(weaponDef.TurretRocketProjectileSpeed) or 140)
+	local turretRocketRange = math.max(20, tonumber(weaponDef.TurretRocketRange) or tonumber(weaponDef.Range) or 180)
+	local turretRocketSpreadDegrees = math.max(0, tonumber(weaponDef.TurretRocketSpreadDegrees) or DEFAULT_TURRET_ROCKET_SPREAD_DEGREES)
 	local turretMaxAmmo = resolveTurretMaxAmmo(weaponDef)
 	local turretInitialAmmo = resolveTurretInitialAmmo(weaponDef, turretMaxAmmo)
 
@@ -2815,6 +3043,12 @@ local function deploySentryTurret(player, character, rootPart, weaponDef, explic
 		fireCooldown = turretFireCooldown,
 		acquireRange = turretAcquireRange,
 		thinkInterval = turretThinkInterval,
+		turretAttackMode = turretAttackMode,
+		turretRocketCount = turretRocketCount,
+		turretRocketBlastRadius = turretRocketBlastRadius,
+		turretRocketProjectileSpeed = turretRocketProjectileSpeed,
+		turretRocketRange = turretRocketRange,
+		turretRocketSpreadDegrees = turretRocketSpreadDegrees,
 		maxAmmo = turretMaxAmmo,
 		ammo = turretInitialAmmo,
 		lastFireAt = -math.huge,
@@ -2938,11 +3172,12 @@ local function configureWeaponTool(tool, weaponDef, owner)
 	tool:SetAttribute("ClassTag", weaponDef.ClassTag)
 	tool:SetAttribute("RequiredClassId", weaponDef.ClassId)
 	tool:SetAttribute("DualWield", dualWieldEnabled)
-	tool:SetAttribute("AutoFire", weaponDef.AutoFire == true)
+	tool:SetAttribute("AutoFire", weaponDef.AutoFire == true or isMeleeWeaponClass(weaponClass))
 	tool:SetAttribute("Damage", weaponDef.Damage)
 	tool:SetAttribute("Range", weaponDef.Range)
 	tool:SetAttribute("Cooldown", weaponDef.Cooldown)
 	tool:SetAttribute("TurretPlacementDistance", weaponDef.TurretPlacementDistance)
+	tool:SetAttribute("TurretPlacementRotationDeg", weaponDef.TurretPlacementRotationDeg)
 	tool:SetAttribute("MagazineSize", getMagazineSize(weaponDef, owner))
 	tool:SetAttribute("ReloadSeconds", getReloadSeconds(weaponDef, owner))
 
@@ -3026,7 +3261,7 @@ local function configureWeaponTool(tool, weaponDef, owner)
 			end
 		elseif weaponClass == "RepairTool" then
 			repairOwnedSentries(owner, weaponDef)
-		elseif weaponClass == "Melee" then
+		elseif isMeleeWeaponClass(weaponClass) then
 			fireMeleeAttack(owner, character, origin, direction, weaponDef, state, tool)
 		elseif weaponClass == "Flamethrower" then
 			fireFlamethrower(owner, character, weaponDef, state, handle)
