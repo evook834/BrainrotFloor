@@ -1,169 +1,99 @@
-# Brainrot Floor (Rojo Setup)
+# Brainrot Floor
 
-## Tooling
-- `aftman` manages the local toolchain
-- `rojo` syncs source files with Roblox Studio
-- `wally` manages external package dependencies
+Co-op wave-based shooter on Roblox: players choose a difficulty in the **lobby**, get matched into a **match** server, then survive waves of enemies, buy weapons and ammo, level classes, and optionally return to lobby or vote for the next map after game over.
 
-## Quick start
-1. Open this folder in a terminal.
-2. Run one of:
-   - `rojo serve game/places/lobby/default.project.json` for the lobby place
-   - `rojo serve game/places/match/default.project.json` for match/map places
-   - `rojo serve default.project.json` for the legacy combined project
-3. In Roblox Studio, install and open the Rojo plugin.
-4. Connect to `localhost:34872` and sync the project.
-5. If you use lobby matchmaking, set `LOBBY_PLACE_ID` and `MATCH_PLACE_IDS` in `game/shared/server/src/Shared/MatchmakingConfig.luau`.
+This README is an **architecture overview**. For folder-by-folder layout see [PROJECT_MAP.md](PROJECT_MAP.md). For dependency rules see [DEPENDENCIES.md](DEPENDENCIES.md). For remotes see [REMOTES.md](REMOTES.md). For feature notes (sprint, stamina, difficulty, game over, etc.) see [doc.md](doc.md).
 
-## Per-place Wally manifests
-- Lobby manifest: `game/places/lobby/wally.toml`
-- Match manifest: `game/places/match/wally.toml`
-- Install dependencies per place:
-  - `cd game/places/lobby && wally install`
-  - `cd game/places/match && wally install`
+---
 
-## CI and publish pipeline
+## Architecture overview
 
-Validation/build workflow:
-- File: `.github/workflows/ci-places.yml`
-- Triggers:
-  - `workflow_dispatch` only (manual)
-- Behavior:
-  - Installs toolchain using `scripts/ci/install_toolchain.sh` (`aftman` + tools from `aftman.toml`)
-  - Runs optional per-place `wally install` when network is reachable
-  - Auto-selects project files:
-    - prefers `game/places/<place>/default.project.json`
-    - falls back to `<place>.project.json` when place project files are not yet in the branch
-  - Validates place mappings with `rojo sourcemap`
-  - Builds:
-    - `game/places/lobby/default.project.json` -> `artifacts/lobby-place.rbxlx`
-    - `game/places/match/default.project.json` -> `artifacts/match-place.rbxlx`
-  - Uploads `artifacts/` as `place-build-artifacts`
+### Two places, one shared tree
 
-Publish workflow:
-- File: `.github/workflows/publish-opencloud.yml`
-- Trigger:
-  - `workflow_dispatch` only (manual gate), with inputs:
-    - `environment`: `staging` or `production`
-    - `targets_manifest_path`: repo path to place target manifest (default `release-artifacts/publish-targets.json`)
-- Strategy:
-  1. Keep one base snapshot `.rbxlx` per place in `release-artifacts/`.
-  2. Define all publish targets (lobby and every match map place) in `release-artifacts/publish-targets.json`.
-  3. Push code changes.
-  4. Run `publish-opencloud.yml` manually against that commit.
-  5. Select the target environment (`staging` or `production`) so environment-scoped secrets are used.
-- Behavior:
-  - Runs `rojo build` for lobby and match code artifacts.
-  - Merges Rojo-managed paths from each project into each place's base snapshot, preserving map geometry and non-managed objects.
-  - Publishes every merged target in the manifest with retry on Open Cloud conflict responses (`HTTP 409`).
+- **Lobby place** (`game/lobby/`) — Players pick difficulty (Easy / Normal / Hard). Server uses **MemoryStore** to find or create a match server and teleports the party there.
+- **Match place** (`game/match/`) — Wave loop, enemies, shop, classes, difficulty scaling, settings, ammo pickups. When all players die, game over triggers; players can return to lobby or vote for the next map.
+- **Shared** (`game/shared/`) — Code used by both places, split by runtime:
+  - **ReplicatedStorage.Shared** — Config and catalogs (waves, enemies, classes, shop, player, remotes). Replicated to client and server; may only `require` within this tree.
+  - **ServerScriptService.Shared** — Server-only shared (matchmaking config, place role detection).
+  - **StarterPlayerScripts.SharedClient** — Client-only shared (e.g. sprint/stamina).
 
-Publish targets manifest:
-- File: `release-artifacts/publish-targets.json`
-- Example target:
-  - `{ "name": "match-c", "role": "match", "placeId": 1234567890, "baseSnapshot": "release-artifacts/match-c.rbxlx" }`
-- `role` values:
-  - `lobby` -> uses `game/places/lobby/default.project.json` + `artifacts/lobby-place.rbxlx`
-  - `match` -> uses `game/places/match/default.project.json` + `artifacts/match-place.rbxlx`
-- You can override defaults per target with optional `projectFile` and `buildArtifact`.
-- When map content changes in Studio, re-export that place's `baseSnapshot` file and commit it once.
+Each place has a Rojo **`default.project.json`** that mounts **`../shared`** into the same DataModel, so at runtime one place = one game tree with both place-specific and shared scripts.
 
-Required GitHub environment secrets (`staging` and/or `production`):
-- `ROBLOX_OPEN_CLOUD_API_KEY`
-- `ROBLOX_UNIVERSE_ID`
+### Client / server boundary
 
-## Local CI-equivalent commands
+- **Clients** run under `StarterPlayer.StarterPlayerScripts` (SharedClient + LobbyClient or MatchClient). They **cannot** `require` anything under `ServerScriptService`; it does not exist on the client.
+- **Servers** run under `ServerScriptService` (Shared + Lobby or Match). They may `require` ReplicatedStorage.Shared and ServerScriptService (shared + place).
+- **All cross-boundary communication** is via **Remotes** only (RemoteEvent / RemoteFunction). Names and payloads are defined in [REMOTES.md](REMOTES.md) and `ReplicatedStorage.Shared.Remotes.RemoteNames`.
 
-```bash
-scripts/ci/install_toolchain.sh
-scripts/ci/build_and_validate_places.sh
+### Key systems (match)
+
+| System | Server | Client | Remotes (examples) |
+|--------|--------|--------|--------------------|
+| **Waves** | WaveService: state machine (Preparing → InProgress → Cleared / Blocked / GameOver), spawn cadence, intermission | WaveHud: wave number, state, intermission countdown, game-over overlay, map vote UI | WaveState (S→All) |
+| **Classes** | ClassService: selection, XP, levels, persistence, combat bonuses | ClassUi, XpBarHud | ClassGetData, ClassSelect, ClassState (C→S / S→C) |
+| **Shop** | ShopService: catalog per player, buy weapon/ammo, trader prompt | ShopUi | ShopOpen (S→C), ShopGetCatalog, ShopBuyWeapon, ShopBuyAmmo (C→S) |
+| **Combat** | Weapon fire/reload/aim handlers, damage, ammo | Crosshair, AmmoHud, DamageIndicators, DualWieldPose | WeaponAim, WeaponFire, WeaponReload (C→S), DamageIndicator (S→C) |
+| **Enemies** | EnemyService, EnemyAIService, EnemyVfxService, difficulty-scaled HP/damage | EnemyHealthBars, EnemyDeathCloud | — |
+| **Settings** | SettingsService: get/save (audio, HUD) | SettingsUi (lobby + match) | SettingsGet (C→S), SettingsSave (C→S) |
+| **Ammo pickups** | AmmoPickupService: zones, spawn/respawn, pickup | — | — |
+| **Game over / map vote** | GameBootstrap: all-dead → GameOver, return-to-lobby teleport, map vote winner → reserve + teleport party | WaveHud: game-over overlay, return button, map vote panel | ReturnToLobby, MapVote (reserved) |
+
+Config (wave timing, enemy counts, class catalog, weapon catalog, difficulty multipliers, etc.) lives in **ReplicatedStorage.Shared** (e.g. `GameConfig`, `WaveConfig`, `ClassCatalog`, `WeaponCatalog`). Server-only shared config (place IDs, MemoryStore name, difficulties) is in **ServerScriptService.Shared.Matchmaking**.
+
+### Lobby
+
+- **LobbyMatchmaker**: Listens for difficulty buttons, finds/creates match server via MemoryStore, teleports party with difficulty in teleport data.
+- **LobbySettings** / **SettingsService**: Expose SettingsGet / SettingsSave so settings persist across lobby and match.
+- **PlaceRole**: Detects Lobby vs Match so lobby-only systems (matchmaker) and match-only systems (waves, shop, classes, etc.) run in the correct place.
+
+---
+
+## Repo layout (summary)
+
+```
+game/
+├── shared/          # ReplicatedStorage.Shared, ServerScriptService.Shared, SharedClient
+├── lobby/           # Lobby place (ServerScriptService.Lobby, LobbyClient)
+├── match/           # Match place (ServerScriptService.Match, MatchClient)
+└── places/          # Legacy; prefer lobby/ and match/ for current code
 ```
 
-Optional:
-- `SKIP_WALLY_INSTALL=1 scripts/ci/build_and_validate_places.sh` to skip network-dependent Wally install.
-- `ROJO_TIMEOUT_SECONDS=300 scripts/ci/build_and_validate_places.sh` to raise the per-command Rojo timeout.
+Detailed folder-by-folder breakdown: **[PROJECT_MAP.md](PROJECT_MAP.md)**.
 
-## Game scaffold included
-- Wave loop with intermission and scaling enemy count.
-- Enemy spawner that clones models from `ServerStorage/EnemyTemplates`.
-- Client HUD that shows wave state.
-- Difficulty modifiers for enemy stats (configured in `GameConfig`).
+---
 
-## What to add in Studio
-1. Add enemy models (with `Humanoid` and `HumanoidRootPart`) under `ServerStorage > EnemyTemplates`.
-2. Add spawn parts under `Workspace > SpawnPoints`.
-   These folders are map-owned (Studio snapshots) and not Rojo-managed.
-3. Hit Play to test wave spawning.
+## Quick start
 
-## Existing place file
-Your existing place file (`Brainrot  Floor.rbxlx`) is untouched.
-Rojo sync can use the new place projects in `game/places/*/default.project.json` or legacy root project files.
+1. **Toolchain** — `aftman` (see `aftman.toml`), `rojo`, `wally` for packages.
+2. **Serve a place** — e.g. `rojo serve game/lobby/default.project.json` or `rojo serve game/match/default.project.json`.
+3. **Studio** — Install Rojo plugin, connect to the served port (e.g. `localhost:34872`), sync.
+4. **Matchmaking** — Set `LOBBY_PLACE_ID` and `MATCH_PLACE_IDS` in `game/shared/src/ServerScriptService/Shared/Matchmaking/MatchmakingConfig.luau` for real place IDs.
+5. **Packages** — Per-place: `cd game/lobby && wally install`, `cd game/match && wally install` (if needed).
 
-## Multi-place runtime routing
-Role selection is centralized in `game/shared/server/src/Shared/MatchmakingConfig.luau`:
-- `LOBBY_PLACE_ID`: public lobby place id
-- `MATCH_PLACE_IDS`: map/match place id list used for teleport + reserved servers
-- `FORCE_PLACE_ROLE`: optional override (`"Lobby"` or `"Match"`) for testing only
+---
 
-Runtime behavior:
-- `GameBootstrap` runs only in match places
-- `LobbyMatchmaker` runs only in lobby places
-- `MatchServerRegistry` runs only in match places (and only with `PrivateServerId`)
+## Docs index
 
-## Ownership layout
-- Shared replicated config: `game/shared/replicated/src/*`
-- Shared server modules: `game/shared/server/src/*`
-- Shared client scripts: `game/shared/client/src/*`
-- Lobby-only code: `game/places/lobby/src/*`
-- Match-only code: `game/places/match/src/*`
+| Doc | Purpose |
+|-----|--------|
+| **[README.md](README.md)** | Architecture overview (this file). |
+| **[PROJECT_MAP.md](PROJECT_MAP.md)** | Folder-by-folder summary. |
+| **[DEPENDENCIES.md](DEPENDENCIES.md)** | Who may `require` what; client vs server; shared vs place. |
+| **[REMOTES.md](REMOTES.md)** | Remote names, direction, payloads. |
+| **[doc.md](doc.md)** | Feature notes: sprint, stamina, difficulty, game over, map vote, return to lobby. |
+| **[AGENTS.md](AGENTS.md)** | Agent instructions: command preference, placement rules, file organization, when to add/edit/split. |
 
-Place-specific Rojo mappings:
-- `game/places/lobby/default.project.json` mounts `Shared` + `Lobby` content.
-- `game/places/match/default.project.json` mounts `Shared` + `Match` content.
+---
 
-## Difficulty tuning
-Gameplay difficulty modifiers live in `game/shared/replicated/src/Shared/GameConfig.luau` under `Difficulty.Settings`.
+## Maintaining the docs (DEPENDENCIES, PROJECT_MAP, README, REMOTES)
 
-Current server systems use:
-- `EnemyHealthMultiplier` for spawned enemy max health
-- `EnemyDamageMultiplier` for enemy melee attack damage
+These four files describe where code lives and how it connects. Keep them accurate when the codebase changes.
 
-## Server script placement
-Use these exact paths when syncing with Rojo:
+**When to update**
 
-1. `game/shared/server/src/Shared/MatchmakingConfig.luau`
-   - Studio location: `ServerScriptService > Shared > MatchmakingConfig` (`ModuleScript`)
-2. `game/shared/server/src/Shared/PlaceRole.luau`
-   - Studio location: `ServerScriptService > Shared > PlaceRole` (`ModuleScript`)
-   - Central place-role resolver used by startup scripts.
-3. `game/places/lobby/src/ServerScriptService/Lobby/LobbyMatchmaker.server.luau`
-   - Studio location: `ServerScriptService > Lobby > LobbyMatchmaker` (`Script`)
-   - Runs in the lobby place (public server). Handles difficulty button prompts and teleports.
-4. `game/places/match/src/ServerScriptService/Match/GameBootstrap.server.luau`
-   - Studio location: `ServerScriptService > Match > GameBootstrap` (`Script`)
-   - Runs core wave/combat systems for match places.
-5. `game/places/match/src/ServerScriptService/Match/MatchServerRegistry.server.luau`
-   - Studio location: `ServerScriptService > Match > MatchServerRegistry` (`Script`)
-   - Runs in reserved match servers. Publishes heartbeat/player slot state to MemoryStore.
-6. `game/places/match/src/ServerScriptService/Match/Services/*`
-   - Studio location: `ServerScriptService > Match > Services > ...` (`ModuleScript`s)
-   - Shared by match runtime systems only.
-
-Required lobby workspace setup:
-- `Workspace > DifficultyButtons` folder with button `BasePart` instances.
-- This folder is map-owned (Studio snapshot) and is not Rojo-managed.
-- Each button maps to a difficulty (`Easy`, `Normal`, `Hard`) by part name, or by a `Difficulty` attribute.
-- Set `MATCH_PLACE_IDS` in `game/shared/server/src/Shared/MatchmakingConfig.luau` to the shared map pool used for all difficulties.
-- Matchmaking reuses existing servers first; if none exist for that difficulty, it reserves a server on a random place from `MATCH_PLACE_IDS`.
-
-## Automatic local backups
-- Backup script: `scripts/auto_backup_place.ps1`
-- Task registration: `scripts/register_auto_backup_task.ps1`
-- Scheduled task name: `BrainrotFloorAutoBackup`
-
-Commands:
-- Register auto-backup task:
-  `powershell -ExecutionPolicy Bypass -File .\\scripts\\register_auto_backup_task.ps1`
-- Run one backup immediately:
-  `powershell -ExecutionPolicy Bypass -File .\\scripts\\auto_backup_place.ps1`
-- Remove task later if needed:
-  `Unregister-ScheduledTask -TaskName BrainrotFloorAutoBackup -Confirm:$false`
+- **Prefer updating as part of the same change.** When you add, remove, or move a module, script, folder, or remote, update the affected doc(s) in that same task:
+  - New or moved **script/folder** → [PROJECT_MAP.md](PROJECT_MAP.md) (and README key systems table if it’s a new system or major move).
+  - New or changed **remote** → [REMOTES.md](REMOTES.md) and `RemoteNames.luau`.
+  - New **runtime surface** or dependency rule → [DEPENDENCIES.md](DEPENDENCIES.md) if the “who can require what” table or repo layout changes.
+  - New **system** or major flow change → [README.md](README.md) architecture / key systems section.
+- **Optional:** A periodic or end-of-session pass (e.g. once a day) over the four docs can catch drift if something was missed during a change. The primary rule is still: update whenever you add/remove/move modules, remotes, or layout so the docs stay in sync.
