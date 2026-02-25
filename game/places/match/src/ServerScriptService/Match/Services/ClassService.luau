@@ -29,6 +29,7 @@ local classPersistence = nil
 local classCombatRules = nil
 local classRuntimeEffects = nil
 local classStateSync = nil
+local classChangedCallbacks = {}
 
 local function ensureRemote(parent, className, name)
 	local instance = parent:FindFirstChild(name)
@@ -389,6 +390,29 @@ local function pushPlayerState(player, reason, force)
 	classStateSync.pushPlayerState(player, reason, force)
 end
 
+local function removeClassChangedCallback(callback)
+	for index = #classChangedCallbacks, 1, -1 do
+		if classChangedCallbacks[index] == callback then
+			table.remove(classChangedCallbacks, index)
+		end
+	end
+end
+
+local function notifyClassChanged(player, previousClassId, selectedClassId)
+	for _, callback in ipairs(classChangedCallbacks) do
+		local ok, callbackError = pcall(callback, player, previousClassId, selectedClassId)
+		if not ok then
+			warn(
+				string.format(
+					"ClassService class changed callback failed for %s: %s",
+					tostring(player and player.Name),
+					tostring(callbackError)
+				)
+			)
+		end
+	end
+end
+
 local function selectClass(player, classId)
 	local classDef = getClassDefinition(classId)
 	if not classDef then
@@ -416,6 +440,7 @@ local function selectClass(player, classId)
 		}
 	end
 
+	local previousClassId = state.selectedClassId
 	state.selectedClassId = classDef.Id
 	getOrCreateClassProgress(state, classDef.Id)
 	markPersistedStateDirty(player.UserId)
@@ -425,6 +450,7 @@ local function selectClass(player, classId)
 		applyCharacterClassBonuses(player, player.Character)
 	end
 	enforcePlayerLoadout(player)
+	notifyClassChanged(player, previousClassId, classDef.Id)
 	pushPlayerState(player, "ClassChanged", true)
 
 	return {
@@ -501,6 +527,23 @@ end
 function ClassService.getPlayerClassName(player)
 	local classDef = getPlayerClassDefinition(player)
 	return classDef and classDef.DisplayName or "Unknown"
+end
+
+function ClassService.registerClassChangedCallback(callback)
+	if type(callback) ~= "function" then
+		return function() end
+	end
+
+	table.insert(classChangedCallbacks, callback)
+	local isDisconnected = false
+
+	return function()
+		if isDisconnected then
+			return
+		end
+		isDisconnected = true
+		removeClassChangedCallback(callback)
+	end
 end
 
 function ClassService.canPlayerUseWeapon(player, weaponDef)

@@ -176,6 +176,7 @@ local WeaponCatalog = {
 		Range = 180,
 		Cooldown = 0.7,
 		TurretMaxHealth = 420,
+		TurretMaxAmmo = 300,
 		TurretDamage = 10,
 		TurretFireCooldown = 0.5,
 		TurretAcquireRange = 100000,

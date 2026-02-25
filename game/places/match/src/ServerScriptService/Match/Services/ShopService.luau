@@ -10,6 +10,11 @@ local Config = require(ReplicatedStorage.Shared.GameConfig)
 local ClassService = require(script.Parent.ClassService)
 local EnemyVfxService = require(script.Parent.EnemyVfxService)
 local ModelRootResolver = require(script.Parent.ModelRootResolver)
+local CatalogAndPricing = require(script.Parent:WaitForChild("Shop"):WaitForChild("CatalogAndPricing"))
+local InventoryIndex = require(script.Parent:WaitForChild("Shop"):WaitForChild("InventoryIndex"))
+local PurchaseFlow = require(script.Parent:WaitForChild("Shop"):WaitForChild("PurchaseFlow"))
+local SentryRuntime = require(script.Parent:WaitForChild("Shop"):WaitForChild("SentryRuntime"))
+local WeaponAmmoRuntime = require(script.Parent:WaitForChild("Shop"):WaitForChild("WeaponAmmoRuntime"))
 
 local ShopService = {}
 
@@ -25,11 +30,15 @@ local weaponReloadRemote = nil
 local damageIndicatorRemote = nil
 local weaponById = {}
 local weaponEffectsFolder = nil
-local toolRuntimeState = setmetatable({}, { __mode = "k" })
 local enemyDamageBlinkState = setmetatable({}, { __mode = "k" })
 local enemyBurnState = setmetatable({}, { __mode = "k" })
 local playerAimState = {}
 local playerGroundFireState = {}
+local ammoRuntime = WeaponAmmoRuntime.new({
+	classService = ClassService,
+	inventoryIndex = InventoryIndex,
+})
+local toolRuntimeState = ammoRuntime.getStateMap()
 local randomGenerator = Random.new()
 local FIRE_CONE_HALF_ANGLE_DEGREES = 40
 local FIRE_CONE_MIN_DOT = math.cos(math.rad(FIRE_CONE_HALF_ANGLE_DEGREES))
@@ -37,12 +46,10 @@ local BURN_DOT_FALLBACK_TICK_INTERVAL_SECONDS = 0.5
 local SENTRY_TURRET_FOLDER_NAME = "SentryTurrets"
 local MAX_SENTRY_COUNT_PER_PLAYER = 3
 local SENTRY_REPAIR_INTERRUPT_SECONDS = 0.45
+local DEFAULT_SENTRY_MAX_AMMO = 300
 local applyDamageToEnemy
-local sentryTurretFolder = nil
-local sentryTurretsByPlayer = {}
-local sentryRecordByModel = setmetatable({}, { __mode = "k" })
-local sentryCharacterConnectionByPlayer = {}
-local sentryCharacterDeathConnectionByPlayer = {}
+local sentryRuntime = nil
+local classChangedCleanupDisconnect = nil
 
 local function ensureRemote(parent, className, name)
 	local instance = parent:FindFirstChild(name)
@@ -85,23 +92,7 @@ local function getEnemyContainer()
 end
 
 local function getSentryTurretFolder()
-	if sentryTurretFolder and sentryTurretFolder.Parent == Workspace then
-		return sentryTurretFolder
-	end
-
-	sentryTurretFolder = Workspace:FindFirstChild(SENTRY_TURRET_FOLDER_NAME)
-	if sentryTurretFolder and sentryTurretFolder:IsA("Folder") then
-		return sentryTurretFolder
-	end
-
-	if sentryTurretFolder then
-		sentryTurretFolder:Destroy()
-	end
-
-	sentryTurretFolder = Instance.new("Folder")
-	sentryTurretFolder.Name = SENTRY_TURRET_FOLDER_NAME
-	sentryTurretFolder.Parent = Workspace
-	return sentryTurretFolder
+	return sentryRuntime.getSentryTurretFolder()
 end
 
 local function findEnemyModelFromDescendant(descendant, enemyContainer)
@@ -715,252 +706,35 @@ local function isSniperWeaponDefinition(weaponDef)
 end
 
 local function getMagazineSize(weaponDef, player)
-	local magazineSize = nil
-	if player and player:IsA("Player") then
-		magazineSize = ClassService.getWeaponMagazineSize(player, weaponDef)
-	else
-		magazineSize = tonumber(weaponDef.MagazineSize)
-	end
-
-	if not magazineSize then
-		return nil
-	end
-
-	magazineSize = math.floor(magazineSize + 0.5)
-	if magazineSize <= 0 then
-		return nil
-	end
-
-	return magazineSize
+	return ammoRuntime.getMagazineSize(weaponDef, player)
 end
 
 local function getReloadSeconds(weaponDef, player)
-	local reloadSeconds = nil
-	if player and player:IsA("Player") then
-		reloadSeconds = ClassService.getWeaponReloadSeconds(player, weaponDef)
-	else
-		reloadSeconds = tonumber(weaponDef.ReloadSeconds)
-	end
-
-	if type(reloadSeconds) ~= "number" then
-		return nil
-	end
-
-	return math.max(0.2, reloadSeconds)
+	return ammoRuntime.getReloadSeconds(weaponDef, player)
 end
 
 local function getReserveAmmoCapacity(weaponDef, magazineSize)
-	if type(magazineSize) ~= "number" or magazineSize <= 0 then
-		return nil
-	end
-
-	local explicitReserve = tonumber(weaponDef.ReserveAmmo)
-	if type(explicitReserve) == "number" then
-		return math.max(0, math.floor(explicitReserve + 0.5))
-	end
-
-	local spareMagazines = tonumber(weaponDef.SpareMagazines)
-	if type(spareMagazines) == "number" then
-		return math.max(0, math.floor(spareMagazines + 0.5)) * magazineSize
-	end
-
-	return magazineSize * 4
+	return ammoRuntime.getReserveAmmoCapacity(weaponDef, magazineSize)
 end
 
 local function syncToolCombatStats(tool, weaponDef, state, owner)
-	local magazineSize = getMagazineSize(weaponDef, owner)
-	local reloadSeconds = getReloadSeconds(weaponDef, owner)
-	local reserveAmmoCapacity = getReserveAmmoCapacity(weaponDef, magazineSize)
-
-	state.magazineSize = magazineSize
-	state.reloadSeconds = reloadSeconds
-	state.reserveAmmoCapacity = reserveAmmoCapacity
-
-	tool:SetAttribute("MagazineSize", magazineSize)
-	tool:SetAttribute("ReloadSeconds", reloadSeconds)
+	ammoRuntime.syncToolCombatStats(tool, weaponDef, state, owner)
 end
 
 local function getToolState(tool, weaponDef, owner)
-	local state = toolRuntimeState[tool]
-	if state then
-		return state
-	end
-
-	local magazineSize = getMagazineSize(weaponDef, owner)
-	local reserveAmmoCapacity = getReserveAmmoCapacity(weaponDef, magazineSize)
-	state = {
-		lastActivatedAt = -math.huge,
-		ammo = magazineSize,
-		reserveAmmo = reserveAmmoCapacity,
-		isReloading = false,
-		isBursting = false,
-		baseGrip = tool.Grip,
-		swingToken = 0,
-		magazineSize = magazineSize,
-		reserveAmmoCapacity = reserveAmmoCapacity,
-		reloadSeconds = getReloadSeconds(weaponDef, owner),
-	}
-	toolRuntimeState[tool] = state
-	return state
+	return ammoRuntime.getToolState(tool, weaponDef, owner)
 end
 
-local updateAmmoAttributes
-
-local function mirrorAmmoStateAcrossOwnedTools(sourceTool, weaponDef, sourceState, owner)
-	if not (owner and owner:IsA("Player")) then
-		return
-	end
-	if not sourceTool or not sourceTool:IsA("Tool") then
-		return
-	end
-
-	local weaponId = sourceTool:GetAttribute("WeaponId")
-	if type(weaponId) ~= "string" or weaponId == "" then
-		return
-	end
-
-	local containers = {
-		owner.Character,
-		owner:FindFirstChildOfClass("Backpack"),
-		owner:FindFirstChild("StarterGear"),
-	}
-
-	for _, container in ipairs(containers) do
-		if container then
-			for _, child in ipairs(container:GetChildren()) do
-				if child:IsA("Tool") and child ~= sourceTool and child:GetAttribute("WeaponId") == weaponId then
-					local mirroredState = getToolState(child, weaponDef, owner)
-					mirroredState.ammo = sourceState.ammo
-					mirroredState.reserveAmmo = sourceState.reserveAmmo
-					mirroredState.isReloading = false
-					updateAmmoAttributes(child, weaponDef, mirroredState, owner, true)
-				end
-			end
-		end
-	end
-end
-
-updateAmmoAttributes = function(tool, weaponDef, state, owner, skipMirror)
-	syncToolCombatStats(tool, weaponDef, state, owner)
-	local magazineSize = state.magazineSize
-	if not magazineSize then
-		tool:SetAttribute("MaxAmmo", nil)
-		tool:SetAttribute("CurrentAmmo", nil)
-		tool:SetAttribute("ReserveAmmo", nil)
-		tool:SetAttribute("ReserveAmmoMax", nil)
-		tool:SetAttribute("TotalAmmo", nil)
-		tool:SetAttribute("TotalAmmoMax", nil)
-		tool:SetAttribute("IsReloading", false)
-		tool.ToolTip = tostring(weaponDef.DisplayName or tool.Name)
-		return
-	end
-
-	state.ammo = math.max(0, math.floor((tonumber(state.ammo) or magazineSize) + 0.5))
-	state.ammo = math.min(state.ammo, magazineSize)
-	state.reserveAmmoCapacity = math.max(0, math.floor((tonumber(state.reserveAmmoCapacity) or 0) + 0.5))
-	state.reserveAmmo = math.max(0, math.floor((tonumber(state.reserveAmmo) or state.reserveAmmoCapacity) + 0.5))
-	if state.reserveAmmo > state.reserveAmmoCapacity then
-		state.reserveAmmo = state.reserveAmmoCapacity
-	end
-
-	local totalAmmo = state.ammo + state.reserveAmmo
-	local totalAmmoCapacity = magazineSize + state.reserveAmmoCapacity
-	tool:SetAttribute("MaxAmmo", magazineSize)
-	tool:SetAttribute("CurrentAmmo", state.ammo)
-	tool:SetAttribute("ReserveAmmo", state.reserveAmmo)
-	tool:SetAttribute("ReserveAmmoMax", state.reserveAmmoCapacity)
-	tool:SetAttribute("TotalAmmo", totalAmmo)
-	tool:SetAttribute("TotalAmmoMax", totalAmmoCapacity)
-	tool:SetAttribute("IsReloading", state.isReloading == true)
-
-	if state.isReloading then
-		tool.ToolTip = string.format("%s | Reloading...", tostring(weaponDef.DisplayName or tool.Name))
-	elseif totalAmmo <= 0 then
-		tool.ToolTip = string.format("%s | Out of ammo", tostring(weaponDef.DisplayName or tool.Name))
-	else
-		tool.ToolTip = string.format(
-			"%s | Ammo %d/%d | Reserve %d",
-			tostring(weaponDef.DisplayName or tool.Name),
-			state.ammo,
-			magazineSize,
-			state.reserveAmmo
-		)
-	end
-
-	if skipMirror ~= true then
-		mirrorAmmoStateAcrossOwnedTools(tool, weaponDef, state, owner)
-	end
+local function updateAmmoAttributes(tool, weaponDef, state, owner, skipMirror)
+	ammoRuntime.updateAmmoAttributes(tool, weaponDef, state, owner, skipMirror)
 end
 
 local function startReload(tool, weaponDef, state, owner)
-	syncToolCombatStats(tool, weaponDef, state, owner)
-	local magazineSize = state.magazineSize
-	if not magazineSize or state.isReloading then
-		return
-	end
-
-	state.ammo = math.max(0, math.floor((tonumber(state.ammo) or magazineSize) + 0.5))
-	state.ammo = math.min(state.ammo, magazineSize)
-	state.reserveAmmo = math.max(0, math.floor((tonumber(state.reserveAmmo) or 0) + 0.5))
-	if state.ammo >= magazineSize or state.reserveAmmo <= 0 then
-		updateAmmoAttributes(tool, weaponDef, state, owner)
-		return
-	end
-
-	state.isReloading = true
-	updateAmmoAttributes(tool, weaponDef, state, owner)
-
-	local reloadSeconds = math.max(0.2, tonumber(state.reloadSeconds) or 2)
-	task.delay(reloadSeconds, function()
-		state.isReloading = false
-		syncToolCombatStats(tool, weaponDef, state, owner)
-		local refreshedMagazineSize = state.magazineSize
-		if refreshedMagazineSize then
-			local currentAmmo = math.max(0, math.floor((tonumber(state.ammo) or 0) + 0.5))
-			local reserveAmmo = math.max(0, math.floor((tonumber(state.reserveAmmo) or 0) + 0.5))
-			local neededAmmo = math.max(0, refreshedMagazineSize - currentAmmo)
-			local loadedAmmo = math.min(neededAmmo, reserveAmmo)
-			state.ammo = currentAmmo + loadedAmmo
-			state.reserveAmmo = reserveAmmo - loadedAmmo
-		end
-		if tool.Parent then
-			updateAmmoAttributes(tool, weaponDef, state, owner)
-		end
-	end)
+	ammoRuntime.startReload(tool, weaponDef, state, owner)
 end
 
 local function tryConsumeAmmo(tool, weaponDef, state, owner)
-	syncToolCombatStats(tool, weaponDef, state, owner)
-	local magazineSize = state.magazineSize
-	if not magazineSize then
-		return true
-	end
-
-	if state.isReloading then
-		return false
-	end
-
-	state.ammo = math.max(0, math.floor((tonumber(state.ammo) or magazineSize) + 0.5))
-	state.ammo = math.min(state.ammo, magazineSize)
-	state.reserveAmmo = math.max(0, math.floor((tonumber(state.reserveAmmo) or 0) + 0.5))
-
-	if state.ammo <= 0 then
-		if state.reserveAmmo > 0 then
-			startReload(tool, weaponDef, state, owner)
-		else
-			updateAmmoAttributes(tool, weaponDef, state, owner)
-		end
-		return false
-	end
-
-	state.ammo -= 1
-	updateAmmoAttributes(tool, weaponDef, state, owner)
-
-	if state.ammo <= 0 and state.reserveAmmo > 0 then
-		startReload(tool, weaponDef, state, owner)
-	end
-
-	return true
+	return ammoRuntime.tryConsumeAmmo(tool, weaponDef, state, owner)
 end
 
 local function createTracerSegment(startPos, endPos, color, thickness, lifetimeSeconds)
@@ -2489,196 +2263,55 @@ local function createToolFromTemplate(weaponDef)
 	return nil
 end
 
-local function disconnectConnections(connections)
-	if type(connections) ~= "table" then
-		return
-	end
-
-	for _, connection in ipairs(connections) do
-		connection:Disconnect()
-	end
-	table.clear(connections)
-end
+sentryRuntime = SentryRuntime.new({
+	modelRootResolver = ModelRootResolver,
+	createExplosionEffect = createExplosionEffect,
+	createMuzzleFlash = createMuzzleFlash,
+	createTracerSegment = createTracerSegment,
+	createFlamePuff = createFlamePuff,
+	randomGenerator = randomGenerator,
+	sentryTurretFolderName = SENTRY_TURRET_FOLDER_NAME,
+	defaultSentryMaxAmmo = DEFAULT_SENTRY_MAX_AMMO,
+})
 
 local function removeSentryRecord(model)
-	local record = sentryRecordByModel[model]
-	if not record then
-		return
-	end
-
-	sentryRecordByModel[model] = nil
-	disconnectConnections(record.connections)
-
-	local owner = record.owner
-	local records = owner and sentryTurretsByPlayer[owner]
-	if records then
-		for index = #records, 1, -1 do
-			if records[index] == model then
-				table.remove(records, index)
-			end
-		end
-		if #records == 0 then
-			sentryTurretsByPlayer[owner] = nil
-		end
-	end
-end
-
-local function playSentryDestroyedEffect(model)
-	if not (model and model:IsA("Model")) then
-		return
-	end
-
-	local root = ModelRootResolver.resolveRootPart(model)
-	local position = root and root.Position or model:GetPivot().Position
-
-	createExplosionEffect(position, 4.25)
-	createMuzzleFlash(position, Color3.fromRGB(255, 205, 120), 2.6, 0.14)
-	createMuzzleFlash(position, Color3.fromRGB(255, 130, 85), 1.9, 0.18)
-
-	for _ = 1, 8 do
-		local direction = Vector3.new(
-			randomGenerator:NextNumber(-1, 1),
-			randomGenerator:NextNumber(0.15, 1),
-			randomGenerator:NextNumber(-1, 1)
-		)
-		if direction.Magnitude > 0.01 then
-			direction = direction.Unit
-			local reach = randomGenerator:NextNumber(2.5, 6)
-			local endPosition = position + direction * reach
-			createTracerSegment(position, endPosition, Color3.fromRGB(255, 170, 90), 0.16, 0.08)
-			createFlamePuff(endPosition, randomGenerator:NextNumber(0.3, 0.65), randomGenerator:NextNumber(0.08, 0.16))
-		end
-	end
-
-	task.delay(0.06, function()
-		createExplosionEffect(position, 3.2)
-		createMuzzleFlash(position, Color3.fromRGB(255, 175, 95), 1.7, 0.1)
-	end)
-
-	task.delay(0.13, function()
-		createExplosionEffect(position, 2.25)
-	end)
+	sentryRuntime.removeRecord(model)
 end
 
 local function clearPlayerSentries(player, options)
-	local playDestroyEffect = type(options) == "table" and options.playDestroyEffect == true
-	local records = sentryTurretsByPlayer[player]
-	if not records then
-		return
-	end
-
-	local copy = table.clone(records)
-	sentryTurretsByPlayer[player] = nil
-	for _, model in ipairs(copy) do
-		if playDestroyEffect and model and model.Parent then
-			playSentryDestroyedEffect(model)
-		end
-		removeSentryRecord(model)
-		if model and model.Parent then
-			model:Destroy()
-		end
-	end
+	sentryRuntime.clearPlayerSentries(player, options)
 end
 
 local function disconnectPlayerSentryDeathBindings(player)
-	local characterConnection = sentryCharacterConnectionByPlayer[player]
-	if characterConnection then
-		characterConnection:Disconnect()
-		sentryCharacterConnectionByPlayer[player] = nil
-	end
-
-	local deathConnection = sentryCharacterDeathConnectionByPlayer[player]
-	if deathConnection then
-		deathConnection:Disconnect()
-		sentryCharacterDeathConnectionByPlayer[player] = nil
-	end
+	sentryRuntime.disconnectPlayerSentryDeathBindings(player)
 end
 
 local function bindPlayerSentryDeathCleanup(player)
-	disconnectPlayerSentryDeathBindings(player)
-
-	local function bindCharacter(character)
-		local existingDeathConnection = sentryCharacterDeathConnectionByPlayer[player]
-		if existingDeathConnection then
-			existingDeathConnection:Disconnect()
-			sentryCharacterDeathConnectionByPlayer[player] = nil
-		end
-
-		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-		if not humanoid and character then
-			local awaited = character:WaitForChild("Humanoid", 5)
-			if awaited and awaited:IsA("Humanoid") then
-				humanoid = awaited
-			end
-		end
-		if not humanoid then
-			return
-		end
-
-		sentryCharacterDeathConnectionByPlayer[player] = humanoid.Died:Connect(function()
-			clearPlayerSentries(player, {
-				playDestroyEffect = true,
-			})
-		end)
-	end
-
-	sentryCharacterConnectionByPlayer[player] = player.CharacterAdded:Connect(function(character)
-		task.defer(function()
-			bindCharacter(character)
-		end)
-	end)
-
-	if player.Character then
-		task.defer(function()
-			bindCharacter(player.Character)
-		end)
-	end
+	sentryRuntime.bindPlayerSentryDeathCleanup(player)
 end
 
 local function prunePlayerSentries(player)
-	local records = sentryTurretsByPlayer[player]
-	if not records then
-		return 0
-	end
-
-	for index = #records, 1, -1 do
-		local model = records[index]
-		local record = model and sentryRecordByModel[model]
-		if not model or not record then
-			table.remove(records, index)
-		elseif not model.Parent or not record.humanoid or record.humanoid.Health <= 0 then
-			removeSentryRecord(model)
-		end
-	end
-
-	if #records == 0 then
-		sentryTurretsByPlayer[player] = nil
-		return 0
-	end
-
-	return #records
+	return sentryRuntime.prunePlayerSentries(player)
 end
 
 local function countPlayerSentriesByKind(player, kindId)
-	local records = sentryTurretsByPlayer[player]
-	if not records or #records == 0 then
-		return 0
-	end
+	return sentryRuntime.countPlayerSentriesByKind(player, kindId)
+end
 
-	local normalizedKindId = tostring(kindId or "")
-	if normalizedKindId == "" then
-		return 0
-	end
+local function resolveTurretMaxAmmo(weaponDef)
+	return sentryRuntime.resolveTurretMaxAmmo(weaponDef)
+end
 
-	local count = 0
-	for _, model in ipairs(records) do
-		local record = sentryRecordByModel[model]
-		if record and record.kindId == normalizedKindId and model and model.Parent and record.humanoid and record.humanoid.Health > 0 then
-			count += 1
-		end
-	end
+local function resolveTurretInitialAmmo(weaponDef, turretMaxAmmo)
+	return sentryRuntime.resolveTurretInitialAmmo(weaponDef, turretMaxAmmo)
+end
 
-	return count
+local function syncSentryAmmoAttributes(record)
+	sentryRuntime.syncSentryAmmoAttributes(record)
+end
+
+local function collectOwnedSentryRecordsByWeaponId(player)
+	return sentryRuntime.collectOwnedSentryRecordsByWeaponId(player)
 end
 
 local function getTurretFillColor(healthRatio)
@@ -2698,13 +2331,14 @@ local function attachTurretHealthBar(model, rootPart)
 	billboard.AlwaysOnTop = true
 	billboard.LightInfluence = 0
 	billboard.MaxDistance = 220
-	billboard.Size = UDim2.fromOffset(88, 8)
+	billboard.Size = UDim2.fromOffset(96, 26)
 	billboard.StudsOffsetWorldSpace = Vector3.new(0, 3.5, 0)
 	billboard.Parent = model
 
 	local background = Instance.new("Frame")
 	background.Name = "Background"
-	background.Size = UDim2.fromScale(1, 1)
+	background.Size = UDim2.new(1, 0, 0, 8)
+	background.Position = UDim2.fromOffset(0, 0)
 	background.BackgroundColor3 = Color3.fromRGB(28, 32, 36)
 	background.BackgroundTransparency = 0.2
 	background.BorderSizePixel = 0
@@ -2725,7 +2359,21 @@ local function attachTurretHealthBar(model, rootPart)
 	fillCorner.CornerRadius = UDim.new(0, 6)
 	fillCorner.Parent = fill
 
-	return fill
+	local ammoText = Instance.new("TextLabel")
+	ammoText.Name = "AmmoText"
+	ammoText.BackgroundTransparency = 1
+	ammoText.Size = UDim2.new(1, 0, 0, 14)
+	ammoText.Position = UDim2.fromOffset(0, 10)
+	ammoText.Font = Enum.Font.GothamSemibold
+	ammoText.TextSize = 11
+	ammoText.TextXAlignment = Enum.TextXAlignment.Center
+	ammoText.TextYAlignment = Enum.TextYAlignment.Center
+	ammoText.TextColor3 = Color3.fromRGB(195, 220, 255)
+	ammoText.TextStrokeTransparency = 0.35
+	ammoText.Text = "Ammo 0/0"
+	ammoText.Parent = billboard
+
+	return fill, ammoText
 end
 
 local function isEnemyModelAlive(enemyModel)
@@ -2901,6 +2549,22 @@ local function startTurretCombatLoop(record)
 				continue
 			end
 
+			local maxAmmo = tonumber(record.maxAmmo)
+			if type(maxAmmo) ~= "number" or maxAmmo <= 0 then
+				local modelMaxAmmo = if record.model and record.model:IsA("Model") then record.model:GetAttribute("TurretMaxAmmo") else nil
+				maxAmmo = tonumber(modelMaxAmmo)
+			end
+			if type(maxAmmo) ~= "number" or maxAmmo <= 0 then
+				maxAmmo = resolveTurretMaxAmmo(record.weaponDef)
+			end
+			maxAmmo = math.max(1, math.floor(maxAmmo + 0.5))
+			record.maxAmmo = maxAmmo
+			record.ammo = math.clamp(math.floor((tonumber(record.ammo) or maxAmmo) + 0.5), 0, maxAmmo)
+			if record.ammo <= 0 then
+				syncSentryAmmoAttributes(record)
+				continue
+			end
+
 			local now = os.clock()
 			if now - (record.lastFireAt or -math.huge) < math.max(0.05, tonumber(record.fireCooldown) or 0.2) then
 				continue
@@ -2930,6 +2594,8 @@ local function startTurretCombatLoop(record)
 				allowBurnOnHit = false,
 				allowCriticalHits = false,
 			})
+			record.ammo = math.max(0, record.ammo - 1)
+			syncSentryAmmoAttributes(record)
 
 			local flatLook = Vector3.new(lookDirection.X, 0, lookDirection.Z)
 			if flatLook.Magnitude > 0.01 then
@@ -3097,6 +2763,8 @@ local function deploySentryTurret(player, character, rootPart, weaponDef, explic
 	local turretFireCooldown = math.max(0.05, tonumber(weaponDef.TurretFireCooldown) or 0.2)
 	local turretAcquireRange = math.max(100, tonumber(weaponDef.TurretAcquireRange) or 100000)
 	local turretThinkInterval = math.max(0.05, tonumber(weaponDef.TurretThinkInterval) or 0.08)
+	local turretMaxAmmo = resolveTurretMaxAmmo(weaponDef)
+	local turretInitialAmmo = resolveTurretInitialAmmo(weaponDef, turretMaxAmmo)
 
 	for _, descendant in ipairs(sentryModel:GetDescendants()) do
 		if descendant:IsA("BasePart") then
@@ -3129,12 +2797,15 @@ local function deploySentryTurret(player, character, rootPart, weaponDef, explic
 	sentryModel:SetAttribute("TurretMaxHealth", turretMaxHealth)
 	sentryModel:SetAttribute("TurretHealth", turretMaxHealth)
 	sentryModel:SetAttribute("TurretLastDamagedAt", -1)
+	sentryModel:SetAttribute("TurretMaxAmmo", turretMaxAmmo)
+	sentryModel:SetAttribute("TurretAmmo", turretInitialAmmo)
+	sentryModel:SetAttribute("TurretOutOfAmmo", turretInitialAmmo <= 0)
 
 	local turretFolder = getSentryTurretFolder()
 	sentryModel.Parent = turretFolder
 	sentryModel:PivotTo(placementCFrame)
 
-	local healthFill = attachTurretHealthBar(sentryModel, root)
+	local healthFill, ammoLabel = attachTurretHealthBar(sentryModel, root)
 	local record = {
 		owner = player,
 		kindId = tostring(weaponDef.Id or ""),
@@ -3144,20 +2815,18 @@ local function deploySentryTurret(player, character, rootPart, weaponDef, explic
 		fireCooldown = turretFireCooldown,
 		acquireRange = turretAcquireRange,
 		thinkInterval = turretThinkInterval,
+		maxAmmo = turretMaxAmmo,
+		ammo = turretInitialAmmo,
 		lastFireAt = -math.huge,
 		lastDamagedAt = -1,
 		currentTarget = nil,
 		healthFill = healthFill,
+		ammoLabel = ammoLabel,
 		connections = {},
+		weaponDef = weaponDef,
 	}
-	sentryRecordByModel[sentryModel] = record
-
-	local records = sentryTurretsByPlayer[player]
-	if not records then
-		records = {}
-		sentryTurretsByPlayer[player] = records
-	end
-	table.insert(records, sentryModel)
+	sentryRuntime.registerRecord(player, sentryModel, record)
+	syncSentryAmmoAttributes(record)
 
 	local function refreshHealthVisuals(newHealth, previousHealth)
 		local resolvedHealth = math.clamp(tonumber(newHealth) or 0, 0, turretMaxHealth)
@@ -3198,13 +2867,13 @@ local function deploySentryTurret(player, character, rootPart, weaponDef, explic
 end
 
 local function repairOwnedSentries(player, weaponDef)
-	local records = sentryTurretsByPlayer[player]
+	local records = sentryRuntime.getPlayerSentryModels(player)
 	if not records or #records == 0 then
 		return
 	end
 
 	prunePlayerSentries(player)
-	records = sentryTurretsByPlayer[player]
+	records = sentryRuntime.getPlayerSentryModels(player)
 	if not records or #records == 0 then
 		return
 	end
@@ -3231,7 +2900,7 @@ local function repairOwnedSentries(player, weaponDef)
 
 	local now = os.clock()
 	for _, model in ipairs(records) do
-		local record = sentryRecordByModel[model]
+		local record = sentryRuntime.getRecord(model)
 		local humanoid = record and record.humanoid
 		if record and humanoid and humanoid.Parent and humanoid.Health > 0 then
 			local turretRoot = ModelRootResolver.resolveRootPart(model)
@@ -3255,29 +2924,7 @@ local function repairOwnedSentries(player, weaponDef)
 end
 
 local function consumeOwnedWeaponInstances(player, weaponId)
-	if type(weaponId) ~= "string" or weaponId == "" then
-		return false
-	end
-
-	local consumedAny = false
-	local containers = {
-		player.Character,
-		player:FindFirstChildOfClass("Backpack"),
-		player:FindFirstChild("StarterGear"),
-	}
-
-	for _, container in ipairs(containers) do
-		if container then
-			for _, child in ipairs(container:GetChildren()) do
-				if child:IsA("Tool") and child:GetAttribute("WeaponId") == weaponId then
-					consumedAny = true
-					child:Destroy()
-				end
-			end
-		end
-	end
-
-	return consumedAny
+	return InventoryIndex.destroyWeaponToolsById(player, weaponId)
 end
 
 local function configureWeaponTool(tool, weaponDef, owner)
@@ -3493,7 +3140,7 @@ local function configureWeaponTool(tool, weaponDef, owner)
 			state.fireHandler = nil
 			state.reloadHandler = nil
 		end
-		toolRuntimeState[tool] = nil
+		ammoRuntime.clearToolState(tool)
 	end)
 end
 
@@ -3527,130 +3174,70 @@ local function getEquippedWeaponTool(player, weaponId)
 end
 
 local function normalizeAmmoRefillMode(value)
-	if type(value) ~= "string" then
-		return "ReserveOnly"
-	end
-
-	local normalized = string.lower(value)
-	if normalized == "full" then
-		return "Full"
-	end
-	if normalized == "magazineonly" then
-		return "MagazineOnly"
-	end
-	return "ReserveOnly"
+	return ammoRuntime.normalizeAmmoRefillMode(value)
 end
 
 local function refillAmmoForTool(tool, weaponDef, owner, refillMode, reserveAmount)
-	local state = getToolState(tool, weaponDef, owner)
-	syncToolCombatStats(tool, weaponDef, state, owner)
+	return ammoRuntime.refillAmmoForTool(tool, weaponDef, owner, refillMode, reserveAmount)
+end
 
-	local magazineSize = state.magazineSize
-	if type(magazineSize) ~= "number" or magazineSize <= 0 then
+local function refillAmmoForSentryRecords(sentryRecords, weaponDef)
+	if type(sentryRecords) ~= "table" then
 		return false
 	end
 
-	local reserveAmmoCapacity = math.max(0, math.floor((tonumber(state.reserveAmmoCapacity) or 0) + 0.5))
-	local ammoBefore = math.max(0, math.floor((tonumber(state.ammo) or 0) + 0.5))
-	local reserveBefore = math.max(0, math.floor((tonumber(state.reserveAmmo) or 0) + 0.5))
+	local didRefill = false
+	local fallbackMaxAmmo = resolveTurretMaxAmmo(weaponDef)
+	for _, record in ipairs(sentryRecords) do
+		if record and record.model and record.model.Parent and record.humanoid and record.humanoid.Health > 0 then
+			local turretMaxAmmo = math.max(
+				1,
+				math.floor(
+					(tonumber(record.maxAmmo) or tonumber(record.model:GetAttribute("TurretMaxAmmo")) or fallbackMaxAmmo) + 0.5
+				)
+			)
+			local ammoBefore = math.clamp(
+				math.floor((tonumber(record.ammo) or tonumber(record.model:GetAttribute("TurretAmmo")) or turretMaxAmmo) + 0.5),
+				0,
+				turretMaxAmmo
+			)
 
-	state.ammo = math.clamp(ammoBefore, 0, magazineSize)
-	state.reserveAmmo = math.clamp(reserveBefore, 0, reserveAmmoCapacity)
+			record.maxAmmo = turretMaxAmmo
+			record.ammo = turretMaxAmmo
+			syncSentryAmmoAttributes(record)
 
-	if refillMode == "Full" then
-		state.ammo = magazineSize
-		state.reserveAmmo = reserveAmmoCapacity
-		state.isReloading = false
-	elseif refillMode == "MagazineOnly" then
-		state.ammo = magazineSize
-		state.isReloading = false
-	else
-		local roundedReserveAmount = tonumber(reserveAmount)
-		if type(roundedReserveAmount) == "number" and roundedReserveAmount > 0 then
-			local ammoToAdd = math.max(0, math.floor(roundedReserveAmount + 0.5))
-			state.reserveAmmo = math.min(reserveAmmoCapacity, state.reserveAmmo + ammoToAdd)
-		else
-			state.reserveAmmo = reserveAmmoCapacity
-		end
-	end
-
-	updateAmmoAttributes(tool, weaponDef, state, owner)
-	return state.ammo > ammoBefore or state.reserveAmmo > reserveBefore
-end
-
-local function playerOwnsWeapon(player, weaponId)
-	local containers = {
-		player:FindFirstChildOfClass("Backpack"),
-		player:FindFirstChild("StarterGear"),
-		player.Character,
-	}
-
-	for _, container in ipairs(containers) do
-		if container then
-			for _, child in container:GetChildren() do
-				if child:IsA("Tool") and child:GetAttribute("WeaponId") == weaponId then
-					return true
-				end
+			if ammoBefore < turretMaxAmmo then
+				didRefill = true
 			end
 		end
 	end
 
-	return false
+	return didRefill
+end
+
+local function playerOwnsWeapon(player, weaponId)
+	local normalizedWeaponId = tostring(weaponId or "")
+	if normalizedWeaponId == "" then
+		return false
+	end
+
+	if InventoryIndex.hasWeaponTool(player, normalizedWeaponId) then
+		return true
+	end
+
+	return sentryRuntime.playerOwnsWeaponId(player, normalizedWeaponId)
 end
 
 local function getRequiredOwnedWeaponId(weaponDef)
-	if type(weaponDef) ~= "table" then
-		return nil
-	end
-
-	local requiredWeaponId = weaponDef.RequiresWeaponId or weaponDef.UpgradeFromWeaponId
-	if type(requiredWeaponId) ~= "string" or requiredWeaponId == "" then
-		return nil
-	end
-	if requiredWeaponId == weaponDef.Id then
-		return nil
-	end
-	if not weaponById[requiredWeaponId] then
-		return nil
-	end
-
-	return requiredWeaponId
-end
-
-local function getRequiredOwnedWeaponName(weaponId)
-	local requiredWeaponDef = weaponById[weaponId]
-	if requiredWeaponDef and type(requiredWeaponDef.DisplayName) == "string" and requiredWeaponDef.DisplayName ~= "" then
-		return requiredWeaponDef.DisplayName
-	end
-
-	return weaponId
+	return CatalogAndPricing.getRequiredOwnedWeaponId(weaponDef, weaponById)
 end
 
 local function getUpgradeRestrictionMessage(weaponDef)
-	local requiredWeaponId = getRequiredOwnedWeaponId(weaponDef)
-	if not requiredWeaponId then
-		return "You do not meet this weapon's upgrade requirement."
-	end
-
-	return string.format("Requires %s first.", getRequiredOwnedWeaponName(requiredWeaponId))
+	return CatalogAndPricing.getUpgradeRestrictionMessage(weaponDef, weaponById)
 end
 
 local function canPurchaseNow()
-	if not remotesFolder then
-		return true, "Unknown"
-	end
-
-	local waveState = remotesFolder:GetAttribute("CurrentWaveState")
-	if type(waveState) ~= "string" then
-		return true, "Unknown"
-	end
-
-	local allowedStates = Config.Shop.PurchaseAllowedStates or {}
-	if type(allowedStates[waveState]) == "boolean" then
-		return allowedStates[waveState], waveState
-	end
-
-	return waveState ~= "InProgress", waveState
+	return CatalogAndPricing.canPurchaseNow(remotesFolder, Config)
 end
 
 local function canPlayerUseWeapon(player, weaponDef)
@@ -3658,501 +3245,133 @@ local function canPlayerUseWeapon(player, weaponDef)
 end
 
 local function getWeaponCostForPlayer(player, weaponDef)
-	if player and player:IsA("Player") then
-		return ClassService.getWeaponShopCost(player, weaponDef)
-	end
-
-	return math.max(0, math.floor((tonumber(weaponDef.Cost) or 0) + 0.5))
-end
-
-local function getAmmoRefillPricingConfig()
-	local refillConfig = (Config.Shop and Config.Shop.AmmoRefill) or {}
-	local fullRefillCostScale = math.max(0, tonumber(refillConfig.FullRefillCostScale) or 0.35)
-	local minimumWeaponRefillCost = math.max(0, math.floor((tonumber(refillConfig.MinimumWeaponRefillCost) or 10) + 0.5))
-	local minimumPurchaseCost = math.max(0, math.floor((tonumber(refillConfig.MinimumPurchaseCost) or 1) + 0.5))
-
-	return {
-		fullRefillCostScale = fullRefillCostScale,
-		minimumWeaponRefillCost = minimumWeaponRefillCost,
-		minimumPurchaseCost = minimumPurchaseCost,
-	}
+	return CatalogAndPricing.getWeaponCostForPlayer(player, weaponDef, ClassService)
 end
 
 local function collectOwnedWeaponToolsById(player)
-	local toolsByWeaponId = {}
-	local containers = {
-		player.Character,
-		player:FindFirstChildOfClass("Backpack"),
-		player:FindFirstChild("StarterGear"),
-	}
-
-	for _, container in ipairs(containers) do
-		if container then
-			for _, child in ipairs(container:GetChildren()) do
-				if child:IsA("Tool") then
-					local weaponId = child:GetAttribute("WeaponId")
-					if type(weaponId) == "string" and weaponId ~= "" and not toolsByWeaponId[weaponId] then
-						toolsByWeaponId[weaponId] = child
-					end
-				end
-			end
-		end
-	end
-
-	return toolsByWeaponId
+	return InventoryIndex.collectFirstWeaponToolById(player)
 end
 
 local function getToolAmmoSnapshot(tool, weaponDef, owner)
-	if not tool or not tool:IsA("Tool") then
-		return nil
-	end
-
-	local magazineSize = getMagazineSize(weaponDef, owner)
-	if type(magazineSize) ~= "number" or magazineSize <= 0 then
-		return nil
-	end
-
-	local reserveAmmoCapacity = getReserveAmmoCapacity(weaponDef, magazineSize)
-	if type(reserveAmmoCapacity) ~= "number" or reserveAmmoCapacity < 0 then
-		reserveAmmoCapacity = 0
-	end
-
-	local state = toolRuntimeState[tool]
-	local currentAmmo = if state then state.ammo else tool:GetAttribute("CurrentAmmo")
-	local reserveAmmo = if state then state.reserveAmmo else tool:GetAttribute("ReserveAmmo")
-
-	currentAmmo = math.clamp(math.floor((tonumber(currentAmmo) or magazineSize) + 0.5), 0, magazineSize)
-	reserveAmmo = math.clamp(math.floor((tonumber(reserveAmmo) or reserveAmmoCapacity) + 0.5), 0, reserveAmmoCapacity)
-
-	local currentTotalAmmo = currentAmmo + reserveAmmo
-	local maxTotalAmmo = magazineSize + reserveAmmoCapacity
-	local missingAmmo = math.max(0, maxTotalAmmo - currentTotalAmmo)
-
-	return {
-		currentAmmo = currentAmmo,
-		reserveAmmo = reserveAmmo,
-		magazineSize = magazineSize,
-		reserveAmmoCapacity = reserveAmmoCapacity,
-		currentTotalAmmo = currentTotalAmmo,
-		maxTotalAmmo = maxTotalAmmo,
-		missingAmmo = missingAmmo,
-	}
+	return ammoRuntime.getToolAmmoSnapshot(tool, weaponDef, owner)
 end
 
-local function buildWeaponAmmoRefillQuote(player, weaponDef, tool, pricingConfig)
-	if not (player and player:IsA("Player")) then
-		return nil
-	end
-	if type(weaponDef) ~= "table" or type(weaponDef.Id) ~= "string" or weaponDef.Id == "" then
-		return nil
-	end
-	if not (tool and tool:IsA("Tool")) then
+local function getSentryAmmoSnapshot(sentryRecords, weaponDef)
+	if type(sentryRecords) ~= "table" or #sentryRecords == 0 then
 		return nil
 	end
 
-	local ammoSnapshot = getToolAmmoSnapshot(tool, weaponDef, player)
-	if not ammoSnapshot then
-		return {
-			weaponId = weaponDef.Id,
-			tool = tool,
-			isRefillable = false,
-			canRefill = false,
-			cost = 0,
-			currentTotalAmmo = nil,
-			maxTotalAmmo = nil,
-			missingAmmo = nil,
-		}
+	local totalCurrentAmmo = 0
+	local totalMaxAmmo = 0
+	local fallbackMaxAmmo = resolveTurretMaxAmmo(weaponDef)
+
+	for _, record in ipairs(sentryRecords) do
+		if type(record) == "table" and record.humanoid and record.humanoid.Health > 0 then
+			local model = record.model
+			local modelMaxAmmo = if model and model:IsA("Model") then model:GetAttribute("TurretMaxAmmo") else nil
+			local modelAmmo = if model and model:IsA("Model") then model:GetAttribute("TurretAmmo") else nil
+			local turretMaxAmmo = math.max(
+				1,
+				math.floor((tonumber(record.maxAmmo) or tonumber(modelMaxAmmo) or fallbackMaxAmmo) + 0.5)
+			)
+			local turretAmmo = math.clamp(
+				math.floor((tonumber(record.ammo) or tonumber(modelAmmo) or turretMaxAmmo) + 0.5),
+				0,
+				turretMaxAmmo
+			)
+
+			record.maxAmmo = turretMaxAmmo
+			record.ammo = turretAmmo
+			syncSentryAmmoAttributes(record)
+
+			totalCurrentAmmo += turretAmmo
+			totalMaxAmmo += turretMaxAmmo
+		end
 	end
 
-	local maxTotalAmmo = ammoSnapshot.maxTotalAmmo
-	local missingAmmo = ammoSnapshot.missingAmmo
-	if maxTotalAmmo <= 0 or missingAmmo <= 0 then
-		return {
-			weaponId = weaponDef.Id,
-			tool = tool,
-			isRefillable = true,
-			canRefill = false,
-			cost = 0,
-			currentTotalAmmo = ammoSnapshot.currentTotalAmmo,
-			maxTotalAmmo = maxTotalAmmo,
-			missingAmmo = missingAmmo,
-		}
-	end
-
-	local weaponCost = getWeaponCostForPlayer(player, weaponDef)
-	local fullRefillCost = math.max(
-		pricingConfig.minimumWeaponRefillCost,
-		math.floor((weaponCost * pricingConfig.fullRefillCostScale) + 0.5)
-	)
-	local proportionalCost = math.floor((fullRefillCost * (missingAmmo / maxTotalAmmo)) + 0.5)
-	local refillCost = math.max(pricingConfig.minimumPurchaseCost, proportionalCost)
-
+	local missingAmmo = math.max(0, totalMaxAmmo - totalCurrentAmmo)
 	return {
-		weaponId = weaponDef.Id,
-		tool = tool,
-		isRefillable = true,
-		canRefill = refillCost > 0,
-		cost = math.max(0, refillCost),
-		currentTotalAmmo = ammoSnapshot.currentTotalAmmo,
-		maxTotalAmmo = maxTotalAmmo,
+		currentTotalAmmo = totalCurrentAmmo,
+		maxTotalAmmo = totalMaxAmmo,
 		missingAmmo = missingAmmo,
 	}
 end
 
 local function collectAmmoRefillQuotesForOwnedWeapons(player)
-	local pricingConfig = getAmmoRefillPricingConfig()
-	local toolsByWeaponId = collectOwnedWeaponToolsById(player)
-	local quotesByWeaponId = {}
-	local refillAllCost = 0
-	local ownedWeapons = 0
-	local ownedRefillableWeapons = 0
-	local refillableWeaponsWithMissingAmmo = 0
-
-	for weaponId, tool in pairs(toolsByWeaponId) do
-		local weaponDef = weaponById[weaponId]
-		if weaponDef and canPlayerUseWeapon(player, weaponDef) then
-			ownedWeapons += 1
-			local quote = buildWeaponAmmoRefillQuote(player, weaponDef, tool, pricingConfig)
-			if quote then
-				quotesByWeaponId[weaponId] = quote
-				if quote.isRefillable then
-					ownedRefillableWeapons += 1
-				end
-				if quote.canRefill and quote.cost > 0 then
-					refillableWeaponsWithMissingAmmo += 1
-					refillAllCost += quote.cost
-				end
-			end
-		end
-	end
-
-	return {
-		quotesByWeaponId = quotesByWeaponId,
-		refillAllCost = math.max(0, refillAllCost),
-		ownedWeapons = ownedWeapons,
-		ownedRefillableWeapons = ownedRefillableWeapons,
-		refillableWeaponsWithMissingAmmo = refillableWeaponsWithMissingAmmo,
-	}
+	return CatalogAndPricing.collectAmmoRefillQuotesForOwnedWeapons(player, {
+		config = Config,
+		weaponById = weaponById,
+		canPlayerUseWeapon = canPlayerUseWeapon,
+		collectOwnedWeaponToolsById = collectOwnedWeaponToolsById,
+		prunePlayerSentries = prunePlayerSentries,
+		collectOwnedSentryRecordsByWeaponId = collectOwnedSentryRecordsByWeaponId,
+		getToolAmmoSnapshot = getToolAmmoSnapshot,
+		getSentryAmmoSnapshot = getSentryAmmoSnapshot,
+		getWeaponCostForPlayer = getWeaponCostForPlayer,
+	})
 end
 
 local function getClassRestrictionMessage(player)
-	local className = ClassService.getPlayerClassName(player)
-	return string.format("%s cannot buy this weapon.", className)
+	return CatalogAndPricing.getClassRestrictionMessage(player, ClassService)
 end
 
 local function getCatalogForPlayer(player)
-	local canPurchase, waveState = canPurchaseNow()
-	local weapons = {}
-	local refillSummary = collectAmmoRefillQuotesForOwnedWeapons(player)
-	local quotesByWeaponId = refillSummary.quotesByWeaponId
-
-	for _, weaponDef in ipairs(Config.Shop.Weapons or {}) do
-		if not canPlayerUseWeapon(player, weaponDef) then
-			continue
-		end
-
-		local baseRange = math.max(0, tonumber(weaponDef.Range) or 0)
-		local rangeMultiplier = math.max(0.1, ClassService.getWeaponBulletRangeMultiplier(player, weaponDef))
-		local effectiveRange = math.floor((baseRange * rangeMultiplier) + 0.5)
-		local rangeBonusPct = math.max(0, (rangeMultiplier - 1) * 100)
-		local isOwned = playerOwnsWeapon(player, weaponDef.Id)
-		local requiredWeaponId = getRequiredOwnedWeaponId(weaponDef)
-		local requiredWeaponName = if requiredWeaponId then getRequiredOwnedWeaponName(requiredWeaponId) else nil
-		local isUpgradeLocked = requiredWeaponId ~= nil and not playerOwnsWeapon(player, requiredWeaponId)
-		local refillQuote = quotesByWeaponId[weaponDef.Id]
-		local refillCost = if refillQuote then refillQuote.cost else 0
-		local canRefill = if refillQuote then refillQuote.canRefill else false
-		local isRefillable = if refillQuote then refillQuote.isRefillable else getMagazineSize(weaponDef, player) ~= nil
-
-		table.insert(weapons, {
-			id = weaponDef.Id,
-			name = weaponDef.DisplayName,
-			weaponClass = resolveWeaponClass(weaponDef),
-			cost = getWeaponCostForPlayer(player, weaponDef),
-			damage = weaponDef.Damage,
-			range = baseRange,
-			effectiveRange = effectiveRange,
-			rangeBonusPct = rangeBonusPct,
-			cooldown = weaponDef.Cooldown,
-			magazineSize = getMagazineSize(weaponDef, player),
-			reloadSeconds = getReloadSeconds(weaponDef, player),
-			requiresWeaponId = requiredWeaponId,
-			requiresWeaponName = requiredWeaponName,
-			upgradeLocked = isUpgradeLocked,
-			owned = isOwned,
-			isRefillable = isRefillable,
-			refillCost = if isOwned then refillCost else 0,
-			canRefill = if isOwned then canRefill else false,
-			currentAmmoTotal = if refillQuote then refillQuote.currentTotalAmmo else nil,
-			maxAmmoTotal = if refillQuote then refillQuote.maxTotalAmmo else nil,
-			missingAmmo = if refillQuote then refillQuote.missingAmmo else nil,
-		})
-	end
-
-	table.sort(weapons, function(a, b)
-		return a.cost < b.cost
-	end)
-
-	return {
-		success = true,
-		canPurchase = canPurchase,
-		waveState = waveState,
-		weapons = weapons,
-		refillAllCost = refillSummary.refillAllCost,
-		canRefillAll = refillSummary.refillAllCost > 0,
-		ownedWeapons = refillSummary.ownedWeapons,
-		ownedRefillableWeapons = refillSummary.ownedRefillableWeapons,
-		refillableWeaponsWithMissingAmmo = refillSummary.refillableWeaponsWithMissingAmmo,
-	}
-end
-
-local function grantWeapon(player, weaponDef)
-	if not canPlayerUseWeapon(player, weaponDef) then
-		return false, getClassRestrictionMessage(player)
-	end
-
-	local backpack = player:FindFirstChildOfClass("Backpack")
-	local starterGear = player:FindFirstChild("StarterGear")
-
-	local toolForBackpack = createWeaponTool(weaponDef, player)
-	if backpack then
-		toolForBackpack.Parent = backpack
-
-		local character = player.Character
-		if character then
-			local humanoid = character:FindFirstChildOfClass("Humanoid")
-			if humanoid and humanoid.Health > 0 then
-				humanoid:EquipTool(toolForBackpack)
-			end
-		end
-	else
-		toolForBackpack:Destroy()
-	end
-
-	if starterGear then
-		local toolForStarterGear = createWeaponTool(weaponDef, player)
-		toolForStarterGear.Parent = starterGear
-	end
-
-	return true, nil
+	return CatalogAndPricing.getCatalogForPlayer(player, {
+		config = Config,
+		classService = ClassService,
+		weaponById = weaponById,
+		remotesFolder = remotesFolder,
+		canPlayerUseWeapon = canPlayerUseWeapon,
+		playerOwnsWeapon = playerOwnsWeapon,
+		resolveWeaponClass = resolveWeaponClass,
+		getWeaponCostForPlayer = getWeaponCostForPlayer,
+		getMagazineSize = getMagazineSize,
+		getReloadSeconds = getReloadSeconds,
+		collectOwnedWeaponToolsById = collectOwnedWeaponToolsById,
+		prunePlayerSentries = prunePlayerSentries,
+		collectOwnedSentryRecordsByWeaponId = collectOwnedSentryRecordsByWeaponId,
+		getToolAmmoSnapshot = getToolAmmoSnapshot,
+		getSentryAmmoSnapshot = getSentryAmmoSnapshot,
+	})
 end
 
 local function buyWeapon(player, weaponId)
-	local weaponDef = weaponById[weaponId]
-	if not weaponDef then
-		return {
-			success = false,
-			message = "Unknown weapon.",
-		}
-	end
-
-	local canPurchase = canPurchaseNow()
-	if not canPurchase then
-		return {
-			success = false,
-			message = "You can only buy between waves.",
-		}
-	end
-
-	if not canPlayerUseWeapon(player, weaponDef) then
-		return {
-			success = false,
-			message = getClassRestrictionMessage(player),
-		}
-	end
-
-	local requiredWeaponId = getRequiredOwnedWeaponId(weaponDef)
-	if requiredWeaponId and not playerOwnsWeapon(player, requiredWeaponId) then
-		return {
-			success = false,
-			message = getUpgradeRestrictionMessage(weaponDef),
-		}
-	end
-
-	if playerOwnsWeapon(player, weaponId) then
-		return {
-			success = false,
-			message = "You already own this weapon.",
-		}
-	end
-
-	local moneyValue = getMoneyValue(player)
-	if not moneyValue then
-		return {
-			success = false,
-			message = "Money data not available.",
-		}
-	end
-
-	local weaponCost = getWeaponCostForPlayer(player, weaponDef)
-	if moneyValue.Value < weaponCost then
-		return {
-			success = false,
-			message = "Not enough money.",
-		}
-	end
-
-	moneyValue.Value -= weaponCost
-	local granted, grantError = grantWeapon(player, weaponDef)
-	if not granted then
-		moneyValue.Value += weaponCost
-		return {
-			success = false,
-			message = grantError or "Could not grant weapon.",
-		}
-	end
-
-	local baseCost = math.max(0, math.floor((tonumber(weaponDef.Cost) or 0) + 0.5))
-	local purchaseMessage = string.format("Bought %s for $%d", weaponDef.DisplayName, weaponCost)
-	if weaponCost < baseCost then
-		purchaseMessage = string.format("Bought %s for $%d (class discount)", weaponDef.DisplayName, weaponCost)
-	end
-
-	return {
-		success = true,
-		message = purchaseMessage,
-	}
+	return PurchaseFlow.buyWeapon(player, weaponId, {
+		weaponById = weaponById,
+		canPurchaseNow = canPurchaseNow,
+		canPlayerUseWeapon = canPlayerUseWeapon,
+		getClassRestrictionMessage = getClassRestrictionMessage,
+		getRequiredOwnedWeaponId = getRequiredOwnedWeaponId,
+		playerOwnsWeapon = playerOwnsWeapon,
+		getUpgradeRestrictionMessage = getUpgradeRestrictionMessage,
+		getMoneyValue = getMoneyValue,
+		getWeaponCostForPlayer = getWeaponCostForPlayer,
+		createWeaponTool = createWeaponTool,
+	})
 end
 
 local function buyAmmoForWeapon(player, weaponId)
-	local weaponDef = weaponById[weaponId]
-	if not weaponDef then
-		return {
-			success = false,
-			message = "Unknown weapon.",
-		}
-	end
-
-	local canPurchase = canPurchaseNow()
-	if not canPurchase then
-		return {
-			success = false,
-			message = "You can only buy between waves.",
-		}
-	end
-
-	if not canPlayerUseWeapon(player, weaponDef) then
-		return {
-			success = false,
-			message = getClassRestrictionMessage(player),
-		}
-	end
-
-	local refillSummary = collectAmmoRefillQuotesForOwnedWeapons(player)
-	local quote = refillSummary.quotesByWeaponId[weaponId]
-	if not quote or not quote.tool or quote.tool.Parent == nil then
-		return {
-			success = false,
-			message = "You do not own this weapon.",
-		}
-	end
-
-	if quote.isRefillable ~= true then
-		return {
-			success = false,
-			message = "This weapon does not use ammo.",
-		}
-	end
-
-	if quote.canRefill ~= true or quote.cost <= 0 then
-		return {
-			success = false,
-			message = "Ammo is already full.",
-		}
-	end
-
-	local moneyValue = getMoneyValue(player)
-	if not moneyValue then
-		return {
-			success = false,
-			message = "Money data not available.",
-		}
-	end
-	if moneyValue.Value < quote.cost then
-		return {
-			success = false,
-			message = "Not enough money.",
-		}
-	end
-
-	moneyValue.Value -= quote.cost
-	local didRefill = refillAmmoForTool(quote.tool, weaponDef, player, "Full", nil)
-	if not didRefill then
-		moneyValue.Value += quote.cost
-		return {
-			success = false,
-			message = "Ammo is already full.",
-		}
-	end
-
-	return {
-		success = true,
-		message = string.format("Refilled %s ammo for $%d", weaponDef.DisplayName, quote.cost),
-	}
+	return PurchaseFlow.buyAmmoForWeapon(player, weaponId, {
+		weaponById = weaponById,
+		canPurchaseNow = canPurchaseNow,
+		canPlayerUseWeapon = canPlayerUseWeapon,
+		getClassRestrictionMessage = getClassRestrictionMessage,
+		collectAmmoRefillQuotesForOwnedWeapons = collectAmmoRefillQuotesForOwnedWeapons,
+		getMoneyValue = getMoneyValue,
+		refillAmmoForTool = refillAmmoForTool,
+		refillAmmoForSentryRecords = refillAmmoForSentryRecords,
+	})
 end
 
 local function buyAmmoForAllOwnedWeapons(player)
-	local canPurchase = canPurchaseNow()
-	if not canPurchase then
-		return {
-			success = false,
-			message = "You can only buy between waves.",
-		}
-	end
-
-	local refillSummary = collectAmmoRefillQuotesForOwnedWeapons(player)
-	if refillSummary.refillAllCost <= 0 or refillSummary.refillableWeaponsWithMissingAmmo <= 0 then
-		return {
-			success = false,
-			message = "All owned weapon ammo is already full.",
-		}
-	end
-
-	local moneyValue = getMoneyValue(player)
-	if not moneyValue then
-		return {
-			success = false,
-			message = "Money data not available.",
-		}
-	end
-	if moneyValue.Value < refillSummary.refillAllCost then
-		return {
-			success = false,
-			message = "Not enough money.",
-		}
-	end
-
-	moneyValue.Value -= refillSummary.refillAllCost
-	local spent = 0
-	local refilledCount = 0
-
-	for weaponId, quote in pairs(refillSummary.quotesByWeaponId) do
-		if quote.canRefill == true and quote.cost > 0 and quote.tool and quote.tool.Parent then
-			local weaponDef = weaponById[weaponId]
-			if weaponDef and refillAmmoForTool(quote.tool, weaponDef, player, "Full", nil) then
-				refilledCount += 1
-				spent += quote.cost
-			end
-		end
-	end
-
-	if refilledCount <= 0 then
-		moneyValue.Value += refillSummary.refillAllCost
-		return {
-			success = false,
-			message = "All owned weapon ammo is already full.",
-		}
-	end
-
-	local refund = refillSummary.refillAllCost - spent
-	if refund > 0 then
-		moneyValue.Value += refund
-	end
-
-	return {
-		success = true,
-		message = string.format("Refilled ammo for %d weapon%s for $%d", refilledCount, if refilledCount == 1 then "" else "s", spent),
-	}
+	return PurchaseFlow.buyAmmoForAllOwnedWeapons(player, {
+		weaponById = weaponById,
+		canPurchaseNow = canPurchaseNow,
+		collectAmmoRefillQuotesForOwnedWeapons = collectAmmoRefillQuotesForOwnedWeapons,
+		getMoneyValue = getMoneyValue,
+		refillAmmoForTool = refillAmmoForTool,
+		refillAmmoForSentryRecords = refillAmmoForSentryRecords,
+	})
 end
 
 function ShopService.refillPlayerAmmo(player, options)
@@ -4168,26 +3387,12 @@ function ShopService.refillPlayerAmmo(player, options)
 	end
 
 	local anyRefilled = false
-	local seenTools = {}
-	local containers = {
-		player.Character,
-		player:FindFirstChildOfClass("Backpack"),
-		player:FindFirstChild("StarterGear"),
-	}
-
-	for _, container in ipairs(containers) do
-		if container then
-			for _, child in ipairs(container:GetChildren()) do
-				if child:IsA("Tool") and not seenTools[child] then
-					seenTools[child] = true
-					local weaponId = child:GetAttribute("WeaponId")
-					if type(weaponId) == "string" and weaponId ~= "" then
-						local weaponDef = weaponById[weaponId]
-						if weaponDef and refillAmmoForTool(child, weaponDef, player, refillMode, reserveAmount) then
-							anyRefilled = true
-						end
-					end
-				end
+	for _, tool in ipairs(InventoryIndex.getAllTools(player)) do
+		local weaponId = tool:GetAttribute("WeaponId")
+		if type(weaponId) == "string" and weaponId ~= "" then
+			local weaponDef = weaponById[weaponId]
+			if weaponDef and refillAmmoForTool(tool, weaponDef, player, refillMode, reserveAmount) then
+				anyRefilled = true
 			end
 		end
 	end
@@ -4278,6 +3483,21 @@ function ShopService.start()
 
 	shopGetCatalogFunction.OnServerInvoke = function(player)
 		return getCatalogForPlayer(player)
+	end
+
+	if not classChangedCleanupDisconnect and type(ClassService.registerClassChangedCallback) == "function" then
+		classChangedCleanupDisconnect = ClassService.registerClassChangedCallback(function(player, previousClassId, selectedClassId)
+			if not player or not player:IsA("Player") then
+				return
+			end
+			if previousClassId == selectedClassId then
+				return
+			end
+
+			clearPlayerSentries(player, {
+				playDestroyEffect = true,
+			})
+		end)
 	end
 
 	shopBuyWeaponFunction.OnServerInvoke = function(player, weaponId)
