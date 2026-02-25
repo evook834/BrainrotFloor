@@ -8,6 +8,14 @@
 
 ---
 
+## Response length
+
+- By default, give minimal output: confirm what was done in one short line (e.g. “Done.” or “Added X.”). Only add caveats or errors if relevant.
+- Give longer explanations, summaries, or step-by-step breakdowns only when the user explicitly asks (e.g. “explain”, “summarize”, “why did you…”).
+- This reduces token use and keeps replies focused unless the user wants detail.
+
+---
+
 ## Placement: use the layout docs
 
 **Do not** put new features or modules in a single unrelated file, or scatter multiple single files in the wrong place. **Do** create a new script (and folder if needed) in the **correct** location.

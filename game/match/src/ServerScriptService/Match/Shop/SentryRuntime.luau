@@ -353,6 +353,72 @@ function SentryRuntime.new(options)
 		return sentryTurretsByPlayer[player]
 	end
 
+	local function refillAmmoForSentryRecords(sentryRecords, weaponDef)
+		if type(sentryRecords) ~= "table" then
+			return false
+		end
+		local didRefill = false
+		local fallbackMaxAmmo = resolveTurretMaxAmmo(weaponDef)
+		for _, record in ipairs(sentryRecords) do
+			if record and record.model and record.model.Parent and record.humanoid and record.humanoid.Health > 0 then
+				local turretMaxAmmo = math.max(
+					1,
+					math.floor(
+						(tonumber(record.maxAmmo) or tonumber(record.model:GetAttribute("TurretMaxAmmo")) or fallbackMaxAmmo) + 0.5
+					)
+				)
+				local ammoBefore = math.clamp(
+					math.floor((tonumber(record.ammo) or tonumber(record.model:GetAttribute("TurretAmmo")) or turretMaxAmmo) + 0.5),
+					0,
+					turretMaxAmmo
+				)
+				record.maxAmmo = turretMaxAmmo
+				record.ammo = turretMaxAmmo
+				syncSentryAmmoAttributes(record)
+				if ammoBefore < turretMaxAmmo then
+					didRefill = true
+				end
+			end
+		end
+		return didRefill
+	end
+
+	local function getSentryAmmoSnapshot(sentryRecords, weaponDef)
+		if type(sentryRecords) ~= "table" or #sentryRecords == 0 then
+			return nil
+		end
+		local totalCurrentAmmo = 0
+		local totalMaxAmmo = 0
+		local fallbackMaxAmmo = resolveTurretMaxAmmo(weaponDef)
+		for _, record in ipairs(sentryRecords) do
+			if type(record) == "table" and record.humanoid and record.humanoid.Health > 0 then
+				local model = record.model
+				local modelMaxAmmo = if model and model:IsA("Model") then model:GetAttribute("TurretMaxAmmo") else nil
+				local modelAmmo = if model and model:IsA("Model") then model:GetAttribute("TurretAmmo") else nil
+				local turretMaxAmmo = math.max(
+					1,
+					math.floor((tonumber(record.maxAmmo) or tonumber(modelMaxAmmo) or fallbackMaxAmmo) + 0.5)
+				)
+				local turretAmmo = math.clamp(
+					math.floor((tonumber(record.ammo) or tonumber(modelAmmo) or turretMaxAmmo) + 0.5),
+					0,
+					turretMaxAmmo
+				)
+				record.maxAmmo = turretMaxAmmo
+				record.ammo = turretAmmo
+				syncSentryAmmoAttributes(record)
+				totalCurrentAmmo += turretAmmo
+				totalMaxAmmo += turretMaxAmmo
+			end
+		end
+		local missingAmmo = math.max(0, totalMaxAmmo - totalCurrentAmmo)
+		return {
+			currentTotalAmmo = totalCurrentAmmo,
+			maxTotalAmmo = totalMaxAmmo,
+			missingAmmo = missingAmmo,
+		}
+	end
+
 	return {
 		getSentryTurretFolder = getSentryTurretFolder,
 		removeRecord = removeRecord,
@@ -369,6 +435,8 @@ function SentryRuntime.new(options)
 		syncSentryAmmoAttributes = syncSentryAmmoAttributes,
 		collectOwnedSentryRecordsByWeaponId = collectOwnedSentryRecordsByWeaponId,
 		playerOwnsWeaponId = playerOwnsWeaponId,
+		refillAmmoForSentryRecords = refillAmmoForSentryRecords,
+		getSentryAmmoSnapshot = getSentryAmmoSnapshot,
 	}
 end
 
