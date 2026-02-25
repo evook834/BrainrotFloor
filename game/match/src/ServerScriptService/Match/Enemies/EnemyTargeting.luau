@@ -12,7 +12,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local Match = script.Parent.Parent
 local ModelRootResolver = require(Match.Enemies.ModelRootResolver)
-local AimResolver = require(script.Parent.AimResolver)
+local Match = script.Parent.Parent
+local AimResolver = require(Match.Combat.AimResolver)
 
 local function getEnemyContainer()
 	return Workspace:FindFirstChild(Config.Enemy.ContainerName)

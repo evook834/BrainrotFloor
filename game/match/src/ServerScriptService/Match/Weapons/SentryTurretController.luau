@@ -17,11 +17,11 @@ local Config = require(ReplicatedStorage.Shared.GameConfig)
 local Match = script.Parent.Parent
 local ClassService = require(Match.Classes.ClassService)
 local ModelRootResolver = require(Match.Enemies.ModelRootResolver)
-local AimResolver = require(script.Parent.AimResolver)
+local AimResolver = require(Match.Combat.AimResolver)
 local WeaponVfx = require(script.Parent.WeaponVfx)
 local WeaponToolSetup = require(script.Parent.WeaponToolSetup)
-local EnemyDamageService = require(script.Parent.EnemyDamageService)
-local ShopConstants = require(script.Parent.ShopConstants)
+local EnemyDamageService = require(Match.Combat.EnemyDamageService)
+local ShopConstants = require(Match.Shop.ShopConstants)
 
 local MAX_SENTRY_COUNT_PER_PLAYER = ShopConstants.MAX_SENTRY_COUNT_PER_PLAYER
 local SENTRY_REPAIR_INTERRUPT_SECONDS = ShopConstants.SENTRY_REPAIR_INTERRUPT_SECONDS

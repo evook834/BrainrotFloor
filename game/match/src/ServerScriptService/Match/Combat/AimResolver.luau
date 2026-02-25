@@ -1,12 +1,13 @@
 --[[
 	AimResolver — Tracks and validates player aim; produces final shot ray/direction.
-	Used by ShopService for weapon fire, sentry placement, and raycasting.
+	Used by weapon fire, sentry placement, and raycasting (WeaponRemoteBindings, WeaponToolFactory, WeaponFireHandlers, SentryTurretController, EnemyTargeting).
 ]]
 
 local Workspace = game:GetService("Workspace")
 
-local ShopConstants = require(script.Parent.ShopConstants)
-local WeaponVfx = require(script.Parent.WeaponVfx)
+local Match = script.Parent.Parent
+local ShopConstants = require(Match.Shop.ShopConstants)
+local WeaponVfx = require(Match.Weapons.WeaponVfx)
 
 local FIRE_CONE_MIN_DOT = ShopConstants.FIRE_CONE_MIN_DOT
 

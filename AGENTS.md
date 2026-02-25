@@ -23,7 +23,7 @@
 Before adding or moving code:
 
 1. **Consult [DEPENDENCIES.md](DEPENDENCIES.md)** — Client cannot require server; ReplicatedStorage.Shared only requires shared; etc. Put code in a tree that is allowed to depend on what it needs.
-2. **Consult [PROJECT_MAP.md](PROJECT_MAP.md)** — Use the folder-by-folder summary and the "Quick reference: where to put what" table. New server logic → correct place under `game/lobby/`, `game/match/`, or `game/shared/src/ServerScriptService/Shared/`. New client UI → correct place under LobbyClient, MatchClient, or SharedClient. New shared config/catalog → `game/shared/src/ReplicatedStorage/Shared/`.
+2. **Consult [PROJECT_MAP.md](PROJECT_MAP.md)** — Read each folder’s description and **decide** where the new code belongs by matching its responsibility to that folder. Place by logical fit; the map is a guide, not a strict list of allowed files.
 3. **Consult [README.md](README.md)** — For high-level system ownership (which system owns waves, shop, classes, etc.) and where remotes are used.
 4. **For new remotes** — Define names in `RemoteNames.luau`, document in [REMOTES.md](REMOTES.md), and create/bind in the appropriate server bootstrap.
 

@@ -1,4 +1,3 @@
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -9,16 +8,16 @@ local ModelRootResolver = require(Match.Enemies.ModelRootResolver)
 local CatalogAndPricing = require(script.Parent.CatalogAndPricing)
 local InventoryIndex = require(script.Parent.InventoryIndex)
 local PurchaseFlow = require(script.Parent.PurchaseFlow)
-local SentryRuntime = require(script.Parent.SentryRuntime)
-local WeaponAmmoRuntime = require(script.Parent.WeaponAmmoRuntime)
-local WeaponToolSetup = require(script.Parent.WeaponToolSetup)
-local WeaponVfx = require(script.Parent.WeaponVfx)
 local ShopConstants = require(script.Parent.ShopConstants)
-local AimResolver = require(script.Parent.AimResolver)
-local EnemyDamageService = require(script.Parent.EnemyDamageService)
-local SentryTurretController = require(script.Parent.SentryTurretController)
-local WeaponToolFactory = require(script.Parent.WeaponToolFactory)
-local WeaponFireHandlers = require(script.Parent.WeaponFireHandlers)
+local EnemyDamageService = require(Match.Combat.EnemyDamageService)
+local SentryRuntime = require(Match.Weapons.SentryRuntime)
+local WeaponAmmoRuntime = require(Match.Weapons.WeaponAmmoRuntime)
+local WeaponToolSetup = require(Match.Weapons.WeaponToolSetup)
+local WeaponVfx = require(Match.Weapons.WeaponVfx)
+local SentryTurretController = require(Match.Weapons.SentryTurretController)
+local WeaponToolFactory = require(Match.Weapons.WeaponToolFactory)
+local WeaponFireHandlers = require(Match.Weapons.WeaponFireHandlers)
+local WeaponRemoteBindings = require(Match.Weapons.WeaponRemoteBindings)
 
 -- Aliases from ShopConstants
 local SENTRY_TURRET_FOLDER_NAME = ShopConstants.SENTRY_TURRET_FOLDER_NAME
@@ -84,10 +83,6 @@ local function getReloadSeconds(weaponDef, player)
 	return ammoRuntime.getReloadSeconds(weaponDef, player)
 end
 
-local function startReload(tool, weaponDef, state, owner)
-	ammoRuntime.startReload(tool, weaponDef, state, owner)
-end
-
 sentryRuntime = SentryRuntime.new({
 	modelRootResolver = ModelRootResolver,
 	createExplosionEffect = createExplosionEffect,
@@ -101,14 +96,6 @@ sentryRuntime = SentryRuntime.new({
 
 local function clearPlayerSentries(player, options)
 	sentryRuntime.clearPlayerSentries(player, options)
-end
-
-local function disconnectPlayerSentryDeathBindings(player)
-	sentryRuntime.disconnectPlayerSentryDeathBindings(player)
-end
-
-local function bindPlayerSentryDeathCleanup(player)
-	sentryRuntime.bindPlayerSentryDeathCleanup(player)
 end
 
 local function prunePlayerSentries(player)
@@ -361,7 +348,6 @@ function ShopService.start()
 	weaponFireRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.WeaponFire)
 	weaponReloadRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.WeaponReload)
 	damageIndicatorRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.DamageIndicator)
-	EnemyDamageService.init({ damageIndicatorRemote = damageIndicatorRemote })
 	WeaponToolFactory.init({
 		ammoRuntime = ammoRuntime,
 		sentryTurretController = SentryTurretController,
@@ -374,7 +360,20 @@ function ShopService.start()
 		fireFlamethrower = WeaponFireHandlers.fireFlamethrower,
 	})
 
-	-- Bind shop and weapon remotes
+	WeaponRemoteBindings.start({
+		weaponAimRemote = weaponAimRemote,
+		weaponFireRemote = weaponFireRemote,
+		weaponReloadRemote = weaponReloadRemote,
+		damageIndicatorRemote = damageIndicatorRemote,
+		weaponById = weaponById,
+		toolRuntimeState = toolRuntimeState,
+		ammoRuntime = ammoRuntime,
+		classService = ClassService,
+		weaponToolFactory = WeaponToolFactory,
+		sentryRuntime = sentryRuntime,
+	})
+
+	-- Bind shop remotes
 	shopGetCatalogFunction.OnServerInvoke = function(player)
 		return getCatalogForPlayer(player)
 	end
@@ -430,96 +429,6 @@ function ShopService.start()
 		end
 
 		return buyAmmoForWeapon(player, weaponId)
-	end
-
-	if weaponAimRemote then
-		weaponAimRemote.OnServerEvent:Connect(function(player, hitPosition, lookDirection, cameraOrigin)
-			AimResolver.updatePlayerAim(player, hitPosition, lookDirection, cameraOrigin)
-		end)
-	end
-
-	if weaponFireRemote then
-		weaponFireRemote.OnServerEvent:Connect(function(player, weaponId, hitPosition, lookDirection, cameraOrigin)
-			if typeof(hitPosition) == "Vector3" and typeof(lookDirection) == "Vector3" then
-				AimResolver.updatePlayerAim(player, hitPosition, lookDirection, cameraOrigin)
-			end
-
-			local weaponDef = weaponById[weaponId]
-			if not weaponDef then
-				return
-			end
-			if not canPlayerUseWeapon(player, weaponDef) then
-				ClassService.enforcePlayerLoadout(player)
-				return
-			end
-
-			local tool = WeaponToolFactory.getEquippedWeaponTool(player, weaponId)
-			if not tool then
-				return
-			end
-
-			local state = toolRuntimeState[tool]
-			if not state or type(state.fireHandler) ~= "function" then
-				return
-			end
-
-			local explicitShotOrigin = nil
-			local explicitShotDirection = nil
-			if typeof(cameraOrigin) == "Vector3" and typeof(lookDirection) == "Vector3" and lookDirection.Magnitude > 0.001 then
-				explicitShotOrigin = cameraOrigin
-				explicitShotDirection = lookDirection.Unit
-			end
-
-			state.fireHandler(player, explicitShotOrigin, explicitShotDirection)
-		end)
-	end
-
-	if weaponReloadRemote then
-		weaponReloadRemote.OnServerEvent:Connect(function(player, weaponId)
-			if type(weaponId) ~= "string" or weaponId == "" then
-				return
-			end
-
-			local weaponDef = weaponById[weaponId]
-			if not weaponDef then
-				return
-			end
-			if not canPlayerUseWeapon(player, weaponDef) then
-				ClassService.enforcePlayerLoadout(player)
-				return
-			end
-
-			local tool = WeaponToolFactory.getEquippedWeaponTool(player, weaponId)
-			if not tool then
-				return
-			end
-
-			local state = toolRuntimeState[tool]
-			if not state then
-				return
-			end
-
-			if type(state.reloadHandler) == "function" then
-				state.reloadHandler(player)
-				return
-			end
-
-			startReload(tool, weaponDef, state, player)
-		end)
-	end
-
-	Players.PlayerAdded:Connect(function(player)
-		bindPlayerSentryDeathCleanup(player)
-	end)
-
-	Players.PlayerRemoving:Connect(function(player)
-		AimResolver.clearPlayerAim(player)
-		clearPlayerSentries(player)
-		disconnectPlayerSentryDeathBindings(player)
-	end)
-
-	for _, player in ipairs(Players:GetPlayers()) do
-		bindPlayerSentryDeathCleanup(player)
 	end
 
 	ensureTraderPrompt()

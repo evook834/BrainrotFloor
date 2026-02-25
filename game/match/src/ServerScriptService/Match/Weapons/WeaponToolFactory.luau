@@ -10,7 +10,8 @@ local Players = game:GetService("Players")
 local Match = script.Parent.Parent
 local ClassService = require(Match.Classes.ClassService)
 local WeaponToolSetup = require(script.Parent.WeaponToolSetup)
-local AimResolver = require(script.Parent.AimResolver)
+local Match = script.Parent.Parent
+local AimResolver = require(Match.Combat.AimResolver)
 
 local ammoRuntime = nil
 local sentryTurretController = nil

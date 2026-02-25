@@ -13,7 +13,7 @@ local Match = script.Parent.Parent
 local ClassService = require(Match.Classes.ClassService)
 local EnemyVfxService = require(Match.Enemies.EnemyVfxService)
 local ModelRootResolver = require(Match.Enemies.ModelRootResolver)
-local ShopConstants = require(script.Parent.ShopConstants)
+local ShopConstants = require(Match.Shop.ShopConstants)
 
 local BURN_DOT_FALLBACK_TICK_INTERVAL_SECONDS = ShopConstants.BURN_DOT_FALLBACK_TICK_INTERVAL_SECONDS
 

@@ -13,9 +13,9 @@ local Match = script.Parent.Parent
 local ClassService = require(Match.Classes.ClassService)
 local WeaponToolSetup = require(script.Parent.WeaponToolSetup)
 local WeaponVfx = require(script.Parent.WeaponVfx)
-local AimResolver = require(script.Parent.AimResolver)
-local EnemyTargeting = require(script.Parent.EnemyTargeting)
-local EnemyDamageService = require(script.Parent.EnemyDamageService)
+local AimResolver = require(Match.Combat.AimResolver)
+local EnemyTargeting = require(Match.Enemies.EnemyTargeting)
+local EnemyDamageService = require(Match.Combat.EnemyDamageService)
 local WeaponToolFactory = require(script.Parent.WeaponToolFactory)
 
 local getEffectsFolder = WeaponVfx.getEffectsFolder
