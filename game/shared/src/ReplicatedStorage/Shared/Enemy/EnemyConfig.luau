@@ -1,4 +1,5 @@
 local EnemyProfiles = require(script.Parent:WaitForChild("EnemyProfiles"))
+local EnemyCatalog = require(script.Parent:WaitForChild("EnemyCatalog"))
 
 local EnemyConfig = {
 	SpawnFolderName = "SpawnPoints",
@@ -11,6 +12,7 @@ local EnemyConfig = {
 	SpawnPaddingY = 0.1,
 	DefaultProfile = EnemyProfiles.DefaultProfile,
 	TemplateProfiles = EnemyProfiles.TemplateProfiles,
+	Catalog = EnemyCatalog,
 }
 
 return EnemyConfig
