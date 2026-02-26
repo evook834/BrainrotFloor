@@ -4,6 +4,9 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
+local SharedClient = script.Parent.Parent.Parent:WaitForChild("SharedClient")
+local TeleportLoading = require(SharedClient:WaitForChild("TeleportLoading"):WaitForChild("TeleportLoading"))
+
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 
 local player = Players.LocalPlayer
@@ -880,6 +883,12 @@ local function requestReturnToLobby()
 	local activeRequestToken = returnToLobbyRequestToken
 	returnToLobbyStatus.Text = "Returning you to lobby..."
 	setReturnToLobbyButtonEnabled(false, "Returning...")
+	TeleportLoading.show({
+		title = "Returning to lobby",
+		subtitle = "Teleporting you back to the lobby...",
+		timeoutSeconds = 12,
+		timeoutMessage = "Could not return to the lobby. Please try again.",
+	})
 	returnToLobbyRemote:FireServer()
 
 	task.delay(8, function()
@@ -896,6 +905,7 @@ local function requestReturnToLobby()
 		end
 
 		returnToLobbyRequested = false
+		TeleportLoading.showFailure("Could not return to the lobby. Please try again.")
 		returnToLobbyStatus.Text = "Teleport did not complete. Press again to retry."
 		setReturnToLobbyButtonEnabled(true, "Return to Lobby")
 	end)
@@ -966,6 +976,12 @@ local function applyMapVotePayload(payload)
 		cancelMapVoteCountdown()
 		mapVotePanel.Visible = true
 		mapVoteTimerLabel.Text = "Teleporting..."
+		TeleportLoading.show({
+			title = "Loading next map",
+			subtitle = mapVoteStatusLabel.Text,
+			timeoutSeconds = 12,
+			timeoutMessage = "Could not load the next map. Please try again.",
+		})
 
 		local selectedLabel = payload.selectedLabel
 		if type(selectedLabel) ~= "string" or selectedLabel == "" then

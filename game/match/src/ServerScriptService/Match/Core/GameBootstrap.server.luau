@@ -6,6 +6,9 @@ local ServerStorage = game:GetService("ServerStorage")
 local TeleportService = game:GetService("TeleportService")
 local Workspace = game:GetService("Workspace")
 
+local mapVoteRemote = nil
+local teleportLoadingRemote = nil
+
 local PlaceRole = require(ServerScriptService.Shared.Matchmaking.PlaceRole)
 local MatchmakingConfig = require(ServerScriptService.Shared.Matchmaking.MatchmakingConfig)
 local Config = require(ReplicatedStorage.Shared.GameConfig)
@@ -388,6 +391,51 @@ local function broadcastMapVote(action, extraPayload)
 	mapVoteRemote:FireAllClients(payload)
 end
 
+local function notifyTeleportStarting(playersOrPlayer, title, message)
+	if not teleportLoadingRemote then
+		return
+	end
+
+	if typeof(playersOrPlayer) == "Instance" then
+		teleportLoadingRemote:FireClient(playersOrPlayer, {
+			action = "Start",
+			title = title,
+			message = message,
+		})
+	else
+		for _, player in ipairs(playersOrPlayer) do
+			teleportLoadingRemote:FireClient(player, {
+				action = "Start",
+				title = title,
+				message = message,
+			})
+		end
+	end
+
+	-- Give clients a moment to call SetTeleportGui before TeleportAsync.
+	task.wait(0.1)
+end
+
+local function notifyTeleportFailed(playersOrPlayer, message)
+	if not teleportLoadingRemote then
+		return
+	end
+
+	if typeof(playersOrPlayer) == "Instance" then
+		teleportLoadingRemote:FireClient(playersOrPlayer, {
+			action = "Failed",
+			message = message,
+		})
+	else
+		for _, player in ipairs(playersOrPlayer) do
+			teleportLoadingRemote:FireClient(player, {
+				action = "Failed",
+				message = message,
+			})
+		end
+	end
+end
+
 local function sendMapVoteSnapshot(player)
 	if not mapVoteRemote then
 		return
@@ -588,6 +636,11 @@ local function teleportAllPlayersToMap(placeId, mapLabel)
 		difficulty = difficulty,
 	})
 
+	notifyTeleportStarting(
+	playersToTeleport,
+	"Loading next map",
+	string.format("Loading %s (%s difficulty)...", tostring(mapLabel), tostring(difficulty))
+)
 	local options = Instance.new("TeleportOptions")
 	options.ReservedServerAccessCode = accessCode
 	options:SetTeleportData({
@@ -615,6 +668,7 @@ local function teleportAllPlayersToMap(placeId, mapLabel)
 	end
 
 	removeServerEntry(matchId)
+	notifyTeleportFailed(playersToTeleport, "Could not load the next map. Please try again.")
 	return false
 end
 
@@ -736,6 +790,13 @@ local function sendPlayerToLobby(player)
 	})
 
 	local retries = math.max(1, toNumber(MatchmakingConfig.TELEPORT_RETRIES, 1))
+
+	notifyTeleportStarting(
+	player,
+	"Returning to lobby",
+	"Teleporting you back to the lobby..."
+	)
+
 	for attempt = 1, retries do
 		local ok, err = pcall(function()
 			TeleportService:TeleportAsync(lobbyPlaceId, {player}, options)
@@ -752,6 +813,7 @@ local function sendPlayerToLobby(player)
 		end
 	end
 
+	notifyTeleportFailed(player, "Could not return to the lobby. Please try again.")
 	return false
 end
 
@@ -889,6 +951,8 @@ mapVoteRemote = ensureRemoteEvent(remotesFolder, Config.Remotes.MapVote)
 if mapVoteRemote then
 	mapVoteRemote.OnServerEvent:Connect(onMapVoteSubmitted)
 end
+
+teleportLoadingRemote = ensureRemoteEvent(remotesFolder, Config.Remotes.TeleportLoading)
 
 local templateFolder = ensureFolder(ServerStorage, Config.Enemy.TemplateFolderName)
 local spawnFolder = ensureFolder(Workspace, Config.Enemy.SpawnFolderName)

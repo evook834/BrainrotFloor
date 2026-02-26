@@ -3,6 +3,8 @@ local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
 local TeleportService = game:GetService("TeleportService")
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 
 local PLACEHOLDER_PLACE_ID = 1234567890
 local Shared = ServerScriptService:WaitForChild("Shared")
@@ -49,7 +51,69 @@ local function safeCall(label, callback)
 	end
 	return true, resultA, resultB, resultC
 end
+local function ensureFolder(parent, name)
+	local folder = parent:FindFirstChild(name)
+	if folder then
+		return folder
+	end
 
+	folder = Instance.new("Folder")
+	folder.Name = name
+	folder.Parent = parent
+	return folder
+end
+
+local function ensureRemoteEvent(parent, name)
+	local existing = parent:FindFirstChild(name)
+	if existing then
+		if existing:IsA("RemoteEvent") then
+			return existing
+		end
+
+		warn(("[LobbyMatchmaker] Expected RemoteEvent at %s/%s, got %s"):format(
+			parent.Name,
+			name,
+			existing.ClassName
+		))
+		return nil
+	end
+
+	local remote = Instance.new("RemoteEvent")
+	remote.Name = name
+	remote.Parent = parent
+	return remote
+end
+
+local teleportLoadingRemote = ensureRemoteEvent(
+	ensureFolder(ReplicatedStorage, GameConfig.Remotes.Folder),
+	GameConfig.Remotes.TeleportLoading
+)
+
+local function notifyTeleportStarting(player, title, message)
+	if not teleportLoadingRemote then
+		return
+	end
+
+	teleportLoadingRemote:FireClient(player, {
+		action = "Start",
+		title = title,
+		message = message,
+	})
+
+	-- Give the client a moment to call SetTeleportGui before TeleportAsync.
+	task.wait(0.1)
+end
+
+local function notifyTeleportFailed(player, message)
+	if not teleportLoadingRemote then
+		return
+	end
+
+	teleportLoadingRemote:FireClient(player, {
+		action = "Failed",
+		message = message,
+	})
+end
 local function isDifficulty(value)
 	return difficultyLookup[value] == true
 end
@@ -318,6 +382,11 @@ local function teleportToReservedServer(player, placeId, difficulty, matchId, ac
 	})
 
 	local retries = math.max(1, toNumber(Config.TELEPORT_RETRIES, 1))
+	notifyTeleportStarting(
+	player,
+	"Joining match",
+	string.format("Teleporting to %s difficulty...", tostring(difficulty))
+	)
 	for attempt = 1, retries do
 		local ok, err = pcall(function()
 			TeleportService:TeleportAsync(placeId, {player}, options)
@@ -338,6 +407,7 @@ local function teleportToReservedServer(player, placeId, difficulty, matchId, ac
 		end
 	end
 
+	notifyTeleportFailed(player, "Could not join the match. Please try again.")
 	return false
 end
 

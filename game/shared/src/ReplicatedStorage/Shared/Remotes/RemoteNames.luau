@@ -3,6 +3,7 @@ local RemoteNames = {
 	WaveState = "WaveState",
 	ReturnToLobby = "ReturnToLobby",
 	MapVote = "MapVote",
+	TeleportLoading = "TeleportLoading",
 	ShopOpen = "ShopOpen",
 	ShopGetCatalog = "ShopGetCatalog",
 	ShopBuyWeapon = "ShopBuyWeapon",
