@@ -108,6 +108,7 @@ Match server logic. Put each script in the folder whose description matches its 
 | **`Tools/`** | Ad-hoc or editor tools (e.g. layout generators). |
 | **`MapVote/`** | Placeholder for map-vote server logic. |
 | **`ReturnToLobby/`** | Placeholder for return-to-lobby server logic. |
+| **`Admin/`** | OfflinePlayerDataEditor: binds EditOfflinePlayerData remote; edits saved player data by userId when the player is offline (Studio only by default). |
 
 ### `game/match/src/StarterPlayer/StarterPlayerScripts/MatchClient/`
 

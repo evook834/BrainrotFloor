@@ -4,6 +4,7 @@
 	Used by Settings, ClassService, and money/inventory.
 ]]
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local PlayerDataTemplate = require(ReplicatedStorage.Shared.Player.PlayerDataTemplate)
@@ -129,6 +130,41 @@ function PlayerDataService.getProfile(player)
 		return nil
 	end
 	return ds:getProfile(player)
+end
+
+--[[
+	Edit saved data for a user who is not currently in the game.
+	Only allowed when the player is offline to avoid conflicting with an active session.
+	callback(data) receives the profile data table; mutate it in place. Changes are saved after the callback returns.
+	Returns: success (boolean), errorMessage (string?)
+]]
+function PlayerDataService.editOfflineUser(userId, callback)
+	if type(userId) ~= "number" and type(userId) ~= "string" then
+		return false, "Invalid userId"
+	end
+	local player = Players:GetPlayerByUserId(tonumber(userId) or 0)
+	if player then
+		return false, "Player is online"
+	end
+	local ds = getDataService()
+	if not ds then
+		return false, "DataService not available"
+	end
+	if not started then
+		return false, "PlayerDataService not started"
+	end
+	local profile = ds:asyncGetProfile(userId)
+	if not profile then
+		return false, "No profile found"
+	end
+	local ok, err = pcall(function()
+		callback(profile.Data)
+		profile:SetAsync()
+	end)
+	if not ok then
+		return false, "Edit failed: " .. tostring(err)
+	end
+	return true
 end
 
 return PlayerDataService

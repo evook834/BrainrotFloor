@@ -80,7 +80,6 @@ Detailed folder-by-folder breakdown: **[PROJECT_MAP.md](PROJECT_MAP.md)**.
 | **[PROJECT_MAP.md](PROJECT_MAP.md)** | Folder-by-folder summary. |
 | **[DEPENDENCIES.md](DEPENDENCIES.md)** | Who may `require` what; client vs server; shared vs place. |
 | **[REMOTES.md](REMOTES.md)** | Remote names, direction, payloads. |
-| **[doc.md](doc.md)** | Feature notes: sprint, stamina, difficulty, game over, map vote, return to lobby. |
 | **[AGENTS.md](AGENTS.md)** | Agent instructions: command preference, placement rules, file organization, when to add/edit/split. |
 
 ---

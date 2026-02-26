@@ -17,6 +17,7 @@ local ShopService = require(Match.Shop.ShopService)
 local AmmoPickupService = require(Match.Pickups.AmmoPickupService)
 local ClassService = require(Match.Classes.ClassService)
 local DifficultyService = require(Match.Difficulty.DifficultyService)
+local OfflinePlayerDataEditor = require(Match.Admin.OfflinePlayerDataEditor)
 
 local PLACEHOLDER_PLACE_ID = 1234567890
 
@@ -913,6 +914,7 @@ for _, player in Players:GetPlayers() do
 end
 
 PlayerDataService.start()
+OfflinePlayerDataEditor.start()
 ClassService.start()
 SettingsService.start()
 ShopService.start()

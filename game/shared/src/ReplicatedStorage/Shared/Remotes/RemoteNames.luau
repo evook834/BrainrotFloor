@@ -16,6 +16,7 @@ local RemoteNames = {
 	ClassState = "ClassState",
 	SettingsGet = "SettingsGet",
 	SettingsSave = "SettingsSave",
+	EditOfflinePlayerData = "EditOfflinePlayerData",
 }
 
 return RemoteNames

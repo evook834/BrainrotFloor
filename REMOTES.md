@@ -24,6 +24,7 @@ All remotes live under `ReplicatedStorage.Remotes` (folder name from `RemoteName
 | **ClassState**    | RemoteEvent    | S→C       | **Server** fires to **one** client when class state changes. Payload: `ClassStateSync.buildPayloadForPlayer(player)` plus `reason`. Schema: `{ success, canSwitch, waveState, maxLevel, currentClassId, currentClassName, currentBonuses, classes[], reason? }`. Each `classes[]`: `{ id, name, description, weaponTag, level, xp, xpToNext, isCurrent, currentBonuses, perLevelBonuses }`. |
 | **SettingsGet**   | RemoteFunction | C→S       | **Client** invokes (no args). **Server** returns: `{ success: boolean, settings?: table }`. `settings`: `{ schemaVersion, audio: { musicVolume, musicMuted, sfxVolume, sfxMuted }, hud: { scale, positions } }`. |
 | **SettingsSave**  | RemoteEvent    | C→S       | **Client** fires `(rawSettings: table)`. Server sanitizes and persists. Same shape as **SettingsGet** `settings` (audio/hud). |
+| **EditOfflinePlayerData** | RemoteFunction | C→S | **Client** invokes `(userId: number, edits: { { path: string, value: any } })`. Server edits saved player data only when that player is offline. Paths are dot-separated (e.g. `classes.progressByClassId.scentry.level`). Returns `{ success: boolean, message?: string }`. Allowed only in Studio by default. |
 
 ---
 
@@ -47,6 +48,7 @@ All remotes live under `ReplicatedStorage.Remotes` (folder name from `RemoteName
 | ClassState      | RemoteEvent    | S→C       |
 | SettingsGet     | RemoteFunction | C→S       |
 | SettingsSave    | RemoteEvent    | C→S       |
+| EditOfflinePlayerData | RemoteFunction | C→S       |
 
 ---
 
