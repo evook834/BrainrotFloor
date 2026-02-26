@@ -1,7 +1,9 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
+local PlayerDataService = require(ServerScriptService.Shared.PlayerData.PlayerDataService)
 local Match = script.Parent.Parent
 local ClassService = require(Match.Classes.ClassService)
 local ModelRootResolver = require(Match.Enemies.ModelRootResolver)
@@ -203,6 +205,24 @@ local function getCatalogForPlayer(player)
 	})
 end
 
+local function deductMoney(player, amount)
+	if not PlayerDataService.isReady() then
+		return
+	end
+	PlayerDataService.update(player, { "money" }, function(m)
+		return math.max(0, math.floor((tonumber(m) or 0) - amount + 0.5))
+	end)
+end
+
+local function addMoney(player, amount)
+	if not PlayerDataService.isReady() then
+		return
+	end
+	PlayerDataService.update(player, { "money" }, function(m)
+		return (tonumber(m) or 0) + math.max(0, math.floor(amount + 0.5))
+	end)
+end
+
 local function buyWeapon(player, weaponId)
 	return PurchaseFlow.buyWeapon(player, weaponId, {
 		weaponById = weaponById,
@@ -213,6 +233,8 @@ local function buyWeapon(player, weaponId)
 		playerOwnsWeapon = playerOwnsWeapon,
 		getUpgradeRestrictionMessage = getUpgradeRestrictionMessage,
 		getMoneyValue = EnemyDamageService.getMoneyValue,
+		deductMoney = deductMoney,
+		addMoney = addMoney,
 		getWeaponCostForPlayer = getWeaponCostForPlayer,
 		createWeaponTool = WeaponToolFactory.createWeaponTool,
 	})
@@ -226,6 +248,8 @@ local function buyAmmoForWeapon(player, weaponId)
 		getClassRestrictionMessage = getClassRestrictionMessage,
 		collectAmmoRefillQuotesForOwnedWeapons = collectAmmoRefillQuotesForOwnedWeapons,
 		getMoneyValue = EnemyDamageService.getMoneyValue,
+		deductMoney = deductMoney,
+		addMoney = addMoney,
 		refillAmmoForTool = refillAmmoForTool,
 		refillAmmoForSentryRecords = refillAmmoForSentryRecords,
 	})
@@ -237,6 +261,8 @@ local function buyAmmoForAllOwnedWeapons(player)
 		canPurchaseNow = canPurchaseNow,
 		collectAmmoRefillQuotesForOwnedWeapons = collectAmmoRefillQuotesForOwnedWeapons,
 		getMoneyValue = EnemyDamageService.getMoneyValue,
+		deductMoney = deductMoney,
+		addMoney = addMoney,
 		refillAmmoForTool = refillAmmoForTool,
 		refillAmmoForSentryRecords = refillAmmoForSentryRecords,
 	})

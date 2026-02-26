@@ -6,9 +6,11 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
+local PlayerDataService = require(ServerScriptService.Shared.PlayerData.PlayerDataService)
 local Match = script.Parent.Parent
 local ClassService = require(Match.Classes.ClassService)
 local EnemyVfxService = require(Match.Enemies.EnemyVfxService)
@@ -47,12 +49,20 @@ local function getMoneyValue(player)
 end
 
 local function addMoney(player, amount)
-	local moneyValue = getMoneyValue(player)
-	if not moneyValue then
+	local add = math.max(0, math.floor((tonumber(amount) or 0) + 0.5))
+	if add <= 0 then
 		return
 	end
-
-	moneyValue.Value += math.max(0, math.floor((tonumber(amount) or 0) + 0.5))
+	if PlayerDataService.isReady() then
+		PlayerDataService.update(player, { "money" }, function(m)
+			return (tonumber(m) or 0) + add
+		end)
+	else
+		local moneyValue = getMoneyValue(player)
+		if moneyValue then
+			moneyValue.Value += add
+		end
+	end
 end
 
 local function rewardEnemyKill(player, enemyModel)

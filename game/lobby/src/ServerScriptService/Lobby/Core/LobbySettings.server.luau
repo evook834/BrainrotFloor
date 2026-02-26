@@ -1,3 +1,6 @@
-local settingsService = require(script.Parent:WaitForChild("Services"):WaitForChild("SettingsService"))
+local ServerScriptService = game:GetService("ServerScriptService")
+local PlayerDataService = require(ServerScriptService.Shared.PlayerData.PlayerDataService)
+local SettingsService = require(ServerScriptService.Shared.Settings.SettingsService)
 
-settingsService.start()
+PlayerDataService.start()
+SettingsService.start()

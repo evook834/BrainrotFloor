@@ -1,19 +1,15 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local DataStoreService = game:GetService("DataStoreService")
+local ServerScriptService = game:GetService("ServerScriptService")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local ClassCombatRules = require(script.Parent.ClassCombatRules)
-local ClassPersistence = require(script.Parent.ClassPersistence)
 local ClassProgression = require(script.Parent.ClassProgression)
 local ClassRuntimeEffects = require(script.Parent.ClassRuntimeEffects)
 local ClassStateSync = require(script.Parent.ClassStateSync)
+local PlayerDataService = require(ServerScriptService.Shared.PlayerData.PlayerDataService)
 
 local ClassService = {}
-
-local CLASS_SELECTION_DATASTORE_NAME = "BrainrotFloor_ClassSelection_v1"
-local CLASS_SELECTION_SCHEMA_VERSION = 1
-local CLASS_PROGRESS_AUTOSAVE_SECONDS = 30
 
 local started = false
 local remotesFolder = nil
@@ -25,7 +21,6 @@ local classOrder = {}
 local weaponById = {}
 local playerStateByPlayer = {}
 local characterConnectionByPlayer = {}
-local classPersistence = nil
 local classCombatRules = nil
 local classRuntimeEffects = nil
 local classStateSync = nil
@@ -69,28 +64,21 @@ end
 
 local getDefaultClassId
 
-local function loadPersistedState(userId)
-	return classPersistence.loadPersistedState(userId)
-end
-
-local function markPersistedStateDirty(userId)
-	classPersistence.markDirty(userId)
-end
-
-local function savePersistedState(userId, state, force)
-	return classPersistence.savePersistedState(userId, state, force)
-end
-
-local function isPersistedStateDirty(userId)
-	return classPersistence.isDirty(userId)
-end
-
-local function resetPersistedStateTracking(userId, state)
-	classPersistence.resetUserStateTracking(userId, state)
-end
-
-local function clearPersistedStateTracking(userId)
-	classPersistence.clearUser(userId)
+local function writeClassStateToDataService(player, state)
+	if not PlayerDataService.isReady() or not state then
+		return
+	end
+	local copy = {
+		selectedClassId = state.selectedClassId or "",
+		progressByClassId = {},
+	}
+	for classId, progress in pairs(state.progressByClassId or {}) do
+		copy.progressByClassId[classId] = {
+			level = math.floor(tonumber(progress.level) or 1),
+			xp = math.max(0, tonumber(progress.xp) or 0),
+		}
+	end
+	PlayerDataService.set(player, { "classes" }, copy)
 end
 
 getDefaultClassId = function()
@@ -114,16 +102,6 @@ end
 local function isKnownClassId(classId)
 	return classById[classId] ~= nil
 end
-
-classPersistence = ClassPersistence.new({
-	dataStoreService = DataStoreService,
-	dataStoreName = CLASS_SELECTION_DATASTORE_NAME,
-	schemaVersion = CLASS_SELECTION_SCHEMA_VERSION,
-	normalizeToken = normalizeToken,
-	getDefaultClassId = getDefaultClassId,
-	getMaxLevel = getMaxLevel,
-	isKnownClassId = isKnownClassId,
-})
 
 local function sanitizeLoadedProgress(classId, rawProgress)
 	if type(rawProgress) ~= "table" then
@@ -443,8 +421,7 @@ local function selectClass(player, classId)
 	local previousClassId = state.selectedClassId
 	state.selectedClassId = classDef.Id
 	getOrCreateClassProgress(state, classDef.Id)
-	markPersistedStateDirty(player.UserId)
-	savePersistedState(player.UserId, state, true)
+	writeClassStateToDataService(player, state)
 
 	if player.Character then
 		applyCharacterClassBonuses(player, player.Character)
@@ -462,16 +439,21 @@ end
 
 local function bindPlayer(player)
 	local state = getOrCreatePlayerState(player)
-	local userId = player.UserId
 
-	local persistedState = loadPersistedState(userId)
-	if persistedState then
-		applyPersistedStateToPlayerState(state, persistedState)
+	if PlayerDataService.isReady() then
+		PlayerDataService.waitForData(player)
+		local persistedState = PlayerDataService.get(player, { "classes" })
+		if type(persistedState) == "table" and (persistedState.selectedClassId or persistedState.progressByClassId) then
+			applyPersistedStateToPlayerState(state, persistedState)
+		else
+			state.selectedClassId = getDefaultClassId()
+			getOrCreateClassProgress(state, state.selectedClassId)
+		end
+		writeClassStateToDataService(player, state)
 	else
 		state.selectedClassId = getDefaultClassId()
 		getOrCreateClassProgress(state, state.selectedClassId)
 	end
-	resetPersistedStateTracking(userId, state)
 
 	if characterConnectionByPlayer[player] then
 		characterConnectionByPlayer[player]:Disconnect()
@@ -493,30 +475,6 @@ local function bindPlayer(player)
 	end
 
 	pushPlayerState(player, "Init", true)
-end
-
-local function savePlayerStateForPlayer(player, force)
-	if not player or not player:IsA("Player") then
-		return false
-	end
-
-	local state = playerStateByPlayer[player]
-	if not state then
-		return false
-	end
-
-	local userId = player.UserId
-	if not force and not isPersistedStateDirty(userId) then
-		return true
-	end
-
-	return savePersistedState(userId, state, force)
-end
-
-local function autosaveDirtyPlayerStates()
-	for _, player in Players:GetPlayers() do
-		savePlayerStateForPlayer(player, false)
-	end
 end
 
 function ClassService.getPlayerClassId(player)
@@ -638,12 +596,9 @@ function ClassService.recordDamage(player, damage, weaponDef)
 		applyCharacterClassBonuses(player, player.Character)
 	end
 	if progress.level ~= previousLevel or progress.xp ~= previousXp then
-		markPersistedStateDirty(player.UserId)
-	end
-	if leveledUp then
 		local state = playerStateByPlayer[player]
 		if state then
-			savePersistedState(player.UserId, state, true)
+			writeClassStateToDataService(player, state)
 		end
 	end
 
@@ -704,28 +659,12 @@ function ClassService.start()
 
 	Players.PlayerAdded:Connect(bindPlayer)
 	Players.PlayerRemoving:Connect(function(player)
-		savePlayerStateForPlayer(player, true)
-
 		playerStateByPlayer[player] = nil
 		classStateSync.clearPlayer(player)
-		clearPersistedStateTracking(player.UserId)
 
 		if characterConnectionByPlayer[player] then
 			characterConnectionByPlayer[player]:Disconnect()
 			characterConnectionByPlayer[player] = nil
-		end
-	end)
-
-	task.spawn(function()
-		while started do
-			task.wait(CLASS_PROGRESS_AUTOSAVE_SECONDS)
-			autosaveDirtyPlayerStates()
-		end
-	end)
-
-	game:BindToClose(function()
-		for _, player in Players:GetPlayers() do
-			savePlayerStateForPlayer(player, true)
 		end
 	end)
 

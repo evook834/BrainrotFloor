@@ -9,13 +9,14 @@ local Workspace = game:GetService("Workspace")
 local PlaceRole = require(ServerScriptService.Shared.Matchmaking.PlaceRole)
 local MatchmakingConfig = require(ServerScriptService.Shared.Matchmaking.MatchmakingConfig)
 local Config = require(ReplicatedStorage.Shared.GameConfig)
+local PlayerDataService = require(ServerScriptService.Shared.PlayerData.PlayerDataService)
+local SettingsService = require(ServerScriptService.Shared.Settings.SettingsService)
 local Match = script.Parent.Parent
 local WaveService = require(Match.Waves.WaveService)
 local ShopService = require(Match.Shop.ShopService)
 local AmmoPickupService = require(Match.Pickups.AmmoPickupService)
 local ClassService = require(Match.Classes.ClassService)
 local DifficultyService = require(Match.Difficulty.DifficultyService)
-local SettingsService = require(Match.Settings.SettingsService)
 
 local PLACEHOLDER_PLACE_ID = 1234567890
 
@@ -156,8 +157,32 @@ local function ensureLeaderstats(player)
 	if not money then
 		money = Instance.new("IntValue")
 		money.Name = "Money"
-		money.Value = (Config.Player and Config.Player.StartingMoney) or 0
+		money.Value = 0
 		money.Parent = leaderstats
+	end
+
+	-- Sync money from PlayerDataService (DataService); keep leaderstats.Money in sync for HUD/legacy reads
+	if PlayerDataService.isReady() then
+		task.spawn(function()
+			local ok = pcall(function()
+				PlayerDataService.waitForData(player)
+			end)
+			if not ok or not player.Parent or not leaderstats.Parent then
+				return
+			end
+			local m = PlayerDataService.get(player, { "money" })
+			if type(m) == "number" and leaderstats:FindFirstChild("Money") then
+				leaderstats.Money.Value = math.floor(m + 0.5)
+			end
+			local changedSignal = PlayerDataService.getChangedSignal(player, { "money" })
+			if changedSignal then
+				changedSignal:Connect(function(newVal)
+					if leaderstats.Parent and leaderstats:FindFirstChild("Money") then
+						leaderstats.Money.Value = math.floor((tonumber(newVal) or 0) + 0.5)
+					end
+				end)
+			end
+		end)
 	end
 end
 
@@ -887,6 +912,7 @@ for _, player in Players:GetPlayers() do
 	bindPlayerSystems(player)
 end
 
+PlayerDataService.start()
 ClassService.start()
 SettingsService.start()
 ShopService.start()

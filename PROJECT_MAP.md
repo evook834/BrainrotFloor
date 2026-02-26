@@ -45,7 +45,8 @@ Server-only shared (e.g. matchmaking, place role). Used by both lobby and match.
 | Folder / file | Purpose |
 |---------------|--------|
 | **`Matchmaking/`** | Matchmaking config and place-role detection. |
-| **`Settings/`** | Placeholder for shared server settings. |
+| **`PlayerData/`** | PlayerDataService: wraps DataService (leifstout/dataService) for persistent, replicated player data (settings, classes, money). |
+| **`Settings/`** | Shared SettingsService: binds SettingsGet/SettingsSave remotes, reads/writes via PlayerDataService. |
 
 ### `game/shared/src/StarterPlayerScripts/SharedClient/`
 
@@ -67,7 +68,7 @@ Lobby place: difficulty selection, matchmaking, teleport to match.
 | Folder / file | Purpose |
 |---------------|--------|
 | **`Core/`** | Matchmaking, difficulty buttons, teleport, lobby bootstrap. |
-| **`Settings/`** | Lobby settings (get/save, remotes). |
+| **`Settings/`** | Empty; settings use Shared SettingsService (PlayerDataService). |
 
 ### `game/lobby/src/StarterPlayer/StarterPlayerScripts/LobbyClient/`
 

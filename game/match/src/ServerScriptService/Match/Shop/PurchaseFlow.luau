@@ -86,10 +86,18 @@ function PurchaseFlow.buyWeapon(player, weaponId, context)
 		}
 	end
 
-	moneyValue.Value -= weaponCost
+	if context.deductMoney then
+		context.deductMoney(player, weaponCost)
+	else
+		moneyValue.Value -= weaponCost
+	end
 	local granted, grantError = PurchaseFlow.grantWeapon(player, weaponDef, context)
 	if not granted then
-		moneyValue.Value += weaponCost
+		if context.addMoney then
+			context.addMoney(player, weaponCost)
+		else
+			moneyValue.Value += weaponCost
+		end
 		return {
 			success = false,
 			message = grantError or "Could not grant weapon.",
@@ -184,7 +192,11 @@ function PurchaseFlow.buyAmmoForWeapon(player, weaponId, context)
 		}
 	end
 
-	moneyValue.Value -= quote.cost
+	if context.deductMoney then
+		context.deductMoney(player, quote.cost)
+	else
+		moneyValue.Value -= quote.cost
+	end
 	local didRefill = false
 	if isSentryRefill then
 		didRefill = context.refillAmmoForSentryRecords(quote.sentryRecords, weaponDef)
@@ -192,7 +204,11 @@ function PurchaseFlow.buyAmmoForWeapon(player, weaponId, context)
 		didRefill = context.refillAmmoForTool(quote.tool, weaponDef, player, "Full", nil)
 	end
 	if not didRefill then
-		moneyValue.Value += quote.cost
+		if context.addMoney then
+			context.addMoney(player, quote.cost)
+		else
+			moneyValue.Value += quote.cost
+		end
 		return {
 			success = false,
 			message = "Ammo is already full.",
@@ -236,7 +252,11 @@ function PurchaseFlow.buyAmmoForAllOwnedWeapons(player, context)
 		}
 	end
 
-	moneyValue.Value -= refillSummary.refillAllCost
+	if context.deductMoney then
+		context.deductMoney(player, refillSummary.refillAllCost)
+	else
+		moneyValue.Value -= refillSummary.refillAllCost
+	end
 	local spent = 0
 	local refilledCount = 0
 
@@ -260,7 +280,11 @@ function PurchaseFlow.buyAmmoForAllOwnedWeapons(player, context)
 	end
 
 	if refilledCount <= 0 then
-		moneyValue.Value += refillSummary.refillAllCost
+		if context.addMoney then
+			context.addMoney(player, refillSummary.refillAllCost)
+		else
+			moneyValue.Value += refillSummary.refillAllCost
+		end
 		return {
 			success = false,
 			message = "All owned weapon ammo is already full.",
@@ -269,7 +293,11 @@ function PurchaseFlow.buyAmmoForAllOwnedWeapons(player, context)
 
 	local refund = refillSummary.refillAllCost - spent
 	if refund > 0 then
-		moneyValue.Value += refund
+		if context.addMoney then
+			context.addMoney(player, refund)
+		else
+			moneyValue.Value += refund
+		end
 	end
 
 	return {
