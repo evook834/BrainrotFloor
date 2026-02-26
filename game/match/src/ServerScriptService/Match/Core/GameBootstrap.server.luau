@@ -960,12 +960,13 @@ local function ensureDifficultyAttribute()
 	Workspace:SetAttribute("Difficulty", DifficultyService.getCurrentDifficulty())
 end
 
+local respawnDelaySeconds = (Config.Player and Config.Player.RespawnDelaySeconds) or 60
+
 local function scheduleRespawn(player)
 	if gameOverTriggered then
 		return
 	end
 
-	local respawnDelaySeconds = (Config.Player and Config.Player.RespawnDelaySeconds) or 60
 	local respawnToken = (pendingRespawnByPlayer[player] or 0) + 1
 	pendingRespawnByPlayer[player] = respawnToken
 
@@ -983,6 +984,26 @@ local function scheduleRespawn(player)
 			return
 		end
 
+		player:LoadCharacter()
+	end)
+end
+
+local function isMatchRunningForLateJoin()
+	return not gameOverTriggered and #Players:GetPlayers() > 1
+end
+
+local function scheduleLateJoinSpawn(player)
+	task.spawn(function()
+		task.wait(respawnDelaySeconds)
+		if player.Parent ~= Players then
+			return
+		end
+		if gameOverTriggered then
+			return
+		end
+		if spectatingPlayers[player] ~= true then
+			return
+		end
 		player:LoadCharacter()
 	end)
 end
@@ -1033,7 +1054,13 @@ local function bindPlayerSystems(player)
 	if player.Character then
 		task.spawn(onCharacter, player.Character)
 	elseif not gameOverTriggered then
-		player:LoadCharacter()
+		if isMatchRunningForLateJoin() then
+			spectatingPlayers[player] = true
+			notifyAllSpectators()
+			scheduleLateJoinSpawn(player)
+		else
+			player:LoadCharacter()
+		end
 	end
 end
 
