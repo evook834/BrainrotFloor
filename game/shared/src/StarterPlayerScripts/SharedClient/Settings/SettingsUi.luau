@@ -53,21 +53,72 @@ local uiHiddenNoticeToken = 0
 local remotesFolder = ReplicatedStorage:WaitForChild(Config.Remotes.Folder, REMOTE_WAIT_TIMEOUT_SECONDS)
 local settingsGetFunction = nil
 local settingsSaveRemote = nil
-if remotesFolder then
-	local function resolveRemote(remoteName, className)
-		local candidate = remotesFolder:FindFirstChild(remoteName)
-		if candidate and candidate:IsA(className) then
-			return candidate
-		end
+local returnToLobbyRemote = nil
+local canReturnToLobby = false
+local returnToLobbyRequestInFlight = false
 
-		candidate = remotesFolder:WaitForChild(remoteName, REMOTE_WAIT_TIMEOUT_SECONDS)
-		if candidate and candidate:IsA(className) then
-			return candidate
-		end
-
+local function resolveRemote(remoteName, className)
+	if not remotesFolder then
 		return nil
 	end
 
+	local candidate = remotesFolder:FindFirstChild(remoteName)
+	if candidate and candidate:IsA(className) then
+		return candidate
+	end
+
+	candidate = remotesFolder:WaitForChild(remoteName, REMOTE_WAIT_TIMEOUT_SECONDS)
+	if candidate and candidate:IsA(className) then
+		return candidate
+	end
+
+	return nil
+end
+
+local function resolveOptionalRemote(remoteName, className)
+	if not remotesFolder then
+		return nil
+	end
+
+	local candidate = remotesFolder:FindFirstChild(remoteName)
+	if candidate and candidate:IsA(className) then
+		return candidate
+	end
+
+	return nil
+end
+
+local function resolveReturnToLobbyRemoteAsync(onResolved)
+	if not canReturnToLobby then
+		returnToLobbyRemote = nil
+		if onResolved then
+			onResolved()
+		end
+		return
+	end
+
+	returnToLobbyRemote = resolveOptionalRemote(Config.Remotes.ReturnToLobby, "RemoteEvent")
+	if returnToLobbyRemote then
+		if onResolved then
+			onResolved()
+		end
+		return
+	end
+
+	task.spawn(function()
+		local remote = resolveRemote(Config.Remotes.ReturnToLobby, "RemoteEvent")
+		if not canReturnToLobby then
+			return
+		end
+
+		returnToLobbyRemote = remote
+		if onResolved then
+			onResolved()
+		end
+	end)
+end
+
+if remotesFolder then
 	settingsGetFunction = resolveRemote(Config.Remotes.SettingsGet, "RemoteFunction")
 	settingsSaveRemote = resolveRemote(Config.Remotes.SettingsSave, "RemoteEvent")
 end
@@ -821,6 +872,32 @@ selectedHudLabel.Font = Enum.Font.Gotham
 selectedHudLabel.TextSize = 12
 selectedHudLabel.Parent = gameplayPage
 
+local returnToLobbyButton = Instance.new("TextButton")
+returnToLobbyButton.Name = "ReturnToLobbyButton"
+returnToLobbyButton.Size = UDim2.fromOffset(140, 34)
+returnToLobbyButton.Position = UDim2.fromOffset(226, 10)
+returnToLobbyButton.BackgroundColor3 = Color3.fromRGB(98, 64, 64)
+returnToLobbyButton.BorderSizePixel = 0
+returnToLobbyButton.Text = "Return to Lobby"
+returnToLobbyButton.TextColor3 = Color3.fromRGB(246, 238, 238)
+returnToLobbyButton.Font = Enum.Font.GothamBold
+returnToLobbyButton.TextSize = 13
+returnToLobbyButton.Parent = gameplayPage
+styleRounded(returnToLobbyButton, 8)
+
+local returnToLobbyStatusLabel = Instance.new("TextLabel")
+returnToLobbyStatusLabel.Name = "ReturnToLobbyStatus"
+returnToLobbyStatusLabel.Size = UDim2.fromOffset(140, 42)
+returnToLobbyStatusLabel.Position = UDim2.fromOffset(226, 48)
+returnToLobbyStatusLabel.BackgroundTransparency = 1
+returnToLobbyStatusLabel.TextWrapped = true
+returnToLobbyStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+returnToLobbyStatusLabel.TextYAlignment = Enum.TextYAlignment.Top
+returnToLobbyStatusLabel.TextColor3 = Color3.fromRGB(182, 198, 216)
+returnToLobbyStatusLabel.Font = Enum.Font.Gotham
+returnToLobbyStatusLabel.TextSize = 12
+returnToLobbyStatusLabel.Parent = gameplayPage
+
 local resetPositionButton = Instance.new("TextButton")
 resetPositionButton.Name = "ResetPositionButton"
 resetPositionButton.Size = UDim2.fromOffset(184, 34)
@@ -951,6 +1028,40 @@ local function updateAudioButtons()
 	end
 end
 
+local function updateReturnToLobbyControls()
+	local buttonEnabled = canReturnToLobby and returnToLobbyRemote ~= nil and not returnToLobbyRequestInFlight
+	returnToLobbyButton.Active = buttonEnabled
+	returnToLobbyButton.AutoButtonColor = buttonEnabled
+
+	if returnToLobbyRequestInFlight then
+		returnToLobbyButton.BackgroundColor3 = Color3.fromRGB(86, 72, 56)
+		returnToLobbyButton.BackgroundTransparency = 0.12
+		returnToLobbyButton.TextColor3 = Color3.fromRGB(244, 236, 228)
+		returnToLobbyButton.Text = "Returning..."
+		returnToLobbyStatusLabel.Text = "Teleport request sent."
+		return
+	end
+
+	if canReturnToLobby and returnToLobbyRemote then
+		returnToLobbyButton.BackgroundColor3 = Color3.fromRGB(98, 64, 64)
+		returnToLobbyButton.BackgroundTransparency = 0
+		returnToLobbyButton.TextColor3 = Color3.fromRGB(246, 238, 238)
+		returnToLobbyButton.Text = "Return to Lobby"
+		returnToLobbyStatusLabel.Text = "Leave the current match and teleport back to lobby."
+		return
+	end
+
+	returnToLobbyButton.BackgroundColor3 = Color3.fromRGB(68, 72, 80)
+	returnToLobbyButton.BackgroundTransparency = 0.35
+	returnToLobbyButton.TextColor3 = Color3.fromRGB(188, 194, 202)
+	returnToLobbyButton.Text = "Return to Lobby"
+	if canReturnToLobby then
+		returnToLobbyStatusLabel.Text = "Return-to-lobby is unavailable right now."
+	else
+		returnToLobbyStatusLabel.Text = "You are already in the lobby."
+	end
+end
+
 local function updateGameplayLabels()
 	local scalePercent = math.floor((settingsState.hudScale * 100) + 0.5)
 	if moveModeEnabled then
@@ -973,6 +1084,7 @@ local function updateGameplayLabels()
 		fullHideButton.Text = "Hide All UI + HUD"
 		fullHideStatusLabel.Text = "Tip: Press F10 to toggle full UI visibility."
 	end
+	updateReturnToLobbyControls()
 end
 
 local function setActiveTab(tabName)
@@ -1225,6 +1337,29 @@ fullHideButton.Activated:Connect(function()
 	setUiHidden(not uiHidden)
 end)
 
+returnToLobbyButton.Activated:Connect(function()
+	if not canReturnToLobby or not returnToLobbyRemote or returnToLobbyRequestInFlight then
+		return
+	end
+
+	returnToLobbyRequestInFlight = true
+	panel.Visible = false
+	setMoveModeEnabled(false)
+	selectedHudRoot = nil
+	activeDrag = nil
+	updateGameplayLabels()
+	returnToLobbyRemote:FireServer()
+
+	task.delay(2, function()
+		if not player.Parent then
+			return
+		end
+
+		returnToLobbyRequestInFlight = false
+		updateGameplayLabels()
+	end)
+end)
+
 moveModeButton.Activated:Connect(function()
 	setMoveModeEnabled(not moveModeEnabled)
 end)
@@ -1362,6 +1497,17 @@ end
 local function run(options)
 	options = options or {}
 	hudMoveModeAttribute = options.hudMoveModeAttribute
+	canReturnToLobby = options.canReturnToLobby == true
+	returnToLobbyRequestInFlight = false
+	if canReturnToLobby then
+		resolveReturnToLobbyRemoteAsync(function()
+			if player.Parent then
+				updateGameplayLabels()
+			end
+		end)
+	else
+		returnToLobbyRemote = nil
+	end
 	if hudMoveModeAttribute then
 		playerGui:SetAttribute(hudMoveModeAttribute, false)
 	end

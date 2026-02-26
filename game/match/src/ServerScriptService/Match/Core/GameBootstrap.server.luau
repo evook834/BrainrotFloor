@@ -756,10 +756,6 @@ local function sendPlayerToLobby(player)
 end
 
 local function onReturnToLobbyRequested(player)
-	if not gameOverTriggered then
-		return
-	end
-
 	if not PlaceRole.shouldRunMatchSystems() then
 		return
 	end
