@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterGui = game:GetService("StarterGui")
 local TeleportService = game:GetService("TeleportService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
@@ -13,6 +14,70 @@ local teleportLoadingRemote = remotesFolder:WaitForChild(Config.Remotes.Teleport
 local currentGui = nil
 local guiToken = 0
 
+local hiddenScreenGuis = {}
+local playerGuiChildAddedConnection = nil
+local hudHidden = false
+
+local function setCoreGuiHidden(hidden)
+	pcall(function()
+		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, not hidden)
+	end)
+
+	pcall(function()
+		StarterGui:SetCore("TopbarEnabled", not hidden)
+	end)
+end
+
+local function hideOtherScreenGuis()
+	if hudHidden then
+		return
+	end
+
+	hudHidden = true
+
+	for _, child in ipairs(playerGui:GetChildren()) do
+		if child:IsA("ScreenGui") and child.Name ~= "TeleportLoadingGui" then
+			hiddenScreenGuis[child] = child.Enabled
+			child.Enabled = false
+		end
+	end
+
+	playerGuiChildAddedConnection = playerGui.ChildAdded:Connect(function(child)
+		if not hudHidden then
+			return
+		end
+
+		if child:IsA("ScreenGui") and child.Name ~= "TeleportLoadingGui" then
+			hiddenScreenGuis[child] = child.Enabled
+			child.Enabled = false
+		end
+	end)
+
+	setCoreGuiHidden(true)
+end
+
+local function restoreOtherScreenGuis()
+	if not hudHidden then
+		return
+	end
+
+	hudHidden = false
+
+	if playerGuiChildAddedConnection then
+		playerGuiChildAddedConnection:Disconnect()
+		playerGuiChildAddedConnection = nil
+	end
+
+	for gui, wasEnabled in pairs(hiddenScreenGuis) do
+		if gui and gui.Parent == playerGui then
+			gui.Enabled = wasEnabled
+		end
+		hiddenScreenGuis[gui] = nil
+	end
+
+	setCoreGuiHidden(false)
+end
+
 local function destroyGui()
 	guiToken += 1
 
@@ -20,6 +85,8 @@ local function destroyGui()
 		currentGui:Destroy()
 		currentGui = nil
 	end
+
+	restoreOtherScreenGuis()
 end
 
 local function createGui(titleText, messageText)
@@ -33,6 +100,7 @@ local function createGui(titleText, messageText)
 	background.Name = "Background"
 	background.Size = UDim2.fromScale(1, 1)
 	background.BackgroundColor3 = Color3.fromRGB(8, 10, 14)
+	background.BackgroundTransparency = 0
 	background.BorderSizePixel = 0
 	background.Parent = gui
 
@@ -64,7 +132,12 @@ local function createGui(titleText, messageText)
 end
 
 local function showGui(titleText, messageText)
-	destroyGui()
+	if currentGui then
+		currentGui:Destroy()
+		currentGui = nil
+	end
+
+	hideOtherScreenGuis()
 
 	currentGui = createGui(titleText, messageText)
 	currentGui.Parent = playerGui
@@ -91,7 +164,12 @@ local function attachArrivingGui(arrivingGui)
 		return
 	end
 
-	destroyGui()
+	if currentGui then
+		currentGui:Destroy()
+		currentGui = nil
+	end
+
+	hideOtherScreenGuis()
 
 	arrivingGui.Name = "TeleportLoadingGui"
 	arrivingGui.ResetOnSpawn = false
