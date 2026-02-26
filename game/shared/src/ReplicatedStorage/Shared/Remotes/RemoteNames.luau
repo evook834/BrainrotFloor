@@ -18,6 +18,7 @@ local RemoteNames = {
 	SettingsGet = "SettingsGet",
 	SettingsSave = "SettingsSave",
 	EditOfflinePlayerData = "EditOfflinePlayerData",
+	SpectatorState = "SpectatorState",
 }
 
 return RemoteNames

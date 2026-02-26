@@ -339,6 +339,46 @@ local function hasAnyLivingPlayers()
 	return false
 end
 
+local function getLivingPlayerUserIds()
+	local userIds = {}
+	for _, player in Players:GetPlayers() do
+		if player.Parent ~= Players then
+			continue
+		end
+		local character = player.Character
+		if not character then
+			continue
+		end
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if humanoid and humanoid.Health > 0 and humanoid:GetState() ~= Enum.HumanoidStateType.Dead then
+			table.insert(userIds, player.UserId)
+		end
+	end
+	return userIds
+end
+
+local spectatingPlayers = {}
+local spectatorRemote = nil
+
+local function notifySpectator(targetPlayer, isSpectating, livingPlayerUserIds)
+	if not spectatorRemote or targetPlayer.Parent ~= Players then
+		return
+	end
+	spectatorRemote:FireClient(targetPlayer, {
+		isSpectating = isSpectating,
+		livingPlayerUserIds = livingPlayerUserIds or {},
+	})
+end
+
+local function notifyAllSpectators()
+	local living = getLivingPlayerUserIds()
+	for spectatingPlayer, _ in pairs(spectatingPlayers) do
+		if spectatingPlayer.Parent == Players then
+			notifySpectator(spectatingPlayer, true, living)
+		end
+	end
+end
+
 local function cancelAllPendingRespawns()
 	for _, player in Players:GetPlayers() do
 		invalidateRespawn(player)
@@ -953,6 +993,13 @@ local function bindPlayerSystems(player)
 	sendMapVoteSnapshot(player)
 
 	local function onCharacter(character)
+		local wasSpectating = spectatingPlayers[player] == true
+		spectatingPlayers[player] = nil
+		if wasSpectating and spectatorRemote then
+			notifySpectator(player, false, {})
+			notifyAllSpectators()
+		end
+
 		invalidateRespawn(player)
 
 		local humanoid = character:WaitForChild("Humanoid", 10)
@@ -972,6 +1019,8 @@ local function bindPlayerSystems(player)
 
 				if hasAnyLivingPlayers() then
 					scheduleRespawn(player)
+					spectatingPlayers[player] = true
+					notifyAllSpectators()
 					return
 				end
 
@@ -1013,6 +1062,7 @@ if mapVoteRemote then
 end
 
 teleportLoadingRemote = ensureRemoteEvent(remotesFolder, Config.Remotes.TeleportLoading)
+spectatorRemote = ensureRemoteEvent(remotesFolder, Config.Remotes.SpectatorState)
 
 local templateFolder = ensureFolder(ServerStorage, Config.Enemy.TemplateFolderName)
 local spawnFolder = ensureFolder(Workspace, Config.Enemy.SpawnFolderName)
@@ -1026,6 +1076,7 @@ Players.CharacterAutoLoads = false
 Players.PlayerAdded:Connect(bindPlayerSystems)
 Players.PlayerRemoving:Connect(function(player)
 	pendingRespawnByPlayer[player] = nil
+	spectatingPlayers[player] = nil
 	returnLobbyInFlightByUserId[player.UserId] = nil
 	returnLobbyLastRequestByUserId[player.UserId] = nil
 

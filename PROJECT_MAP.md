@@ -124,6 +124,7 @@ Match client UI and HUD. Match folder names to responsibility.
 | **`Classes/`** | Class UI, XP bar. |
 | **`Combat/`** | Crosshair, ammo HUD, dual-wield pose, damage numbers. |
 | **`Settings/`** | Match settings UI. |
+| **`Spectator/`** | Spectator mode: when dead, spectate living players (camera follow, Q/E cycle). |
 | **`ReturnToLobby/`** | Placeholder for return-to-lobby client. |
 
 ### `game/match/src/Workspace/`
