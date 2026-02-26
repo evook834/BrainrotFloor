@@ -15,15 +15,25 @@ local Config = {
 			Easy = {
 				EnemyHealthMultiplier = 0.8,
 				EnemyDamageMultiplier = 0.9,
+				EnemyCountMultiplier = 0.9,
+				DiffTotal = 0.85,
+				DiffAlive = 0.90,
 			},
 			Normal = {
 				EnemyHealthMultiplier = 1.0,
 				EnemyDamageMultiplier = 1.0,
+				EnemyCountMultiplier = 1.0,
+				DiffTotal = 1.0,
+				DiffAlive = 1.0,
 			},
 			Hard = {
 				EnemyHealthMultiplier = 1.35,
 				EnemyDamageMultiplier = 1.2,
+				EnemyCountMultiplier = 1.15,
+				DiffTotal = 1.25,
+				DiffAlive = 1.15,
 			},
+			-- Nightmare (future): DiffTotal = 1.5, DiffAlive = 1.25
 		},
 	},
 	Remotes = RemoteNames,

@@ -70,5 +70,5 @@ Each place has a **`default.project.json`** that mounts **`../shared`** into the
 
 ## Related docs
 
-- **[REMOTES.md](REMOTES.md)** — Remote names, direction (C→S / S→C), and payloads.
+- **[REMOTES.md](REMOTES.md)** — Remote names, direction (C→S / S→C), and payloads (including `WaveState` / `WaveEnemiesRemaining` from the wave director).
 - **[AGENTS.md](AGENTS.md)** — File organization and when to add or edit files.

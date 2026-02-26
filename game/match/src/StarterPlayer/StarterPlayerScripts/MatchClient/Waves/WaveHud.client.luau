@@ -295,6 +295,58 @@ local moneyLine = createLine("MoneyLine", 3)
 local waveLine = createLine("WaveLine", 4)
 local enemiesLine = createLine("EnemiesLine", 5)
 
+-- Compact movable Wave HUD: CurrentWave/MaxWave (no boss) + monsters remaining. Draggable via Settings > Gameplay > HUD move mode.
+local waveStatusRoot = Instance.new("Frame")
+waveStatusRoot.Name = "WaveStatusPanel"
+waveStatusRoot.Size = UDim2.fromOffset(180, 56)
+waveStatusRoot.Position = UDim2.new(1, -196, 0, 16)
+waveStatusRoot.BackgroundColor3 = Color3.fromRGB(18, 20, 26)
+waveStatusRoot.BackgroundTransparency = 0.15
+waveStatusRoot.BorderSizePixel = 0
+waveStatusRoot.ClipsDescendants = false
+waveStatusRoot.Parent = gui
+
+local waveStatusCorner = Instance.new("UICorner")
+waveStatusCorner.CornerRadius = UDim.new(0, 8)
+waveStatusCorner.Parent = waveStatusRoot
+
+local waveStatusStroke = Instance.new("UIStroke")
+waveStatusStroke.Color = Color3.fromRGB(70, 88, 100)
+waveStatusStroke.Transparency = 0.25
+waveStatusStroke.Thickness = 1
+waveStatusStroke.Parent = waveStatusRoot
+
+local waveStatusPadding = Instance.new("UIPadding")
+waveStatusPadding.PaddingTop = UDim.new(0, 8)
+waveStatusPadding.PaddingBottom = UDim.new(0, 8)
+waveStatusPadding.PaddingLeft = UDim.new(0, 12)
+waveStatusPadding.PaddingRight = UDim.new(0, 12)
+waveStatusPadding.Parent = waveStatusRoot
+
+local waveStatusWaveLabel = Instance.new("TextLabel")
+waveStatusWaveLabel.Name = "WaveLabel"
+waveStatusWaveLabel.Size = UDim2.new(1, -24, 0, 20)
+waveStatusWaveLabel.Position = UDim2.fromOffset(0, 0)
+waveStatusWaveLabel.BackgroundTransparency = 1
+waveStatusWaveLabel.TextXAlignment = Enum.TextXAlignment.Left
+waveStatusWaveLabel.TextColor3 = Color3.fromRGB(240, 248, 255)
+waveStatusWaveLabel.Font = Enum.Font.GothamBold
+waveStatusWaveLabel.TextSize = 16
+waveStatusWaveLabel.Text = "Wave —/10"
+waveStatusWaveLabel.Parent = waveStatusRoot
+
+local waveStatusMonstersLabel = Instance.new("TextLabel")
+waveStatusMonstersLabel.Name = "MonstersLabel"
+waveStatusMonstersLabel.Size = UDim2.new(1, -24, 0, 20)
+waveStatusMonstersLabel.Position = UDim2.fromOffset(0, 24)
+waveStatusMonstersLabel.BackgroundTransparency = 1
+waveStatusMonstersLabel.TextXAlignment = Enum.TextXAlignment.Left
+waveStatusMonstersLabel.TextColor3 = Color3.fromRGB(200, 218, 235)
+waveStatusMonstersLabel.Font = Enum.Font.GothamSemibold
+waveStatusMonstersLabel.TextSize = 14
+waveStatusMonstersLabel.Text = "Monsters: 0"
+waveStatusMonstersLabel.Parent = waveStatusRoot
+
 local uiState = {
 	hp = 100,
 	maxHp = 100,
@@ -302,6 +354,7 @@ local uiState = {
 	wave = 0,
 	waveState = "Waiting",
 	livingEnemies = 0,
+	enemiesRemaining = 0,
 }
 local intermissionCountdownState = {
 	token = 0,
@@ -329,11 +382,22 @@ local mapVoteOptions = {}
 local mapVoteButtonsByPlaceId = {}
 local mapVoteSelectedPlaceId = nil
 
+local totalWaves = math.max(1, tonumber(Config.Wave and Config.Wave.TotalWaves) or 10)
+local bossWaveNumber = math.max(2, tonumber(Config.Wave and Config.Wave.BossWaveNumber) or 11)
+
 local function render()
 	hpLine.Text = string.format("HP: %d / %d", math.max(0, math.floor(uiState.hp + 0.5)), math.max(1, math.floor(uiState.maxHp + 0.5)))
 	moneyLine.Text = string.format("Money: $%d", math.floor(uiState.money + 0.5))
 	waveLine.Text = string.format("Wave: %d (%s)", uiState.wave, uiState.waveState)
 	enemiesLine.Text = string.format("Living Enemies: %d", uiState.livingEnemies)
+
+	-- Compact Wave Status panel (movable via Settings HUD move mode)
+	if uiState.wave >= bossWaveNumber then
+		waveStatusWaveLabel.Text = "Wave: Boss"
+	else
+		waveStatusWaveLabel.Text = string.format("Wave %d/%d", math.max(0, uiState.wave), totalWaves)
+	end
+	waveStatusMonstersLabel.Text = string.format("Monsters: %d", math.max(0, uiState.enemiesRemaining))
 end
 
 render()
@@ -623,6 +687,14 @@ local function getGameOverMessage(reason)
 	return "The match has ended."
 end
 
+local function getWinMessage(reason)
+	if reason == "BossDefeated" then
+		return "Boss defeated. Choose the next map."
+	end
+
+	return "You won!"
+end
+
 local function setReturnToLobbyButtonEnabled(enabled, text)
 	returnToLobbyButton.Active = enabled
 	returnToLobbyButton.AutoButtonColor = enabled
@@ -712,7 +784,7 @@ local function setGameOverInputModeActive(active)
 	end
 end
 
-local function setGameOverActive(active, reason)
+local function setGameOverActive(active, reason, isWin)
 	gameOverActive = active
 	gameOverOverlay.Visible = active
 	setGameOverInputModeActive(active)
@@ -723,7 +795,15 @@ local function setGameOverActive(active, reason)
 		resetMapVoteUi()
 		frame.Visible = false
 		startGameOverHudVisibilityLoop()
-		gameOverMessage.Text = getGameOverMessage(reason)
+		if isWin then
+			gameOverTitle.Text = "You won!"
+			gameOverTitle.TextColor3 = Color3.fromRGB(112, 255, 160)
+			gameOverMessage.Text = getWinMessage(reason)
+		else
+			gameOverTitle.Text = "GAME OVER"
+			gameOverTitle.TextColor3 = Color3.fromRGB(255, 112, 112)
+			gameOverMessage.Text = getGameOverMessage(reason)
+		end
 		returnToLobbyButton.Visible = true
 		returnToLobbyStatus.Visible = true
 		returnToLobbyStatus.Text = ""
@@ -908,16 +988,26 @@ local function applyWaveState(payload)
 	end
 
 	local stateName = payload.state
-	if gameOverActive and stateName ~= "GameOver" then
+	if gameOverActive and stateName ~= "GameOver" and stateName ~= "Won" then
 		return
 	end
 
-	uiState.wave = payload.wave or uiState.wave
+	if type(payload.wave) == "number" then
+		uiState.wave = payload.wave
+	end
 	uiState.waveState = stateName or uiState.waveState
+	if type(payload.enemiesRemaining) == "number" then
+		uiState.enemiesRemaining = math.max(0, payload.enemiesRemaining)
+	end
 	render()
 
 	if stateName == "GameOver" then
-		setGameOverActive(true, payload.reason)
+		setGameOverActive(true, payload.reason, false)
+		return
+	end
+
+	if stateName == "Won" then
+		setGameOverActive(true, payload.reason, true)
 		return
 	end
 
@@ -1026,6 +1116,31 @@ if mapVoteRemote then
 end
 
 if remotesFolder then
+	local function syncWaveFromAttribute()
+		local n = remotesFolder:GetAttribute("CurrentWaveNumber")
+		if type(n) == "number" then
+			uiState.wave = n
+			render()
+		end
+	end
+
+	local function syncEnemiesRemainingFromValue()
+		local nv = remotesFolder:FindFirstChild("WaveEnemiesRemaining")
+		if nv and nv:IsA("IntValue") then
+			uiState.enemiesRemaining = math.max(0, nv.Value)
+			render()
+		end
+	end
+
+	remotesFolder:GetAttributeChangedSignal("CurrentWaveNumber"):Connect(syncWaveFromAttribute)
+	syncWaveFromAttribute()
+
+	local waveEnemiesRemainingValue = remotesFolder:FindFirstChild("WaveEnemiesRemaining")
+	if waveEnemiesRemainingValue and waveEnemiesRemainingValue:IsA("IntValue") then
+		waveEnemiesRemainingValue.Changed:Connect(syncEnemiesRemainingFromValue)
+		syncEnemiesRemainingFromValue()
+	end
+
 	local snapshotState = remotesFolder:GetAttribute("CurrentWaveState")
 	local snapshotWave = remotesFolder:GetAttribute("CurrentWaveNumber")
 	local intermissionEndTime = remotesFolder:GetAttribute("IntermissionEndTime")

@@ -28,6 +28,20 @@ local function getEnemyTemplates()
 	return templates
 end
 
+local function getTemplateByName(templateName)
+	local folder = ServerStorage:FindFirstChild(Config.Enemy.TemplateFolderName)
+	if not folder then
+		return nil
+	end
+
+	local template = folder:FindFirstChild(templateName)
+	if template and template:IsA("Model") and ModelRootResolver.resolveRootPart(template) then
+		return template
+	end
+
+	return nil
+end
+
 local function getSpawnPoints()
 	local spawnFolder = Workspace:FindFirstChild(Config.Enemy.SpawnFolderName)
 	if not spawnFolder then
@@ -357,6 +371,95 @@ function EnemyService.spawnWave(enemyCount, waveNumber, options)
 	end
 
 	return spawned
+end
+
+function EnemyService.spawnSingle(templateName, waveNumber, options)
+	local template = getTemplateByName(templateName)
+	if not template then
+		warn(string.format("EnemyService.spawnSingle: template %q not found", tostring(templateName)))
+		return nil
+	end
+
+	local spawnPoints = getSpawnPoints()
+	if #spawnPoints == 0 then
+		warn("No spawn points found in Workspace/SpawnPoints")
+		return nil
+	end
+
+	local container = getEnemyContainer()
+	local activeWaveNumber = waveNumber or 1
+	local activeDifficulty = DifficultyService.getCurrentDifficulty()
+	local playerCountForWave = math.max(1, #Players:GetPlayers())
+	if type(options) == "table" and type(options.playerCount) == "number" then
+		playerCountForWave = math.max(1, math.floor(options.playerCount + 0.5))
+	end
+	local enemyDifficultyHealthMultiplier = getEnemyHealthMultiplierForDifficulty(activeDifficulty)
+	local enemyPlayerHealthMultiplier = getEnemyHealthMultiplierForPlayers(playerCountForWave)
+	local enemyHealthMultiplier = enemyDifficultyHealthMultiplier * enemyPlayerHealthMultiplier
+	local enemyDamageMultiplier = getEnemyDamageMultiplierForDifficulty(activeDifficulty)
+	local enemyTier = (type(options) == "table" and type(options.tier) == "string" and options.tier) or "Easy"
+
+	local spawnPoint = chooseRandom(spawnPoints)
+	local enemy = template:Clone()
+	enemy.Name = string.format("Brainrot_%s_%s", templateName, tostring(os.clock()):gsub("%.", "_"))
+
+	local humanoid = enemy:FindFirstChildOfClass("Humanoid")
+	local root = ModelRootResolver.resolveRootPart(enemy)
+
+	if not root then
+		warn(string.format("Template %s has no BasePart to spawn from", template:GetFullName()))
+		enemy:Destroy()
+		return nil
+	end
+
+	addTemplateHitboxProxy(enemy, templateName, root)
+	local spawnOffsetY = getSpawnOffsetY(enemy, templateName, spawnPoint)
+	enemy:PivotTo(spawnPoint.CFrame + Vector3.new(0, spawnOffsetY, 0))
+	enemy.Parent = container
+	enemy:SetAttribute("IsEnemy", true)
+	enemy:SetAttribute("Difficulty", activeDifficulty)
+	enemy:SetAttribute("EnemyPlayerCountForScaling", playerCountForWave)
+	enemy:SetAttribute("EnemyPlayerHealthMultiplier", enemyPlayerHealthMultiplier)
+	enemy:SetAttribute("EnemyHealthMultiplier", enemyHealthMultiplier)
+	enemy:SetAttribute("EnemyDamageMultiplier", enemyDamageMultiplier)
+	enemy:SetAttribute("EnemyType", templateName)
+	enemy:SetAttribute("EnemyTier", enemyTier)
+	enemy:SetAttribute(
+		"Bounty",
+		(Config.Enemy.BaseBounty or 25) + math.max(0, activeWaveNumber - 1) * (Config.Enemy.BountyPerWave or 4)
+	)
+	EnemyAIService.start(enemy, templateName)
+
+	if humanoid then
+		local baseMaxHealth = math.max(1, humanoid.MaxHealth)
+		local healthRatio = math.clamp(humanoid.Health / baseMaxHealth, 0, 1)
+		local scaledMaxHealth = math.max(1, baseMaxHealth * enemyHealthMultiplier)
+		humanoid.MaxHealth = scaledMaxHealth
+		humanoid.Health = scaledMaxHealth * healthRatio
+		enemy:SetAttribute("EnemyMaxHealth", humanoid.MaxHealth)
+		enemy:SetAttribute("EnemyHealth", humanoid.Health)
+		humanoid.HealthChanged:Connect(function(newHealth)
+			enemy:SetAttribute("EnemyHealth", newHealth)
+		end)
+
+		humanoid.Died:Once(function()
+			if type(options) == "table" and type(options.onEnemyDied) == "function" then
+				options.onEnemyDied()
+			end
+			EnemyVfxService.playDeathCloud(enemy)
+			task.delay(2, function()
+				if enemy and enemy.Parent then
+					enemy:Destroy()
+				end
+			end)
+		end)
+	else
+		local nonHumanoidHealth = math.max(1, (Config.Enemy.NonHumanoidMaxHealth or 120) * enemyHealthMultiplier)
+		enemy:SetAttribute("EnemyMaxHealth", nonHumanoidHealth)
+		enemy:SetAttribute("EnemyHealth", nonHumanoidHealth)
+	end
+
+	return enemy
 end
 
 return EnemyService

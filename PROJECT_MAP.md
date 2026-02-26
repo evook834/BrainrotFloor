@@ -28,7 +28,7 @@ Replicated to client and server. Config and catalogs only; may only `require` wi
 
 | Folder / file | Purpose |
 |---------------|--------|
-| **`GameConfig.luau`** | Top-level config; wires subsystems. |
+| **`GameConfig.luau`** | Top-level config; wires subsystems (waves director, enemies, classes, shop, player, remotes). |
 | **`Classes/`** | Class definitions and system config. |
 | **`Enemy/`** | Enemy config and profiles. |
 | **`Player/`** | Player config (money, respawn, movement). |
@@ -95,7 +95,7 @@ Match server logic. Put each script in the folder whose description matches its 
 | Folder / file | Purpose |
 |---------------|--------|
 | **`Core/`** | Match startup, remotes setup, service wiring, server registry. |
-| **`Waves/`** | Wave state, spawning, intermission. |
+| **`Waves/`** | Wave state, KF-style director (WaveTotalTarget, AliveCap, role caps), spawning, intermission. |
 | **`Enemies/`** | Enemy spawn, lifecycle, AI, VFX, model/hitbox resolution, targeting. |
 | **`Combat/`** | Aim validation, damage application, feedback/DOT. |
 | **`Shop/`** | Commerce: catalog, pricing, purchase, inventory. |

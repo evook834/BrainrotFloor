@@ -8,7 +8,7 @@ All remotes live under `ReplicatedStorage.Remotes` (folder name from `RemoteName
 
 | Remote name       | Type           | Direction | Payload / schema |
 |-------------------|----------------|-----------|------------------|
-| **WaveState**     | RemoteEvent    | S→All     | **Server** fires to all clients. Payload (table): `state` (string), `wave` (number); plus optional fields depending on `state`: `enemies`, `players`, `intermission`, `intermissionEndsAt`, `nextWavePlayers`, `reason`. States: `"Preparing"`, `"InProgress"`, `"Cleared"`, `"Blocked"`, `"GameOver"`. `intermissionEndsAt` = server time when intermission ends. |
+| **WaveState**     | RemoteEvent    | S→All     | **Server** fires to all clients. Payload (table): `state` (string), `wave` (number); plus optional fields depending on `state`: `enemies`, `enemiesRemaining`, `players`, `intermission`, `intermissionEndsAt`, `nextWavePlayers`, `reason`. States: `"Preparing"`, `"InProgress"`, `"Cleared"`, `"Blocked"`, `"GameOver"`, `"Won"`. For `"InProgress"`, `enemiesRemaining` = number of enemies left to kill for the wave to complete (derived from the wave director’s planned total minus kills). For `"Won"`, optional `reason` (e.g. `"BossDefeated"`). `intermissionEndsAt` = server time when intermission ends. |
 | **ReturnToLobby** | RemoteEvent    | —         | *Not yet implemented.* Reserved for client request to return to lobby or server notification. |
 | **MapVote**       | RemoteEvent    | —         | *Not yet implemented.* Reserved for map vote (e.g. client sends vote, server broadcasts result). |
 | **ShopOpen**      | RemoteEvent    | S→C       | **Server** fires to **one** client (trader prompt triggered). No payload. |
@@ -57,3 +57,7 @@ The `Remotes` folder has attributes updated by the server for clients that read 
 - `CurrentWaveState` (string): same as latest **WaveState** payload `state`.
 - `CurrentWaveNumber` (number): current wave index.
 - `IntermissionEndTime` (number): server time when intermission ends (for **WaveState** `"Preparing"`).
+
+The **Remotes** folder also contains:
+
+- `WaveEnemiesRemaining` (IntValue): number of enemies left to kill for the current wave to complete. Updated by the server when a wave starts and when each enemy dies. Clients can read `.Value` and listen to `.Changed` for the HUD.

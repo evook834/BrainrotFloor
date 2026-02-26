@@ -4,7 +4,8 @@ local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local Match = script.Parent.Parent
-local EnemyService = require(Match.Enemies.EnemyService)
+local WaveSpawnLogic = require(script.Parent.WaveSpawnLogic)
+local WaveSpawnRunner = require(script.Parent.WaveSpawnRunner)
 
 local WaveService = {}
 
@@ -12,6 +13,7 @@ local running = false
 local waveNumber = 0
 local waveStateRemote = nil
 local terminalState = nil
+local onWinCallback = nil
 
 local function resolveWaveStateRemote()
 	local remotesFolder = ReplicatedStorage:FindFirstChild(Config.Remotes.Folder)
@@ -25,6 +27,24 @@ local function resolveWaveStateRemote()
 	end
 
 	return nil
+end
+
+local function getRemotesFolder()
+	if not waveStateRemote then
+		return nil
+	end
+	return waveStateRemote.Parent
+end
+
+local function setWaveEnemiesRemaining(value)
+	local remotesFolder = getRemotesFolder()
+	if not remotesFolder then
+		return
+	end
+	local nv = remotesFolder:FindFirstChild("WaveEnemiesRemaining")
+	if nv and nv:IsA("IntValue") then
+		nv.Value = math.max(0, math.floor((tonumber(value) or 0) + 0.5))
+	end
 end
 
 local function broadcastState(stateName, payload)
@@ -100,8 +120,8 @@ function WaveService.start()
 		return
 	end
 
-	if terminalState == "GameOver" then
-		warn("WaveService cannot start after game over")
+	if terminalState == "GameOver" or terminalState == "Won" then
+		warn("WaveService cannot start after game over or win")
 		return
 	end
 
@@ -112,16 +132,15 @@ function WaveService.start()
 	end
 
 	running = true
-	local waveScalingConfig = getWaveScalingConfig()
+	local bossWaveNumber = math.max(2, tonumber(Config.Wave.BossWaveNumber) or 11)
 	local playersForNextWave = math.max(1, #Players:GetPlayers())
 
 	while running do
 		waveNumber += 1
-		local baseEnemiesToSpawn = Config.Wave.BaseEnemyCount + (waveNumber - 1) * Config.Wave.EnemiesPerWave
-		local enemiesToSpawn = getScaledWaveEnemyCount(baseEnemiesToSpawn, playersForNextWave, waveScalingConfig)
+		local isBossWave = (waveNumber >= bossWaveNumber)
 
+		setWaveEnemiesRemaining(0)
 		broadcastState("Preparing", {
-			enemies = enemiesToSpawn,
 			players = playersForNextWave,
 			intermission = Config.Wave.IntermissionSeconds,
 			intermissionEndsAt = Workspace:GetServerTimeNow() + Config.Wave.IntermissionSeconds,
@@ -131,32 +150,44 @@ function WaveService.start()
 			break
 		end
 
+		local maxMonstersPerWave = Config.Wave.MaxMonstersPerWave or 1500
+		local composition = WaveSpawnLogic.getWaveComposition(waveNumber, playersForNextWave, maxMonstersPerWave)
+		local totalCap = composition and composition.totalCap or 0
+		setWaveEnemiesRemaining(totalCap)
+
 		broadcastState("InProgress", {
-			enemies = enemiesToSpawn,
 			players = playersForNextWave,
+			enemiesRemaining = totalCap,
 		})
 
-		local spawned = EnemyService.spawnWave(enemiesToSpawn, waveNumber, {
+		local remotesFolder = getRemotesFolder()
+		local waveEnemiesRemainingValue = remotesFolder and remotesFolder:FindFirstChild("WaveEnemiesRemaining") or nil
+		local spawnOptions = {
 			playerCount = playersForNextWave,
-		})
-		if spawned == 0 then
-			warn("No enemies were spawned. Add Brainrot enemy models and spawn points.")
-			broadcastState("Blocked", {
-				reason = "NoEnemyTemplatesOrSpawnPoints",
-			})
-			playersForNextWave = math.max(1, #Players:GetPlayers())
-			task.wait(5)
-			continue
-		end
+			isRunning = function()
+				return running
+			end,
+			onEnemyDied = function()
+				if waveEnemiesRemainingValue and waveEnemiesRemainingValue:IsA("IntValue") then
+					waveEnemiesRemainingValue.Value = math.max(0, waveEnemiesRemainingValue.Value - 1)
+				end
+			end,
+		}
+		WaveSpawnRunner.run(waveNumber, playersForNextWave, spawnOptions)
 
-		waitForWaveClear()
+		local cleared = waitForWaveClear()
 		if not running then
 			break
 		end
 
+		if isBossWave and cleared then
+			WaveService.win("BossDefeated")
+			break
+		end
+
 		playersForNextWave = math.max(1, #Players:GetPlayers())
+		setWaveEnemiesRemaining(0)
 		broadcastState("Cleared", {
-			enemies = spawned,
 			nextWavePlayers = playersForNextWave,
 		})
 		task.wait(2)
@@ -182,6 +213,31 @@ function WaveService.gameOver(reason)
 	broadcastState("GameOver", {
 		reason = reason or "AllPlayersDead",
 	})
+end
+
+function WaveService.win(reason)
+	if terminalState == "Won" or terminalState == "GameOver" then
+		return
+	end
+
+	terminalState = "Won"
+	running = false
+
+	if not waveStateRemote then
+		waveStateRemote = resolveWaveStateRemote()
+	end
+
+	broadcastState("Won", {
+		reason = reason or "BossDefeated",
+	})
+
+	if type(onWinCallback) == "function" then
+		onWinCallback()
+	end
+end
+
+function WaveService.setOnWinCallback(callback)
+	onWinCallback = callback
 end
 
 return WaveService

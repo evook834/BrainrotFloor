@@ -183,6 +183,7 @@ end
 
 local pendingRespawnByPlayer = {}
 local gameOverTriggered = false
+local winTriggered = false
 local returnLobbyInFlightByUserId = {}
 local returnLobbyLastRequestByUserId = {}
 local mapVoteRemote = nil
@@ -362,7 +363,7 @@ local function sendMapVoteSnapshot(player)
 		return
 	end
 
-	if not gameOverTriggered then
+	if not gameOverTriggered and not winTriggered then
 		return
 	end
 
@@ -416,7 +417,7 @@ local function registerPlayerVote(player, placeId)
 end
 
 local function onMapVoteSubmitted(player, payload)
-	if not gameOverTriggered or not mapVoteInProgress then
+	if (not gameOverTriggered and not winTriggered) or not mapVoteInProgress then
 		return
 	end
 
@@ -593,7 +594,7 @@ local function runMapVoteFlow()
 	end
 
 	task.wait(MAP_VOTE_REVEAL_DELAY_SECONDS)
-	if not gameOverTriggered then
+	if not gameOverTriggered and not winTriggered then
 		return
 	end
 
@@ -648,6 +649,23 @@ local function triggerGameOver()
 	Workspace:SetAttribute("GameOver", true)
 	cancelAllPendingRespawns()
 	WaveService.gameOver("AllPlayersDead")
+	task.spawn(runMapVoteFlow)
+end
+
+local function triggerWin()
+	if winTriggered then
+		return
+	end
+
+	if not PlaceRole.shouldRunMatchSystems() then
+		return
+	end
+
+	winTriggered = true
+	gameOverTriggered = true
+	Workspace:SetAttribute("GameOver", true)
+	Workspace:SetAttribute("Won", true)
+	cancelAllPendingRespawns()
 	task.spawn(runMapVoteFlow)
 end
 
@@ -825,6 +843,17 @@ end
 local remotesFolder = ensureFolder(ReplicatedStorage, Config.Remotes.Folder)
 ensureRemoteEvent(remotesFolder, Config.Remotes.WaveState)
 
+local waveEnemiesRemaining = remotesFolder:FindFirstChild("WaveEnemiesRemaining")
+if not waveEnemiesRemaining or not waveEnemiesRemaining:IsA("IntValue") then
+	if waveEnemiesRemaining then
+		waveEnemiesRemaining:Destroy()
+	end
+	waveEnemiesRemaining = Instance.new("IntValue")
+	waveEnemiesRemaining.Name = "WaveEnemiesRemaining"
+	waveEnemiesRemaining.Value = 0
+	waveEnemiesRemaining.Parent = remotesFolder
+end
+
 local returnToLobbyRemote = ensureRemoteEvent(remotesFolder, Config.Remotes.ReturnToLobby)
 if returnToLobbyRemote then
 	returnToLobbyRemote.OnServerEvent:Connect(onReturnToLobbyRequested)
@@ -862,4 +891,5 @@ ClassService.start()
 SettingsService.start()
 ShopService.start()
 AmmoPickupService.start()
+WaveService.setOnWinCallback(triggerWin)
 WaveService.start()

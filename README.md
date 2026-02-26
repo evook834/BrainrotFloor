@@ -29,7 +29,7 @@ Each place has a Rojo **`default.project.json`** that mounts **`../shared`** int
 
 | System | Server | Client | Remotes (examples) |
 |--------|--------|--------|--------------------|
-| **Waves** | WaveService: state machine (Preparing → InProgress → Cleared / Blocked / GameOver), spawn cadence, intermission | WaveHud: wave number, state, intermission countdown, game-over overlay, map vote UI | WaveState (S→All) |
+| **Waves** | WaveService: state machine (Preparing → InProgress → Cleared / Blocked / GameOver) plus KF-style director (WaveTotalTarget + AliveCap, composition, 1500 cap), intermission | WaveHud: wave number, state, intermission countdown, game-over overlay, map vote UI | WaveState (S→All) |
 | **Classes** | ClassService: selection, XP, levels, persistence, combat bonuses | ClassUi, XpBarHud | ClassGetData, ClassSelect, ClassState (C→S / S→C) |
 | **Shop** | ShopService: catalog per player, buy weapon/ammo, trader prompt | ShopUi | ShopOpen (S→C), ShopGetCatalog, ShopBuyWeapon, ShopBuyAmmo (C→S) |
 | **Combat** | Weapon fire/reload/aim handlers, damage, ammo | Crosshair, AmmoHud, DamageIndicators, DualWieldPose | WeaponAim, WeaponFire, WeaponReload (C→S), DamageIndicator (S→C) |
@@ -38,7 +38,7 @@ Each place has a Rojo **`default.project.json`** that mounts **`../shared`** int
 | **Ammo pickups** | AmmoPickupService: zones, spawn/respawn, pickup | — | — |
 | **Game over / map vote** | GameBootstrap: all-dead → GameOver, return-to-lobby teleport, map vote winner → reserve + teleport party | WaveHud: game-over overlay, return button, map vote panel | ReturnToLobby, MapVote (reserved) |
 
-Config (wave timing, enemy counts, class catalog, weapon catalog, difficulty multipliers, etc.) lives in **ReplicatedStorage.Shared** (e.g. `GameConfig`, `WaveConfig`, `ClassCatalog`, `WeaponCatalog`). Server-only shared config (place IDs, MemoryStore name, difficulties) is in **ServerScriptService.Shared.Matchmaking**.
+Config (wave timing, enemy counts, wave director tables (WaveTotalTarget/AliveCap/composition), class catalog, weapon catalog, difficulty multipliers, etc.) lives in **ReplicatedStorage.Shared** (e.g. `GameConfig`, `WaveConfig`, `ClassCatalog`, `WeaponCatalog`). Server-only shared config (place IDs, MemoryStore name, difficulties) is in **ServerScriptService.Shared.Matchmaking**.
 
 ### Lobby
 
