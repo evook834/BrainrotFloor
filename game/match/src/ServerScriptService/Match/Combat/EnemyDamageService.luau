@@ -245,6 +245,8 @@ local function isEnemyAliveForBurn(enemyModel)
 	return health > 0
 end
 
+local tryApplyBurnOnHit -- forward declaration; defined after applyDamageToEnemy (mutual recursion)
+
 local function applyDamageToEnemy(player, enemyModel, damage, weaponDef, damageContext)
 	if not enemyModel or not enemyModel.Parent then
 		return
@@ -343,7 +345,7 @@ local function applyDamageToEnemy(player, enemyModel, damage, weaponDef, damageC
 	end
 end
 
-local function tryApplyBurnOnHit(player, enemyModel, weaponDef, classMultiplier)
+tryApplyBurnOnHit = function(player, enemyModel, weaponDef, classMultiplier)
 	if not player or not player:IsA("Player") then
 		return
 	end

@@ -162,7 +162,11 @@ local function ensureLeaderstats(player)
 		money.Parent = leaderstats
 	end
 
-	-- Sync money from PlayerDataService (DataService); keep leaderstats.Money in sync for HUD/legacy reads
+	-- Each match starts with fresh money; reset to starting amount so it doesn't carry over from a previous match.
+	local startingMoney = math.max(0, (Config.Player and Config.Player.StartingMoney) or 0)
+	money.Value = startingMoney
+
+	-- Keep PlayerDataService in sync (reset for this match) and mirror future changes to leaderstats for HUD/legacy reads
 	if PlayerDataService.isReady() then
 		task.spawn(function()
 			local ok = pcall(function()
@@ -171,9 +175,9 @@ local function ensureLeaderstats(player)
 			if not ok or not player.Parent or not leaderstats.Parent then
 				return
 			end
-			local m = PlayerDataService.get(player, { "money" })
-			if type(m) == "number" and leaderstats:FindFirstChild("Money") then
-				leaderstats.Money.Value = math.floor(m + 0.5)
+			PlayerDataService.set(player, { "money" }, startingMoney)
+			if leaderstats:FindFirstChild("Money") then
+				leaderstats.Money.Value = startingMoney
 			end
 			local changedSignal = PlayerDataService.getChangedSignal(player, { "money" })
 			if changedSignal then
