@@ -225,6 +225,7 @@ local mapVoteSessionToken = 0
 local mapVoteEndsAt = 0
 local mapVotesByUserId = {}
 local mapVoteCountsByPlaceId = {}
+local mapVoteFinishedEvent = Instance.new("BindableEvent")
 
 local difficultyLookup = {}
 for _, difficulty in ipairs(MatchmakingConfig.DIFFICULTIES) do
@@ -464,6 +465,43 @@ local function clearMapVotes()
 	end
 end
 
+local function getActiveMapVotePlayerCount()
+	local count = 0
+	for _, player in Players:GetPlayers() do
+		if player.Parent == Players then
+			count += 1
+		end
+	end
+	return count
+end
+
+local function getSubmittedMapVoteCount()
+	local count = 0
+	for _ in pairs(mapVotesByUserId) do
+		count += 1
+	end
+	return count
+end
+
+local function allActivePlayersHaveVoted()
+	local activePlayers = getActiveMapVotePlayerCount()
+	if activePlayers <= 0 then
+		return true
+	end
+
+	return getSubmittedMapVoteCount() >= activePlayers
+end
+
+local function tryFinishMapVoteEarly()
+	if not mapVoteInProgress then
+		return
+	end
+
+	if allActivePlayersHaveVoted() then
+		mapVoteFinishedEvent:Fire(mapVoteSessionToken)
+	end
+end
+
 local function removePlayerVote(player)
 	local userId = player.UserId
 	local previousPlaceId = mapVotesByUserId[userId]
@@ -518,6 +556,7 @@ local function onMapVoteSubmitted(player, payload)
 
 	if registerPlayerVote(player, placeId) then
 		broadcastMapVote("Update")
+		tryFinishMapVoteEarly()
 	end
 end
 
@@ -693,7 +732,28 @@ local function runMapVoteFlow()
 		difficulty = resolveDifficultyForNextMap(),
 	})
 
-	task.wait(MAP_VOTE_DURATION_SECONDS)
+	local voteFinished = false
+	local voteFinishedConnection = mapVoteFinishedEvent.Event:Connect(function(sessionToken)
+		if sessionToken ~= activeToken or voteFinished then
+			return
+		end
+
+		voteFinished = true
+	end)
+
+	tryFinishMapVoteEarly()
+
+	while not voteFinished do
+		local remaining = mapVoteEndsAt - Workspace:GetServerTimeNow()
+		if remaining <= 0 then
+			break
+		end
+
+		task.wait(math.min(0.25, remaining))
+	end
+
+	voteFinishedConnection:Disconnect()
+
 	if mapVoteSessionToken ~= activeToken then
 		return
 	end
@@ -969,8 +1029,12 @@ Players.PlayerRemoving:Connect(function(player)
 	returnLobbyInFlightByUserId[player.UserId] = nil
 	returnLobbyLastRequestByUserId[player.UserId] = nil
 
-	if mapVoteInProgress and removePlayerVote(player) then
-		broadcastMapVote("Update")
+	if mapVoteInProgress then
+		if removePlayerVote(player) then
+			broadcastMapVote("Update")
+		end
+
+		tryFinishMapVoteEarly()
 	end
 end)
 for _, player in Players:GetPlayers() do
