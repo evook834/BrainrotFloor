@@ -44,6 +44,7 @@ Server-only shared (e.g. matchmaking, place role). Used by both lobby and match.
 
 | Folder / file | Purpose |
 |---------------|--------|
+| **`Classes/`** | ClassProgression (XP, bonuses), ClassDataPayload (build class list + selection from PlayerData; used by Lobby). |
 | **`Matchmaking/`** | Matchmaking config and place-role detection. |
 | **`PlayerData/`** | PlayerDataService: wraps DataService (leifstout/dataService) for persistent, replicated player data (settings, classes, money). |
 | **`Settings/`** | Shared SettingsService: binds SettingsGet/SettingsSave remotes, reads/writes via PlayerDataService. |
@@ -67,7 +68,7 @@ Lobby place: difficulty selection, matchmaking, teleport to match.
 
 | Folder / file | Purpose |
 |---------------|--------|
-| **`Core/`** | Matchmaking, difficulty buttons, teleport, lobby bootstrap. |
+| **`Core/`** | Matchmaking, difficulty buttons, teleport, lobby bootstrap, class remotes (ClassGetData/ClassSelect). |
 | **`Settings/`** | Empty; settings use Shared SettingsService (PlayerDataService). |
 
 ### `game/lobby/src/StarterPlayer/StarterPlayerScripts/LobbyClient/`
@@ -75,6 +76,7 @@ Lobby place: difficulty selection, matchmaking, teleport to match.
 | Folder / file | Purpose |
 |---------------|--------|
 | **`Core/`** | Lobby HUD and placeholders. |
+| **`Classes/`** | Class selection UI (same as Match; selection persists to Match). |
 | **`Settings/`** | Lobby settings UI. |
 
 ### `game/lobby/src/Workspace/`

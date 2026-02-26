@@ -1,3 +1,8 @@
+--[[
+	Shared ClassProgression — XP requirements, level caps, bonus calculation from class config.
+	Used by Match ClassService and by Shared ClassDataPayload (lobby class get/select).
+]]
+
 local ClassProgression = {}
 
 local bonusPctKeyAliases = {

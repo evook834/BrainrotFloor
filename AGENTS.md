@@ -31,6 +31,17 @@ When in doubt: create a **new** script (and folder if it's a new subsystem) in t
 
 ---
 
+## Shared vs place-specific code
+
+When code is needed in **both** Lobby and Match, put the implementation in **Shared** and use thin place-specific entry scripts that require and run it (with options if behavior differs by place). When code is needed in **only one** place, keep it in that place.
+
+- **Used in both places** → Implement once under `game/shared/` (e.g. `ServerScriptService.Shared`, `StarterPlayerScripts.SharedClient`). Each place has a small script that requires the shared module and invokes it (e.g. `Service.start()`, or `ClassUi.run({ isLobby = true })`). Pass options or config for place-specific behavior (subtitle, which remotes to use, etc.) instead of duplicating the logic.
+- **Used in one place only** → Keep the module and any launcher in that place (`Lobby/` or `Match/`). No shared module required.
+
+This applies to UI, client logic, and server logic. Avoid duplicating the same implementation in Lobby and Match; prefer one shared module plus thin launchers.
+
+---
+
 ## File organization policy
 
 Do NOT force single-file implementations. Do NOT force split-by-default refactors either.

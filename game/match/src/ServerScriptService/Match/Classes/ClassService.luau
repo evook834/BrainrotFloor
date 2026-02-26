@@ -4,7 +4,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local ClassCombatRules = require(script.Parent.ClassCombatRules)
-local ClassProgression = require(script.Parent.ClassProgression)
+local ClassProgression = require(ServerScriptService.Shared.Classes.ClassProgression)
 local ClassRuntimeEffects = require(script.Parent.ClassRuntimeEffects)
 local ClassStateSync = require(script.Parent.ClassStateSync)
 local PlayerDataService = require(ServerScriptService.Shared.PlayerData.PlayerDataService)
