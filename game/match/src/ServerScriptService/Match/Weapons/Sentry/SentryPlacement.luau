@@ -1,3 +1,8 @@
+--[[
+	SentryPlacement — Placement and orientation helpers for sentry models.
+	Reference part, pivot CFrame, upright orientation, rotation offset from weapon def.
+]]
+
 local Match = script.Parent.Parent.Parent
 local ModelRootResolver = require(Match.Enemies.ModelRootResolver)
 

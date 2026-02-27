@@ -5,6 +5,7 @@ local Workspace = game:GetService("Workspace")
 
 local SharedEnemyDefinitions = require(ReplicatedStorage.Shared.Enemy.EnemyDefinitions)
 local Config = require(ReplicatedStorage.Shared.GameConfig)
+local SentryConstants = require(ReplicatedStorage.Shared.SentryConstants)
 local Match = script.Parent.Parent
 local ClassService = require(Match.Classes.ClassService)
 local DifficultyService = require(Match.Difficulty.DifficultyService)
@@ -12,7 +13,7 @@ local EnemyRegistry = require(Match.Enemies.EnemyRegistry)
 local ModelRootResolver = require(script.Parent.ModelRootResolver)
 
 local EnemyAIService = {}
-local SENTRY_TURRET_FOLDER_NAME = "SentryTurrets"
+local SENTRY_TURRET_FOLDER_NAME = SentryConstants.SENTRY_TURRET_FOLDER_NAME
 
 local function normalizeAnimationId(rawId)
 	if type(rawId) ~= "string" or rawId == "" then

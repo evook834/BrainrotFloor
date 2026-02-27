@@ -516,6 +516,23 @@ local function createZoneState(zoneRoot, ammoConfig)
 	}
 end
 
+local function destroyZoneState(zoneState)
+	for pointPart, pickupInfo in pairs(zoneState.activeByPoint) do
+		if pickupInfo.touchConnection then
+			pickupInfo.touchConnection:Disconnect()
+			pickupInfo.touchConnection = nil
+		end
+		if pickupInfo.pickup and pickupInfo.pickup.Parent then
+			pickupInfo.pickup:Destroy()
+		end
+		zoneState.activeByPoint[pointPart] = nil
+	end
+
+	for pointPart in pairs(zoneState.pendingRespawnByPoint) do
+		zoneState.pendingRespawnByPoint[pointPart] = nil
+	end
+end
+
 function AmmoPickupService.start()
 	if started then
 		return
@@ -534,8 +551,11 @@ function AmmoPickupService.start()
 	ammoConfig.DefaultRefillMode = normalizeRefillMode(ammoConfig.DefaultRefillMode, "ReserveOnly")
 	ammoConfig.DefaultReserveAmmoPerPickup = toWholeNumber(ammoConfig.DefaultReserveAmmoPerPickup, 60, 0) or 60
 	ammoConfig.DefaultPickupYOffset = toNumber(ammoConfig.DefaultPickupYOffset, 0.6, 0) or 0.6
-	ammoConfig.DefaultPlayerPickupCooldownSeconds =
-		toNumber(ammoConfig.DefaultPlayerPickupCooldownSeconds, 0.35, 0) or 0.35
+	ammoConfig.DefaultPlayerPickupCooldownSeconds = toNumber(
+		ammoConfig.DefaultPlayerPickupCooldownSeconds,
+		0.35,
+		0
+	) or 0.35
 
 	activePickupsFolder = ensureFolder(Workspace, ammoConfig.ActivePickupsFolderName)
 	if not activePickupsFolder then
@@ -578,6 +598,37 @@ function AmmoPickupService.start()
 	if next(zoneStateByInstance) == nil then
 		warn("[AmmoPickupService] No valid ammo zones found. Check Workspace/AmmoZones setup.")
 	end
+end
+
+function AmmoPickupService.stop()
+	if not started then
+		return
+	end
+
+	started = false
+
+	for _, zoneState in pairs(zoneStateByInstance) do
+		destroyZoneState(zoneState)
+	end
+
+	table.clear(zoneStateByInstance)
+
+	if activePickupsFolder then
+		for _, child in ipairs(activePickupsFolder:GetChildren()) do
+			if child:IsA("Model") or child:IsA("BasePart") then
+				child:Destroy()
+			end
+		end
+	end
+end
+
+function AmmoPickupService.refresh()
+	if not started then
+		return
+	end
+
+	AmmoPickupService.stop()
+	AmmoPickupService.start()
 end
 
 return AmmoPickupService

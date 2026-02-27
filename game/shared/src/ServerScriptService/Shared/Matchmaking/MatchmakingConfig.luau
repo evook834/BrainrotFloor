@@ -1,3 +1,6 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+
 local Config = {}
 
 -- Runtime routing for shared scripts across multiple places.
@@ -24,13 +27,46 @@ Config.MATCH_PLACE_ID = 117308283626623
 -- Shared MemoryStore key used by all lobby and match servers.
 Config.MEMORYSTORE_MAP_NAME = "KF_MatchServers_v1"
 
-Config.DIFFICULTIES = {"Easy", "Normal", "Hard"}
+-- Ordered difficulty list for matchmaking; single source of truth from shared DifficultyConfig.
+Config.DIFFICULTIES = type(GameConfig.Difficulty) == "table" and type(GameConfig.Difficulty.OrderedNames) == "table"
+	and GameConfig.Difficulty.OrderedNames
+	or { "Easy", "Normal", "Hard" }
 
-Config.MAX_PLAYERS_PER_DIFFICULTY = {
-	Easy = 6,
-	Normal = 6,
-	Hard = 6,
-}
+-- Max players per difficulty; derived from DifficultyConfig (Settings[].MaxPlayers or DefaultMaxPlayers).
+Config.MAX_PLAYERS_PER_DIFFICULTY = {}
+do
+	local diff = GameConfig.Difficulty
+	local defaultMax = (type(diff) == "table" and type(diff.DefaultMaxPlayers) == "number" and diff.DefaultMaxPlayers > 0)
+		and diff.DefaultMaxPlayers or 6
+	for _, name in ipairs(Config.DIFFICULTIES) do
+		local settings = type(diff) == "table" and type(diff.Settings) == "table" and diff.Settings[name]
+		local n = type(settings) == "table" and type(settings.MaxPlayers) == "number" and settings.MaxPlayers > 0
+			and settings.MaxPlayers or defaultMax
+		Config.MAX_PLAYERS_PER_DIFFICULTY[name] = n
+	end
+end
+
+Config.DEFAULT_MAX_PLAYERS = 6
+
+function Config.isDifficulty(value)
+	if type(value) ~= "string" or value == "" then
+		return false
+	end
+	for _, d in ipairs(Config.DIFFICULTIES) do
+		if d == value then
+			return true
+		end
+	end
+	return false
+end
+
+function Config.getMaxPlayersForDifficulty(difficulty, fallbackMax)
+	local n = tonumber(Config.MAX_PLAYERS_PER_DIFFICULTY[difficulty])
+	if n and n > 0 then
+		return n
+	end
+	return fallbackMax or Config.DEFAULT_MAX_PLAYERS
+end
 
 Config.ENTRY_TTL_SECONDS = 120
 Config.STALE_AFTER_SECONDS = 30

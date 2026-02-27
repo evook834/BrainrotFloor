@@ -22,11 +22,6 @@ if not PlaceRole.shouldRunLobbySystems() then
 	return
 end
 
-local difficultyLookup = {}
-for _, difficulty in ipairs(Config.DIFFICULTIES) do
-	difficultyLookup[difficulty] = true
-end
-
 local wiredButtons = {}
 local inFlightByUser = {}
 local lastRequestByUser = {}
@@ -114,10 +109,6 @@ local function notifyTeleportFailed(player, message)
 		message = message,
 	})
 end
-local function isDifficulty(value)
-	return difficultyLookup[value] == true
-end
-
 local function addMatchPlaceId(placeIds, placeIdLookup, rawPlaceId)
 	local placeId = toNumber(rawPlaceId, nil)
 	if placeId == nil then
@@ -206,14 +197,6 @@ local function resolveEntryPlaceId(value)
 	end
 
 	return placeId
-end
-
-local function maxPlayersForDifficulty(difficulty)
-	local configured = toNumber(Config.MAX_PLAYERS_PER_DIFFICULTY[difficulty], 0)
-	if configured > 0 then
-		return configured
-	end
-	return Players.MaxPlayers
 end
 
 local function removeServerEntry(serverKey)
@@ -423,7 +406,7 @@ local function createReservedServer(difficulty)
 		return nil, nil, nil
 	end
 
-	local maxPlayers = maxPlayersForDifficulty(difficulty)
+	local maxPlayers = Config.getMaxPlayersForDifficulty(difficulty, Players.MaxPlayers)
 	if maxPlayers <= 0 then
 		warn(("[LobbyMatchmaker] Max players missing for difficulty '%s'"):format(tostring(difficulty)))
 		return nil, nil, nil
@@ -510,7 +493,7 @@ local function sendPlayerToDifficulty(player, difficulty)
 end
 
 local function onPromptTriggered(player, difficulty)
-	if not isDifficulty(difficulty) then
+	if not Config.isDifficulty(difficulty) then
 		warn(("[LobbyMatchmaker] Prompt triggered with invalid difficulty '%s'"):format(tostring(difficulty)))
 		return
 	end
@@ -563,7 +546,7 @@ local function wireButton(buttonPart)
 	end
 
 	local difficulty = resolveButtonDifficulty(buttonPart)
-	if not isDifficulty(difficulty) then
+	if not Config.isDifficulty(difficulty) then
 		warn(("[LobbyMatchmaker] Ignoring button '%s'. Expected configured difficulty name."):format(buttonPart.Name))
 		return
 	end

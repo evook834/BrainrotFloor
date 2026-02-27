@@ -1,12 +1,18 @@
+--[[
+	SentryTargeting — Enemy targeting for sentries: visibility, range, health/distance priority.
+	Factory .new(options) returns isEnemyModelAlive, getEnemyModelHealth, pickTurretTargetCandidate, findTurretTarget.
+]]
+
 local Workspace = game:GetService("Workspace")
 
 local SentryTargeting = {}
 
 function SentryTargeting.new(options)
-	local modelRootResolver = options and options.modelRootResolver
-	local getEffectsFolder = options and options.getEffectsFolder
-	local getEnemyContainer = options and options.getEnemyContainer
-	local enemyContainerName = tostring((options and options.enemyContainerName) or "")
+	local opts = options or {}
+	local modelRootResolver = opts.modelRootResolver
+	local getEffectsFolder = opts.getEffectsFolder
+	local getEnemyContainer = opts.getEnemyContainer
+	local enemyContainerName = tostring(opts.enemyContainerName or "")
 
 	if type(modelRootResolver) ~= "table" or type(modelRootResolver.resolveRootPart) ~= "function" then
 		error("SentryTargeting.new requires options.modelRootResolver.resolveRootPart", 2)

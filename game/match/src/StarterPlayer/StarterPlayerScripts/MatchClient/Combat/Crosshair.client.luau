@@ -5,6 +5,7 @@ local UserInputService = game:GetService("UserInputService")
 local GuiService = game:GetService("GuiService")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
+local SentryConstants = require(ReplicatedStorage.Shared.SentryConstants)
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -15,7 +16,7 @@ local HIDE_WEAPON_MODEL_WHILE_SCOPED_IDS = {
 	awp = true,
 }
 local SENTRY_DEPLOYER_CLASS_TOKEN = "sentrydeployer"
-local SENTRY_TURRET_FOLDER_NAME = "SentryTurrets"
+local SENTRY_TURRET_FOLDER_NAME = SentryConstants.SENTRY_TURRET_FOLDER_NAME
 local WEAPON_EFFECTS_FOLDER_NAME = "WeaponEffects"
 local SENTRY_PREVIEW_VALID_COLOR = Color3.fromRGB(90, 240, 135)
 local SENTRY_PREVIEW_INVALID_COLOR = Color3.fromRGB(235, 95, 95)

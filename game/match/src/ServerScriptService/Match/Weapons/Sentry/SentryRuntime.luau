@@ -1,17 +1,26 @@
+--[[
+	SentryRuntime — Registry and lifecycle for sentry turrets.
+	Owns the Workspace sentry folder, player→records index, death cleanup, ammo sync, and destroy VFX.
+]]
+
 local Workspace = game:GetService("Workspace")
 local SentryStatResolver = require(script.Parent.SentryStatResolver)
 
 local SentryRuntime = {}
 
+local DEFAULT_FOLDER_NAME = "SentryTurrets"
+local DEFAULT_MAX_AMMO = 300
+
 function SentryRuntime.new(options)
-	local modelRootResolver = options and options.modelRootResolver
-	local createExplosionEffect = options and options.createExplosionEffect
-	local createMuzzleFlash = options and options.createMuzzleFlash
-	local createTracerSegment = options and options.createTracerSegment
-	local createFlamePuff = options and options.createFlamePuff
-	local randomGenerator = options and options.randomGenerator or Random.new()
-	local sentryTurretFolderName = tostring((options and options.sentryTurretFolderName) or "SentryTurrets")
-	local defaultSentryMaxAmmo = math.max(1, math.floor((tonumber(options and options.defaultSentryMaxAmmo) or 300) + 0.5))
+	local opts = options or {}
+	local modelRootResolver = opts.modelRootResolver
+	local createExplosionEffect = opts.createExplosionEffect
+	local createMuzzleFlash = opts.createMuzzleFlash
+	local createTracerSegment = opts.createTracerSegment
+	local createFlamePuff = opts.createFlamePuff
+	local randomGenerator = opts.randomGenerator or Random.new()
+	local sentryTurretFolderName = tostring(opts.sentryTurretFolderName or DEFAULT_FOLDER_NAME)
+	local defaultSentryMaxAmmo = math.max(1, math.floor((tonumber(opts.defaultSentryMaxAmmo) or DEFAULT_MAX_AMMO) + 0.5))
 
 	if type(modelRootResolver) ~= "table" then
 		error("SentryRuntime.new requires options.modelRootResolver", 2)

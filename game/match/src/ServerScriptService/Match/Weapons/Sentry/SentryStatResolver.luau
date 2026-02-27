@@ -1,3 +1,8 @@
+--[[
+	SentryStatResolver — Resolves turret stats from weapon def (ammo, damage, fire rate, rockets, etc.).
+	Pure helpers; no runtime state.
+]]
+
 local SentryStatResolver = {}
 
 local function roundNearestInteger(value, fallbackValue)

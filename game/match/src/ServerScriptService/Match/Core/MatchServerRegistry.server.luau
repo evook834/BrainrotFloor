@@ -27,11 +27,6 @@ end
 Workspace:SetAttribute("MatchId", MATCH_KEY)
 Workspace:SetAttribute("MatchPlaceId", game.PlaceId)
 
-local difficultyLookup = {}
-for _, difficulty in ipairs(Config.DIFFICULTIES) do
-	difficultyLookup[difficulty] = true
-end
-
 local activeDifficulty
 local pendingConsumedByUserId = {}
 local warnedMissingAccessCode = false
@@ -57,20 +52,8 @@ local function safeCall(label, callback)
 	return true, resultA, resultB, resultC
 end
 
-local function isDifficulty(value)
-	return difficultyLookup[value] == true
-end
-
-local function maxPlayersForDifficulty(difficulty)
-	local configured = Config.MAX_PLAYERS_PER_DIFFICULTY[difficulty]
-	if tonumber(configured) and configured > 0 then
-		return configured
-	end
-	return Players.MaxPlayers
-end
-
 local function setActiveDifficulty(difficulty)
-	if not isDifficulty(difficulty) then
+	if not Config.isDifficulty(difficulty) then
 		return
 	end
 
@@ -97,7 +80,7 @@ local function readDifficultyFromJoinData(player)
 	local matchId = teleportData.matchId
 	local placeId = toNumber(teleportData.placeId, nil)
 
-	if not isDifficulty(difficulty) then
+	if not Config.isDifficulty(difficulty) then
 		difficulty = nil
 	end
 
@@ -116,7 +99,7 @@ local function loadDifficultyFromStore()
 		return
 	end
 
-	if type(value) == "table" and isDifficulty(value.difficulty) then
+	if type(value) == "table" and Config.isDifficulty(value.difficulty) then
 		setActiveDifficulty(value.difficulty)
 	end
 end
@@ -152,7 +135,7 @@ local function heartbeat()
 				entry = nil
 			end
 
-			if not activeDifficulty and entry and isDifficulty(entry.difficulty) then
+			if not activeDifficulty and entry and Config.isDifficulty(entry.difficulty) then
 				setActiveDifficulty(entry.difficulty)
 			end
 
@@ -170,7 +153,7 @@ local function heartbeat()
 			entry.privateServerId = MATCH_KEY
 			entry.serverJobId = game.JobId
 			entry.playerCount = currentPlayers
-			entry.maxPlayers = maxPlayersForDifficulty(activeDifficulty)
+			entry.maxPlayers = Config.getMaxPlayersForDifficulty(activeDifficulty, Players.MaxPlayers)
 			entry.pendingSlots = math.max(toNumber(entry.pendingSlots, 0), 0)
 			entry.lastHeartbeat = currentTime
 			entry.createdAt = toNumber(entry.createdAt, currentTime)

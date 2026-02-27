@@ -30,9 +30,11 @@ Replicated to client and server. Config and catalogs only; may only `require` wi
 |---------------|--------|
 | **`GameConfig.luau`** | Top-level config; wires subsystems (waves director, enemies, classes, shop, player, remotes). |
 | **`Classes/`** | Class definitions and system config. |
+| **`DifficultyConfig.luau`** | Difficulty config (default, ordered names, settings per difficulty). Single source for matchmaking list and match tuning. |
 | **`Enemy/`** | Enemy config, definitions, profiles, presentation data. |
 | **`Player/`** | Player config (money, respawn, movement). Includes `PlayerDataTemplate` for default player data. |
 | **`Remotes/`** | Remote names and Remotes folder name. |
+| **`SentryConstants.luau`** | Shared sentry constants (e.g. workspace folder name); used by client and server. |
 | **`Shop/`** | Shop config and weapon catalog. |
 | **`Waves/`** | Wave config (intermission, scaling, spawn). |
 | **`Pickups/`** | Ammo pickup config. |

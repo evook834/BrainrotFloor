@@ -36,6 +36,7 @@ local TURRET_ROCKET_BURST_MODE_TOKEN = ShopConstants.TURRET_ROCKET_BURST_MODE_TO
 local sentryRuntime = nil
 local fireRocket = nil
 
+-- Singleton-style init; call once with sentryRuntime and fireRocket from bootstrap (e.g. ShopService).
 function init(options)
 	if type(options) == "table" then
 		if options.sentryRuntime ~= nil then

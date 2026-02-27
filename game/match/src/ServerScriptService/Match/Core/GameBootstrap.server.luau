@@ -235,15 +235,6 @@ local mapVotesByUserId = {}
 local mapVoteCountsByPlaceId = {}
 local mapVoteFinishedEvent = Instance.new("BindableEvent")
 
-local difficultyLookup = {}
-for _, difficulty in ipairs(MatchmakingConfig.DIFFICULTIES) do
-	difficultyLookup[difficulty] = true
-end
-
-local function isDifficulty(value)
-	return difficultyLookup[value] == true
-end
-
 local function hasAnyLivingPlayers()
 	for _, player in ipairs(Players:GetPlayers()) do
 		local character = player.Character
@@ -348,12 +339,12 @@ end
 
 local function resolveDifficultyForNextMap()
 	local currentDifficulty = Workspace:GetAttribute("Difficulty")
-	if type(currentDifficulty) == "string" and isDifficulty(currentDifficulty) then
+	if type(currentDifficulty) == "string" and MatchmakingConfig.isDifficulty(currentDifficulty) then
 		return currentDifficulty
 	end
 
 	local fallback = DifficultyService.getCurrentDifficulty()
-	if type(fallback) == "string" and isDifficulty(fallback) then
+	if type(fallback) == "string" and MatchmakingConfig.isDifficulty(fallback) then
 		return fallback
 	end
 
@@ -591,15 +582,6 @@ local function chooseWinningMapOption()
 	return tiedOptions[randomIndex], true
 end
 
-local function maxPlayersForDifficulty(difficulty)
-	local configured = toNumber(MatchmakingConfig.MAX_PLAYERS_PER_DIFFICULTY[difficulty], 0)
-	if configured > 0 then
-		return configured
-	end
-
-	return Players.MaxPlayers
-end
-
 local function reserveServerForMap(placeId, difficulty, pendingSlots)
 	local ok, accessCode, privateServerId = safeCall("ReserveServer", function()
 		if type(TeleportService.ReserveServerAsync) == "function" then
@@ -630,7 +612,7 @@ local function reserveServerForMap(placeId, difficulty, pendingSlots)
 		privateServerId = privateServerId,
 		playerCount = 0,
 		pendingSlots = math.max(0, pendingSlots),
-		maxPlayers = maxPlayersForDifficulty(difficulty),
+		maxPlayers = MatchmakingConfig.getMaxPlayersForDifficulty(difficulty, Players.MaxPlayers),
 		lastHeartbeat = currentTime,
 		createdAt = currentTime,
 	}

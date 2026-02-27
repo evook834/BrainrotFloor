@@ -139,10 +139,10 @@ local function computeRoleCaps(aliveCap: number, waveNumber: number, playerCount
 	local specialCap = 1 + math.floor(w / 3) + math.floor((p - 1) / 6)
 	local heavyCap = math.max(0, math.floor((w - 6) / 2) + math.floor((p - 1) / 10))
 
-	if difficulty == "Hard" or difficulty == "Nightmare" then
-		specialCap += 1
-		heavyCap += 1
-	end
+	local extraSpecial = math.max(0, DifficultyService.getNumberSetting("DiffExtraSpecialCap", 0, difficulty))
+	local extraHeavy = math.max(0, DifficultyService.getNumberSetting("DiffExtraHeavyCap", 0, difficulty))
+	specialCap += math.floor(extraSpecial + 0.5)
+	heavyCap += math.floor(extraHeavy + 0.5)
 
 	return {
 		trash = trashCap,
