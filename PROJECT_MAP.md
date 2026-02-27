@@ -101,7 +101,7 @@ Match server logic. Put each script in the folder whose description matches its 
 
 | Folder / file | Purpose |
 |---------------|--------|
-| **`Core/`** | Match startup, remotes setup, service wiring. **`Core/Registry/`** — Match server registry: MatchServerRegistry (orchestration), MatchStore (MemoryStore wrapper), RegistryEntry (entry shape + hasAccessCode), RegistryJoinData (JoinData/TeleportData parsing); heartbeat, difficulty from JoinData, unregister on close. |
+| **`Core/`** | Match startup, remotes setup, service wiring. **`Core/Bootstrap/`** — Bootstrap utilities and flows: BootstrapUtil (folder/remote helpers, safeCall, toNumber), RemotesSetup (creates Remotes folder and match remotes), TempContentSetup (temp enemy template and spawn point), MatchSetup (match environment: e.g. ensure Difficulty attribute), MapVoteFlow (map vote session, reserve server, teleport party), ReturnToLobbyFlow (return-to-lobby teleport and cooldown), PlayerLifecycleBootstrap (leaderstats, health regen, character death/respawn, game-over, late-join). **`Core/Registry/`** — Match server registry: MatchServerRegistry (orchestration), MatchStore (MemoryStore wrapper), RegistryEntry (entry shape + hasAccessCode), RegistryJoinData (JoinData/TeleportData parsing); heartbeat, difficulty from JoinData, unregister on close. |
 | **`Waves/`** | Wave state, KF-style director (WaveTotalTarget, AliveCap, role caps), spawning, intermission. |
 | **`Enemies/`** | Enemy spawn, lifecycle, AI, VFX, model/hitbox resolution, targeting. |
 | **`Combat/`** | Aim validation, damage application, feedback/DOT. |

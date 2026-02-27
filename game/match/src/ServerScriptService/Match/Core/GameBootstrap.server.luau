@@ -1,19 +1,20 @@
-local MemoryStoreService = game:GetService("MemoryStoreService")
+--[[
+	Match game bootstrap: place-role check, remotes setup, temp content, map vote & return-to-lobby
+	flows, player lifecycle binding, and service startup. Orchestrates Core/Bootstrap modules only;
+	all substantive logic lives in Core/Bootstrap/.
+]]
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ServerStorage = game:GetService("ServerStorage")
-local TeleportService = game:GetService("TeleportService")
 local Workspace = game:GetService("Workspace")
-
-local mapVoteRemote = nil
-local teleportLoadingRemote = nil
 
 local PlaceRole = require(ServerScriptService.Shared.Matchmaking.PlaceRole)
 local MatchmakingConfig = require(ServerScriptService.Shared.Matchmaking.MatchmakingConfig)
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local PlayerDataService = require(ServerScriptService.Shared.PlayerData.PlayerDataService)
 local SettingsService = require(ServerScriptService.Shared.Settings.SettingsService)
+
 local Match = script.Parent.Parent
 local WaveService = require(Match.Waves.WaveService)
 local ShopService = require(Match.Shop.ShopService)
@@ -23,1009 +24,108 @@ local DifficultyService = require(Match.Difficulty.DifficultyService)
 local SpectatorService = require(Match.Spectator.SpectatorService)
 local OfflinePlayerDataEditor = require(Match.Admin.OfflinePlayerDataEditor)
 
-local PLACEHOLDER_PLACE_ID = 1234567890
+local BootstrapUtil = require(script.Parent.Bootstrap.BootstrapUtil)
+local RemotesSetup = require(script.Parent.Bootstrap.RemotesSetup)
+local TempContentSetup = require(script.Parent.Bootstrap.TempContentSetup)
+local MapVoteFlow = require(script.Parent.Bootstrap.MapVoteFlow)
+local ReturnToLobbyFlow = require(script.Parent.Bootstrap.ReturnToLobbyFlow)
+local PlayerLifecycleBootstrap = require(script.Parent.Bootstrap.PlayerLifecycleBootstrap)
+local MatchSetup = require(script.Parent.Bootstrap.MatchSetup)
 
 if not PlaceRole.shouldRunMatchSystems() then
-	warn(("[GameBootstrap] Skipping match systems for place role '%s' (placeId=%s)."):
-		format(PlaceRole.getRole(), tostring(game.PlaceId)))
+	warn(("[GameBootstrap] Skipping match systems for place role '%s' (placeId=%s)."):format(
+		PlaceRole.getRole(), tostring(game.PlaceId)))
 	return
-end
-
-local function ensureFolder(parent, name)
-	local folder = parent:FindFirstChild(name)
-	if folder then
-		return folder
-	end
-
-	folder = Instance.new("Folder")
-	folder.Name = name
-	folder.Parent = parent
-	return folder
-end
-
-local function ensureRemote(parent, className, name)
-	local existing = parent:FindFirstChild(name)
-	if existing then
-		if existing.ClassName == className then
-			return existing
-		end
-
-		warn(("[GameBootstrap] Replacing %s/%s: expected %s, got %s"):
-			format(parent.Name, name, className, existing.ClassName))
-		existing:Destroy()
-	end
-
-	local remote = Instance.new(className)
-	remote.Name = name
-	remote.Parent = parent
-	return remote
-end
-
-local function ensureRemoteEvent(parent, name)
-	return ensureRemote(parent, "RemoteEvent", name)
-end
-
-local function ensureRemoteFunction(parent, name)
-	return ensureRemote(parent, "RemoteFunction", name)
-end
-
-local function toNumber(value, defaultValue)
-	local n = tonumber(value)
-	if n == nil then
-		return defaultValue
-	end
-	return n
-end
-
-local function nowSeconds()
-	return os.time()
-end
-
-local function safeCall(label, callback)
-	local ok, resultA, resultB, resultC = pcall(callback)
-	if not ok then
-		warn(("[GameBootstrap] %s failed: %s"):format(label, tostring(resultA)))
-		return false, nil, nil, nil
-	end
-
-	return true, resultA, resultB, resultC
-end
-
-local MAP_VOTE_REVEAL_DELAY_SECONDS = math.max(0, toNumber(MatchmakingConfig.MAP_VOTE_REVEAL_DELAY_SECONDS, 5))
-local MAP_VOTE_DURATION_SECONDS = math.max(1, toNumber(MatchmakingConfig.MAP_VOTE_DURATION_SECONDS, 60))
-
-local matchServers = MemoryStoreService:GetSortedMap(MatchmakingConfig.MEMORYSTORE_MAP_NAME)
-local randomGenerator = Random.new()
-
-local function ensureTempEnemyTemplate(templateFolder)
-	local hasEnemyModel = false
-	for _, child in templateFolder:GetChildren() do
-		if child:IsA("Model") and child:FindFirstChildWhichIsA("BasePart", true) then
-			hasEnemyModel = true
-			break
-		end
-	end
-
-	if hasEnemyModel then
-		return
-	end
-
-	local model = Instance.new("Model")
-	model.Name = "TempBrainrot"
-	model:SetAttribute("IsTemporaryTestEnemy", true)
-
-	local root = Instance.new("Part")
-	root.Name = "HumanoidRootPart"
-	root.Size = Vector3.new(2, 2, 1)
-	root.Color = Color3.fromRGB(255, 85, 85)
-	root.Material = Enum.Material.Neon
-	root.TopSurface = Enum.SurfaceType.Smooth
-	root.BottomSurface = Enum.SurfaceType.Smooth
-	root.Parent = model
-
-	local humanoid = Instance.new("Humanoid")
-	humanoid.Name = "Humanoid"
-	humanoid.MaxHealth = 50
-	humanoid.Health = 50
-	humanoid.WalkSpeed = 0
-	humanoid.JumpPower = 0
-	humanoid.Parent = model
-
-	model.PrimaryPart = root
-	model.Parent = templateFolder
-
-	warn("Created temporary enemy template at ServerStorage/EnemyTemplates/TempBrainrot")
-end
-
-local function ensureTempSpawnPoint(spawnFolder)
-	for _, child in spawnFolder:GetChildren() do
-		if child:IsA("BasePart") then
-			return
-		end
-	end
-
-	local spawnPart = Instance.new("Part")
-	spawnPart.Name = "TempSpawnPoint"
-	spawnPart.Size = Vector3.new(6, 1, 6)
-	spawnPart.Anchored = true
-	spawnPart.CanCollide = false
-	spawnPart.Transparency = 0.2
-	spawnPart.Material = Enum.Material.ForceField
-	spawnPart.Color = Color3.fromRGB(85, 170, 255)
-	spawnPart.CFrame = CFrame.new(0, 6, 0)
-	spawnPart.Parent = spawnFolder
-
-	warn("Created temporary spawn point at Workspace/SpawnPoints/TempSpawnPoint")
-end
-
-local function ensureLeaderstats(player)
-	local leaderstats = player:FindFirstChild("leaderstats")
-	if not leaderstats then
-		leaderstats = Instance.new("Folder")
-		leaderstats.Name = "leaderstats"
-		leaderstats.Parent = player
-	end
-
-	local money = leaderstats:FindFirstChild("Money")
-	if not money then
-		money = Instance.new("IntValue")
-		money.Name = "Money"
-		money.Value = 0
-		money.Parent = leaderstats
-	end
-
-	-- Each match starts with fresh money; reset to starting amount so it doesn't carry over from a previous match.
-	local startingMoney = math.max(0, (Config.Player and Config.Player.StartingMoney) or 0)
-	money.Value = startingMoney
-
-	-- Keep PlayerDataService in sync (reset for this match) and mirror future changes to leaderstats for HUD/legacy reads
-	if PlayerDataService.isReady() then
-		task.spawn(function()
-			local ok = pcall(function()
-				PlayerDataService.waitForData(player)
-			end)
-			if not ok or not player.Parent or not leaderstats.Parent then
-				return
-			end
-			PlayerDataService.set(player, { "money" }, startingMoney)
-			if leaderstats:FindFirstChild("Money") then
-				leaderstats.Money.Value = startingMoney
-			end
-			local changedSignal = PlayerDataService.getChangedSignal(player, { "money" })
-			if changedSignal then
-				changedSignal:Connect(function(newVal)
-					if leaderstats.Parent and leaderstats:FindFirstChild("Money") then
-						leaderstats.Money.Value = math.floor((tonumber(newVal) or 0) + 0.5)
-					end
-				end)
-			end
-		end)
-	end
-end
-
-local function disableHumanoidRegen(humanoid)
-	local lastHealth = humanoid.Health
-	local adjusting = false
-
-	humanoid.HealthChanged:Connect(function(newHealth)
-		if adjusting then
-			return
-		end
-
-		if newHealth > lastHealth then
-			adjusting = true
-			humanoid.Health = lastHealth
-			adjusting = false
-			return
-		end
-
-		lastHealth = newHealth
-	end)
 end
 
 local gameOverTriggered = false
 local winTriggered = false
-local returnLobbyInFlightByUserId = {}
-local returnLobbyLastRequestByUserId = {}
-local mapVoteRemote = nil
-local mapVoteInProgress = false
-local mapVoteSessionToken = 0
-local mapVoteEndsAt = 0
-local mapVotesByUserId = {}
-local mapVoteCountsByPlaceId = {}
-local mapVoteFinishedEvent = Instance.new("BindableEvent")
 
-local function hasAnyLivingPlayers()
-	for _, player in ipairs(Players:GetPlayers()) do
-		local character = player.Character
-		if character then
-			local humanoid = character:FindFirstChildOfClass("Humanoid")
-			if humanoid and humanoid.Health > 0 and humanoid:GetState() ~= Enum.HumanoidStateType.Dead then
-				return true
-			end
-		end
-	end
-	return false
+local function getIsGameOver()
+	return gameOverTriggered or winTriggered
 end
 
-local function normalizePlaceId(value)
-	local placeId = toNumber(value, nil)
-	if placeId == nil then
-		return nil
-	end
+local remotes = RemotesSetup.run(Config.Remotes)
 
-	if placeId ~= math.floor(placeId) then
-		return nil
-	end
-
-	if placeId <= 0 or placeId == PLACEHOLDER_PLACE_ID then
-		return nil
-	end
-
-	return placeId
+if remotes.ReturnToLobby then
+	remotes.ReturnToLobby.OnServerEvent:Connect(
+		ReturnToLobbyFlow.createHandler(MatchmakingConfig, remotes.TeleportLoading, PlaceRole.shouldRunMatchSystems)
+	)
 end
 
-local function getMapVoteLabel(placeId, defaultIndex)
-	local labels = MatchmakingConfig.MATCH_PLACE_LABELS
-	if type(labels) == "table" then
-		local fromNumberKey = labels[placeId]
-		if type(fromNumberKey) == "string" and fromNumberKey ~= "" then
-			return fromNumberKey
-		end
+MapVoteFlow.init(remotes)
 
-		local fromStringKey = labels[tostring(placeId)]
-		if type(fromStringKey) == "string" and fromStringKey ~= "" then
-			return fromStringKey
-		end
-	end
-
-	return ("Map %d"):format(defaultIndex)
-end
-
-local function collectMapVoteOptions()
-	local options = {}
-	local placeIdLookup = {}
-
-	local function addOption(rawPlaceId, explicitLabel)
-		local placeId = normalizePlaceId(rawPlaceId)
-		if placeId == nil then
-			return
-		end
-
-		if placeIdLookup[placeId] then
-			return
-		end
-
-		placeIdLookup[placeId] = true
-		table.insert(options, {
-			placeId = placeId,
-			label = if type(explicitLabel) == "string" and explicitLabel ~= "" then explicitLabel else getMapVoteLabel(placeId, #options + 1),
-		})
-	end
-
-	local configuredVoteOptions = MatchmakingConfig.MAP_VOTE_OPTIONS
-	if type(configuredVoteOptions) == "table" and #configuredVoteOptions > 0 then
-		for _, rawOption in ipairs(configuredVoteOptions) do
-			if type(rawOption) == "table" then
-				addOption(rawOption.placeId or rawOption.PlaceId, rawOption.label or rawOption.name or rawOption.Name)
-			else
-				addOption(rawOption)
-			end
-		end
-	end
-
-	if #options == 0 and type(MatchmakingConfig.MATCH_PLACE_IDS) == "table" then
-		for _, rawPlaceId in ipairs(MatchmakingConfig.MATCH_PLACE_IDS) do
-			addOption(rawPlaceId)
-		end
-	end
-
-	if #options == 0 then
-		addOption(MatchmakingConfig.MATCH_PLACE_ID)
-	end
-
-	if #options == 0 then
-		warn("[GameBootstrap] No valid map vote options configured. Check MATCH_PLACE_IDS.")
-	end
-
-	return options, placeIdLookup
-end
-
-local mapVoteOptions, mapVoteOptionLookup = collectMapVoteOptions()
-
-local function cancelAllPendingRespawns()
-	-- SpectatorService handles respawn cancellation
-end
-
-local function resolveDifficultyForNextMap()
-	local currentDifficulty = Workspace:GetAttribute("Difficulty")
-	if type(currentDifficulty) == "string" and MatchmakingConfig.isDifficulty(currentDifficulty) then
-		return currentDifficulty
-	end
-
-	local fallback = DifficultyService.getCurrentDifficulty()
-	if type(fallback) == "string" and MatchmakingConfig.isDifficulty(fallback) then
-		return fallback
-	end
-
-	return MatchmakingConfig.DIFFICULTIES[1]
-end
-
-local function serializeMapVoteOptions()
-	local serialized = {}
-	for _, option in ipairs(mapVoteOptions) do
-		table.insert(serialized, {
-			placeId = option.placeId,
-			label = option.label,
-			votes = mapVoteCountsByPlaceId[option.placeId] or 0,
-		})
-	end
-
-	return serialized
-end
-
-local function broadcastMapVote(action, extraPayload)
-	if not mapVoteRemote then
-		return
-	end
-
-	local payload = {
-		action = action,
-		endsAt = mapVoteEndsAt,
-		options = serializeMapVoteOptions(),
-	}
-
-	if type(extraPayload) == "table" then
-		for key, value in pairs(extraPayload) do
-			payload[key] = value
-		end
-	end
-
-	mapVoteRemote:FireAllClients(payload)
-end
-
-local function notifyTeleportStarting(playersOrPlayer, title, message)
-	if not teleportLoadingRemote then
-		return
-	end
-
-	if typeof(playersOrPlayer) == "Instance" then
-		teleportLoadingRemote:FireClient(playersOrPlayer, {
-			action = "Start",
-			title = title,
-			message = message,
-		})
-	else
-		for _, player in ipairs(playersOrPlayer) do
-			teleportLoadingRemote:FireClient(player, {
-				action = "Start",
-				title = title,
-				message = message,
-			})
-		end
-	end
-
-	-- Give clients a moment to call SetTeleportGui before TeleportAsync.
-	task.wait(0.1)
-end
-
-local function notifyTeleportFailed(playersOrPlayer, message)
-	if not teleportLoadingRemote then
-		return
-	end
-
-	if typeof(playersOrPlayer) == "Instance" then
-		teleportLoadingRemote:FireClient(playersOrPlayer, {
-			action = "Failed",
-			message = message,
-		})
-	else
-		for _, player in ipairs(playersOrPlayer) do
-			teleportLoadingRemote:FireClient(player, {
-				action = "Failed",
-				message = message,
-			})
-		end
-	end
-end
-
-local function sendMapVoteSnapshot(player)
-	if not mapVoteRemote then
-		return
-	end
-
-	if not gameOverTriggered and not winTriggered then
-		return
-	end
-
-	if mapVoteInProgress then
-		mapVoteRemote:FireClient(player, {
-			action = "Start",
-			endsAt = mapVoteEndsAt,
-			options = serializeMapVoteOptions(),
-			duration = MAP_VOTE_DURATION_SECONDS,
-			difficulty = resolveDifficultyForNextMap(),
-		})
-	end
-end
-
-local function clearMapVotes()
-	mapVotesByUserId = {}
-	mapVoteCountsByPlaceId = {}
-	for _, option in ipairs(mapVoteOptions) do
-		mapVoteCountsByPlaceId[option.placeId] = 0
-	end
-end
-
-local function getActiveMapVotePlayerCount()
-	local count = 0
-	for _, player in Players:GetPlayers() do
-		if player.Parent == Players then
-			count += 1
-		end
-	end
-	return count
-end
-
-local function getSubmittedMapVoteCount()
-	local count = 0
-	for _ in pairs(mapVotesByUserId) do
-		count += 1
-	end
-	return count
-end
-
-local function allActivePlayersHaveVoted()
-	local activePlayers = getActiveMapVotePlayerCount()
-	if activePlayers <= 0 then
-		return true
-	end
-
-	return getSubmittedMapVoteCount() >= activePlayers
-end
-
-local function tryFinishMapVoteEarly()
-	if not mapVoteInProgress then
-		return
-	end
-
-	if allActivePlayersHaveVoted() then
-		mapVoteFinishedEvent:Fire(mapVoteSessionToken)
-	end
-end
-
-local function removePlayerVote(player)
-	local userId = player.UserId
-	local previousPlaceId = mapVotesByUserId[userId]
-	if previousPlaceId == nil then
-		return false
-	end
-
-	mapVotesByUserId[userId] = nil
-	local previousVotes = mapVoteCountsByPlaceId[previousPlaceId] or 0
-	mapVoteCountsByPlaceId[previousPlaceId] = math.max(0, previousVotes - 1)
-	return true
-end
-
-local function registerPlayerVote(player, placeId)
-	local userId = player.UserId
-	local previousPlaceId = mapVotesByUserId[userId]
-	if previousPlaceId == placeId then
-		return false
-	end
-
-	if previousPlaceId ~= nil then
-		local previousVotes = mapVoteCountsByPlaceId[previousPlaceId] or 0
-		mapVoteCountsByPlaceId[previousPlaceId] = math.max(0, previousVotes - 1)
-	end
-
-	mapVotesByUserId[userId] = placeId
-	mapVoteCountsByPlaceId[placeId] = (mapVoteCountsByPlaceId[placeId] or 0) + 1
-	return true
-end
-
-local function onMapVoteSubmitted(player, payload)
-	if (not gameOverTriggered and not winTriggered) or not mapVoteInProgress then
-		return
-	end
-
-	if player.Parent ~= Players then
-		return
-	end
-
-	if type(payload) ~= "table" then
-		return
-	end
-
-	local placeId = normalizePlaceId(payload.placeId)
-	if placeId == nil then
-		return
-	end
-
-	if not mapVoteOptionLookup[placeId] then
-		return
-	end
-
-	if registerPlayerVote(player, placeId) then
-		broadcastMapVote("Update")
-		tryFinishMapVoteEarly()
-	end
-end
-
-local function chooseWinningMapOption()
-	if #mapVoteOptions == 0 then
-		return nil, false
-	end
-
-	local highestVotes = -1
-	local tiedOptions = {}
-
-	for _, option in ipairs(mapVoteOptions) do
-		local votes = mapVoteCountsByPlaceId[option.placeId] or 0
-		if votes > highestVotes then
-			highestVotes = votes
-			tiedOptions = {option}
-		elseif votes == highestVotes then
-			table.insert(tiedOptions, option)
-		end
-	end
-
-	if #tiedOptions == 0 then
-		return nil, false
-	end
-
-	if #tiedOptions == 1 then
-		return tiedOptions[1], false
-	end
-
-	local randomIndex = randomGenerator:NextInteger(1, #tiedOptions)
-	return tiedOptions[randomIndex], true
-end
-
-local function reserveServerForMap(placeId, difficulty, pendingSlots)
-	local ok, accessCode, privateServerId = safeCall("ReserveServer", function()
-		if type(TeleportService.ReserveServerAsync) == "function" then
-			return TeleportService:ReserveServerAsync(placeId)
-		end
-
-		return TeleportService:ReserveServer(placeId)
+if remotes.MapVote then
+	remotes.MapVote.OnServerEvent:Connect(function(player, payload)
+		MapVoteFlow.onVoteSubmitted(player, payload, getIsGameOver)
 	end)
-	if not ok then
-		return nil, nil
-	end
-
-	if type(accessCode) ~= "string" or accessCode == "" then
-		warn("[GameBootstrap] ReserveServer returned an invalid access code.")
-		return nil, nil
-	end
-
-	if type(privateServerId) ~= "string" or privateServerId == "" then
-		warn("[GameBootstrap] ReserveServer returned an invalid private server id.")
-		return nil, nil
-	end
-
-	local currentTime = nowSeconds()
-	local entry = {
-		difficulty = difficulty,
-		placeId = placeId,
-		accessCode = accessCode,
-		privateServerId = privateServerId,
-		playerCount = 0,
-		pendingSlots = math.max(0, pendingSlots),
-		maxPlayers = MatchmakingConfig.getMaxPlayersForDifficulty(difficulty, Players.MaxPlayers),
-		lastHeartbeat = currentTime,
-		createdAt = currentTime,
-	}
-
-	local setOk = safeCall(("SetAsync(%s)"):format(privateServerId), function()
-		matchServers:SetAsync(privateServerId, entry, MatchmakingConfig.ENTRY_TTL_SECONDS, currentTime)
-	end)
-	if not setOk then
-		return nil, nil
-	end
-
-	return privateServerId, accessCode
-end
-
-local function removeServerEntry(matchId)
-	safeCall(("RemoveAsync(%s)"):format(tostring(matchId)), function()
-		matchServers:RemoveAsync(matchId)
-	end)
-end
-
-local function teleportAllPlayersToMap(placeId, mapLabel)
-	local playersToTeleport = {}
-	for _, player in Players:GetPlayers() do
-		if player.Parent == Players then
-			table.insert(playersToTeleport, player)
-		end
-	end
-
-	if #playersToTeleport == 0 then
-		return true
-	end
-
-	local difficulty = resolveDifficultyForNextMap()
-	local matchId, accessCode = reserveServerForMap(placeId, difficulty, #playersToTeleport)
-	if not matchId or not accessCode then
-		warn(("[GameBootstrap] Could not reserve map server for placeId=%s"):format(tostring(placeId)))
-		return false
-	end
-
-	broadcastMapVote("Teleporting", {
-		selectedPlaceId = placeId,
-		selectedLabel = mapLabel,
-		difficulty = difficulty,
-	})
-
-	notifyTeleportStarting(
-	playersToTeleport,
-	"Loading next map",
-	string.format("Loading %s (%s difficulty)...", tostring(mapLabel), tostring(difficulty))
-)
-	local options = Instance.new("TeleportOptions")
-	options.ReservedServerAccessCode = accessCode
-	options:SetTeleportData({
-		difficulty = difficulty,
-		matchId = matchId,
-		placeId = placeId,
-		reason = "MapVoteWinner",
-		fromPlaceId = game.PlaceId,
-		queuedAt = nowSeconds(),
-	})
-
-	local retries = math.max(1, toNumber(MatchmakingConfig.TELEPORT_RETRIES, 1))
-	for attempt = 1, retries do
-		local ok, err = pcall(function()
-			TeleportService:TeleportAsync(placeId, playersToTeleport, options)
-		end)
-		if ok then
-			return true
-		end
-
-		warn(("[GameBootstrap] Map vote teleport failed (attempt %d): %s"):format(attempt, tostring(err)))
-		if attempt < retries then
-			task.wait(toNumber(MatchmakingConfig.TELEPORT_RETRY_DELAY_SECONDS, 1))
-		end
-	end
-
-	removeServerEntry(matchId)
-	notifyTeleportFailed(playersToTeleport, "Could not load the next map. Please try again.")
-	return false
-end
-
-local function runMapVoteFlow()
-	if #mapVoteOptions == 0 then
-		return
-	end
-
-	task.wait(MAP_VOTE_REVEAL_DELAY_SECONDS)
-	if not gameOverTriggered and not winTriggered then
-		return
-	end
-
-	mapVoteSessionToken += 1
-	local activeToken = mapVoteSessionToken
-	mapVoteInProgress = true
-	clearMapVotes()
-	mapVoteEndsAt = Workspace:GetServerTimeNow() + MAP_VOTE_DURATION_SECONDS
-
-	broadcastMapVote("Start", {
-		duration = MAP_VOTE_DURATION_SECONDS,
-		difficulty = resolveDifficultyForNextMap(),
-	})
-
-	local voteFinished = false
-	local voteFinishedConnection = mapVoteFinishedEvent.Event:Connect(function(sessionToken)
-		if sessionToken ~= activeToken or voteFinished then
-			return
-		end
-
-		voteFinished = true
-	end)
-
-	tryFinishMapVoteEarly()
-
-	while not voteFinished do
-		local remaining = mapVoteEndsAt - Workspace:GetServerTimeNow()
-		if remaining <= 0 then
-			break
-		end
-
-		task.wait(math.min(0.25, remaining))
-	end
-
-	voteFinishedConnection:Disconnect()
-
-	if mapVoteSessionToken ~= activeToken then
-		return
-	end
-
-	mapVoteInProgress = false
-	mapVoteEndsAt = 0
-
-	local winner, wasTie = chooseWinningMapOption()
-	if winner == nil then
-		warn("[GameBootstrap] Map vote ended with no winner.")
-		return
-	end
-
-	broadcastMapVote("End", {
-		selectedPlaceId = winner.placeId,
-		selectedLabel = winner.label,
-		wasTie = wasTie,
-	})
-
-	task.wait(1.5)
-	local didTeleport = teleportAllPlayersToMap(winner.placeId, winner.label)
-	if not didTeleport then
-		warn("[GameBootstrap] Map vote winner chosen, but teleport failed.")
-	end
 end
 
 local function triggerGameOver()
-	if gameOverTriggered then
-		return
-	end
-
-	if not PlaceRole.shouldRunMatchSystems() then
-		return
-	end
-
+	if gameOverTriggered then return end
+	if not PlaceRole.shouldRunMatchSystems() then return end
 	gameOverTriggered = true
 	Workspace:SetAttribute("GameOver", true)
-	cancelAllPendingRespawns()
 	WaveService.gameOver("AllPlayersDead")
-	task.spawn(runMapVoteFlow)
+	task.spawn(function()
+		MapVoteFlow.run(getIsGameOver)
+	end)
 end
 
 local function triggerWin()
-	if winTriggered then
-		return
-	end
-
-	if not PlaceRole.shouldRunMatchSystems() then
-		return
-	end
-
+	if winTriggered then return end
+	if not PlaceRole.shouldRunMatchSystems() then return end
 	winTriggered = true
 	gameOverTriggered = true
 	Workspace:SetAttribute("GameOver", true)
 	Workspace:SetAttribute("Won", true)
-	cancelAllPendingRespawns()
-	task.spawn(runMapVoteFlow)
+	task.spawn(function()
+		MapVoteFlow.run(getIsGameOver)
+	end)
 end
 
-local function resolveLobbyPlaceId()
-	local lobbyPlaceId = toNumber(MatchmakingConfig.LOBBY_PLACE_ID, nil)
-	if lobbyPlaceId == nil then
-		return nil
-	end
-
-	if lobbyPlaceId ~= math.floor(lobbyPlaceId) then
-		return nil
-	end
-
-	if lobbyPlaceId <= 0 or lobbyPlaceId == PLACEHOLDER_PLACE_ID then
-		return nil
-	end
-
-	return lobbyPlaceId
-end
-
-local function sendPlayerToLobby(player)
-	if player.Parent ~= Players then
-		return false
-	end
-
-	local lobbyPlaceId = resolveLobbyPlaceId()
-	if not lobbyPlaceId then
-		warn("[GameBootstrap] LOBBY_PLACE_ID is invalid. Cannot return players to lobby.")
-		return false
-	end
-
-	local options = Instance.new("TeleportOptions")
-	options:SetTeleportData({
-		reason = "GameOver",
-		fromPlaceId = game.PlaceId,
-		matchId = Workspace:GetAttribute("MatchId"),
-		queuedAt = nowSeconds(),
-	})
-
-	local retries = math.max(1, toNumber(MatchmakingConfig.TELEPORT_RETRIES, 1))
-
-	notifyTeleportStarting(
-	player,
-	"Returning to lobby",
-	"Teleporting you back to the lobby..."
-	)
-
-	for attempt = 1, retries do
-		local ok, err = pcall(function()
-			TeleportService:TeleportAsync(lobbyPlaceId, {player}, options)
-		end)
-		if ok then
-			return true
-		end
-
-		warn(("[GameBootstrap] Return-to-lobby teleport failed (attempt %d) for %s: %s"):
-			format(attempt, player.Name, tostring(err)))
-
-		if attempt < retries then
-			task.wait(toNumber(MatchmakingConfig.TELEPORT_RETRY_DELAY_SECONDS, 1))
-		end
-	end
-
-	notifyTeleportFailed(player, "Could not return to the lobby. Please try again.")
-	return false
-end
-
-local function onReturnToLobbyRequested(player)
-	if not PlaceRole.shouldRunMatchSystems() then
-		return
-	end
-
-	local userId = player.UserId
-	if returnLobbyInFlightByUserId[userId] then
-		return
-	end
-
-	local currentTime = nowSeconds()
-	local previousRequestTime = toNumber(returnLobbyLastRequestByUserId[userId], 0)
-	local cooldownSeconds = math.max(0, toNumber(MatchmakingConfig.REQUEST_COOLDOWN_SECONDS, 1))
-	if (currentTime - previousRequestTime) < cooldownSeconds then
-		return
-	end
-
-	returnLobbyLastRequestByUserId[userId] = currentTime
-	returnLobbyInFlightByUserId[userId] = true
-
-	local ok, didTeleport = pcall(sendPlayerToLobby, player)
-	returnLobbyInFlightByUserId[userId] = nil
-
-	if not ok then
-		warn(("[GameBootstrap] Return-to-lobby request failed for %s: %s"):
-			format(player.Name, tostring(didTeleport)))
-		return
-	end
-
-	if not didTeleport then
-		warn(("[GameBootstrap] Return-to-lobby request could not teleport %s"):format(player.Name))
-	end
-end
-
-local function ensureDifficultyAttribute()
-	local currentDifficulty = Workspace:GetAttribute("Difficulty")
-	if type(currentDifficulty) == "string" and currentDifficulty ~= "" then
-		return
-	end
-
-	Workspace:SetAttribute("Difficulty", DifficultyService.getCurrentDifficulty())
-end
-
-local function scheduleRespawn(player)
-	if gameOverTriggered then
-		return
-	end
-
-	-- Use SpectatorService for death handling
-	SpectatorService.onPlayerDeath(player)
-end
-
-local function isMatchRunningForLateJoin()
-	return not gameOverTriggered and #Players:GetPlayers() > 1
-end
-
-local function scheduleLateJoinSpawn(player)
-	SpectatorService.onPlayerJoinDuringMatch(player)
-end
-
-local function bindPlayerSystems(player)
-	ensureLeaderstats(player)
-
-	sendMapVoteSnapshot(player)
-
-	local function onCharacter(character)
-		SpectatorService.onPlayerRespawn(player, character)
-
-		local humanoid = character:WaitForChild("Humanoid", 10)
-		if not humanoid then
-			return
-		end
-
-		if Config.Player and Config.Player.DisableHealthRegen then
-			disableHumanoidRegen(humanoid)
-		end
-
-		humanoid.Died:Connect(function()
-			task.defer(function()
-				if gameOverTriggered then
-					return
-				end
-
-				if hasAnyLivingPlayers() then
-					scheduleRespawn(player)
-					return
-				end
-
-				triggerGameOver()
-			end)
-		end)
-	end
-
-	player.CharacterAdded:Connect(onCharacter)
-	if player.Character then
-		task.spawn(onCharacter, player.Character)
-	elseif not gameOverTriggered then
-		if isMatchRunningForLateJoin() then
-			SpectatorService.onPlayerJoinDuringMatch(player)
-		else
-			player:LoadCharacter()
-		end
-	end
-end
-
-local remotesFolder = ensureFolder(ReplicatedStorage, Config.Remotes.Folder)
-ensureRemoteEvent(remotesFolder, Config.Remotes.WaveState)
-
-local waveEnemiesRemaining = remotesFolder:FindFirstChild("WaveEnemiesRemaining")
-if not waveEnemiesRemaining or not waveEnemiesRemaining:IsA("IntValue") then
-	if waveEnemiesRemaining then
-		waveEnemiesRemaining:Destroy()
-	end
-	waveEnemiesRemaining = Instance.new("IntValue")
-	waveEnemiesRemaining.Name = "WaveEnemiesRemaining"
-	waveEnemiesRemaining.Value = 0
-	waveEnemiesRemaining.Parent = remotesFolder
-end
-
-local returnToLobbyRemote = ensureRemoteEvent(remotesFolder, Config.Remotes.ReturnToLobby)
-if returnToLobbyRemote then
-	returnToLobbyRemote.OnServerEvent:Connect(onReturnToLobbyRequested)
-end
-
-mapVoteRemote = ensureRemoteEvent(remotesFolder, Config.Remotes.MapVote)
-if mapVoteRemote then
-	mapVoteRemote.OnServerEvent:Connect(onMapVoteSubmitted)
-end
-
-ensureRemoteEvent(remotesFolder, Config.Remotes.WeaponAim)
-ensureRemoteEvent(remotesFolder, Config.Remotes.WeaponFire)
-ensureRemoteEvent(remotesFolder, Config.Remotes.WeaponReload)
-ensureRemoteEvent(remotesFolder, Config.Remotes.DamageIndicator)
-
-teleportLoadingRemote = ensureRemoteEvent(remotesFolder, Config.Remotes.TeleportLoading)
+local bindPlayerSystems = PlayerLifecycleBootstrap.createBindPlayerSystems({
+	configPlayer = Config.Player,
+	playerDataService = PlayerDataService,
+	spectatorService = SpectatorService,
+	getIsGameOver = function()
+		return gameOverTriggered
+	end,
+	triggerGameOver = triggerGameOver,
+	sendMapVoteSnapshot = function(player)
+		MapVoteFlow.getSnapshotForPlayer(player, getIsGameOver())
+	end,
+	isMatchRunningForLateJoin = function()
+		return not gameOverTriggered and #Players:GetPlayers() > 1
+	end,
+})
 
 SpectatorService.start()
 
-local templateFolder = ensureFolder(ServerStorage, Config.Enemy.TemplateFolderName)
-local spawnFolder = ensureFolder(Workspace, Config.Enemy.SpawnFolderName)
-ensureFolder(Workspace, Config.Enemy.ContainerName)
-ensureTempEnemyTemplate(templateFolder)
-ensureTempSpawnPoint(spawnFolder)
-ensureDifficultyAttribute()
+local templateFolder = BootstrapUtil.ensureFolder(ServerStorage, Config.Enemy.TemplateFolderName)
+local spawnFolder = BootstrapUtil.ensureFolder(Workspace, Config.Enemy.SpawnFolderName)
+BootstrapUtil.ensureFolder(Workspace, Config.Enemy.ContainerName)
+TempContentSetup.ensureTempEnemyTemplate(templateFolder)
+TempContentSetup.ensureTempSpawnPoint(spawnFolder)
+MatchSetup.ensureDifficultyAttribute(Workspace, function()
+	return DifficultyService.getCurrentDifficulty()
+end)
 Workspace:SetAttribute("GameOver", false)
 
 Players.CharacterAutoLoads = false
 Players.PlayerAdded:Connect(bindPlayerSystems)
 Players.PlayerRemoving:Connect(function(player)
 	SpectatorService.onPlayerRemove(player)
-	returnLobbyInFlightByUserId[player.UserId] = nil
-	returnLobbyLastRequestByUserId[player.UserId] = nil
-
-	if mapVoteInProgress then
-		if removePlayerVote(player) then
-			broadcastMapVote("Update")
-		end
-
-		tryFinishMapVoteEarly()
+	ReturnToLobbyFlow.clearInFlight(player)
+	if MapVoteFlow.removePlayerVote(player) then
+		MapVoteFlow.broadcastUpdate()
 	end
 end)
-for _, player in Players:GetPlayers() do
+
+for _, player in ipairs(Players:GetPlayers()) do
 	bindPlayerSystems(player)
 end
 
--- Start services
 PlayerDataService.start()
 OfflinePlayerDataEditor.start()
 ClassService.start()
