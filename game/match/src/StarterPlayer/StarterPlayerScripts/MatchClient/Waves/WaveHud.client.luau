@@ -793,6 +793,8 @@ local function setGameOverActive(active, reason, isWin)
 	setGameOverInputModeActive(active)
 
 	if active then
+		-- Ensure BrainrotHud is visible (e.g. if "Hide All UI" was on, or spectator hid it)
+		gui.Enabled = true
 		hideCountdown()
 		hideRespawnCountdown()
 		resetMapVoteUi()

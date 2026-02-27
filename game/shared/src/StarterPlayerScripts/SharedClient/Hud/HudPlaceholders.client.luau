@@ -16,6 +16,10 @@ end
 
 local function createOrReplaceGui(guiName: string, displayOrder: number): ScreenGui
 	local existing = playerGui:FindFirstChild(guiName)
+	-- In match, WaveHud creates BrainrotHud with GameOverOverlay; do not replace it
+	if guiName == "BrainrotHud" and existing and existing:FindFirstChild("GameOverOverlay") then
+		return existing
+	end
 	if existing then
 		existing:Destroy()
 	end
@@ -30,28 +34,32 @@ end
 
 local classXpGui = createOrReplaceGui("ClassXpBarHud", 25)
 local brainrotHudGui = createOrReplaceGui("BrainrotHud", 20)
+local brainrotHudIsPlaceholder = not brainrotHudGui:FindFirstChild("GameOverOverlay")
 
-local nextWaveTimer = Instance.new("TextLabel")
-nextWaveTimer.Name = "NextWaveTimer"
-nextWaveTimer.Size = UDim2.fromOffset(360, 46)
-nextWaveTimer.Position = UDim2.fromScale(0.5, 0.03)
-nextWaveTimer.AnchorPoint = Vector2.new(0.5, 0)
-nextWaveTimer.BackgroundColor3 = Color3.fromRGB(16, 18, 24)
-nextWaveTimer.BackgroundTransparency = 0.18
-nextWaveTimer.BorderSizePixel = 0
-nextWaveTimer.TextColor3 = Color3.fromRGB(245, 248, 255)
-nextWaveTimer.Font = Enum.Font.GothamBold
-nextWaveTimer.TextSize = 20
-nextWaveTimer.Text = "NEXT WAVE: 00:15"
-nextWaveTimer.Visible = false
-nextWaveTimer.Parent = brainrotHudGui
-applyRoundedCorners(nextWaveTimer, 10)
+local nextWaveTimer = nil
+if brainrotHudIsPlaceholder then
+	nextWaveTimer = Instance.new("TextLabel")
+	nextWaveTimer.Name = "NextWaveTimer"
+	nextWaveTimer.Size = UDim2.fromOffset(360, 46)
+	nextWaveTimer.Position = UDim2.fromScale(0.5, 0.03)
+	nextWaveTimer.AnchorPoint = Vector2.new(0.5, 0)
+	nextWaveTimer.BackgroundColor3 = Color3.fromRGB(16, 18, 24)
+	nextWaveTimer.BackgroundTransparency = 0.18
+	nextWaveTimer.BorderSizePixel = 0
+	nextWaveTimer.TextColor3 = Color3.fromRGB(245, 248, 255)
+	nextWaveTimer.Font = Enum.Font.GothamBold
+	nextWaveTimer.TextSize = 20
+	nextWaveTimer.Text = "NEXT WAVE: 00:15"
+	nextWaveTimer.Visible = false
+	nextWaveTimer.Parent = brainrotHudGui
+	applyRoundedCorners(nextWaveTimer, 10)
 
-local nextWaveStroke = Instance.new("UIStroke")
-nextWaveStroke.Color = Color3.fromRGB(92, 112, 128)
-nextWaveStroke.Transparency = 0.15
-nextWaveStroke.Thickness = 1
-nextWaveStroke.Parent = nextWaveTimer
+	local nextWaveStroke = Instance.new("UIStroke")
+	nextWaveStroke.Color = Color3.fromRGB(92, 112, 128)
+	nextWaveStroke.Transparency = 0.15
+	nextWaveStroke.Thickness = 1
+	nextWaveStroke.Parent = nextWaveTimer
+end
 
 local xpContainer = Instance.new("Frame")
 xpContainer.Name = "XpContainer"
@@ -191,7 +199,9 @@ ammoDetails.Parent = ammoContainer
 
 local function setPreviewVisible(isVisible: boolean?)
 	local visible = isVisible == true
-	nextWaveTimer.Visible = visible
+	if nextWaveTimer then
+		nextWaveTimer.Visible = visible
+	end
 	xpContainer.Visible = visible
 	ammoContainer.Visible = visible
 end
