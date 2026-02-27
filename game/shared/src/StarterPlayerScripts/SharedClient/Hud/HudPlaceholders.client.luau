@@ -27,6 +27,13 @@ local function createOrReplaceGui(guiName: string, displayOrder: number): Screen
 			return existing
 		end
 	end
+	-- In match, AmmoHud creates the real ammo HUD (AmmoContainer has AmmoStatus label); do not replace it
+	if guiName == "AmmoHud" and existing then
+		local ammoContainer = existing:FindFirstChild("AmmoContainer")
+		if ammoContainer and ammoContainer:FindFirstChild("AmmoStatus") then
+			return existing
+		end
+	end
 	if existing then
 		existing:Destroy()
 	end
