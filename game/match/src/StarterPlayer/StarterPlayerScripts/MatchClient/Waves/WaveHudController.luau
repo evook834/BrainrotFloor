@@ -295,15 +295,15 @@ local function run(playerGui: PlayerGui)
 			resetMapVoteUi()
 			refs.statsPanel.Visible = false
 			startGameOverHudVisibilityLoop()
-		if isWin then
-			refs.gameOverTitle.Text = "You won!"
-			refs.gameOverTitle.TextColor3 = Color3.fromRGB(112, 255, 160)
-			refs.gameOverMessage.Text = WaveHudMessages.getWinMessage(reason)
-		else
-			refs.gameOverTitle.Text = "GAME OVER"
-			refs.gameOverTitle.TextColor3 = Color3.fromRGB(255, 112, 112)
-			refs.gameOverMessage.Text = WaveHudMessages.getGameOverMessage(reason)
-		end
+			if isWin then
+				refs.gameOverTitle.Text = "You won!"
+				refs.gameOverTitle.TextColor3 = Color3.fromRGB(112, 255, 160)
+				refs.gameOverMessage.Text = WaveHudMessages.getWinMessage(reason)
+			else
+				refs.gameOverTitle.Text = "GAME OVER"
+				refs.gameOverTitle.TextColor3 = Color3.fromRGB(255, 112, 112)
+				refs.gameOverMessage.Text = WaveHudMessages.getGameOverMessage(reason)
+			end
 			refs.returnToLobbyButton.Visible = true
 			refs.returnToLobbyStatus.Visible = true
 			refs.returnToLobbyStatus.Text = ""
@@ -537,38 +537,41 @@ local function run(playerGui: PlayerGui)
 	end
 
 	-- Remotes and attribute sync
-	if remotes.waveState then
-		remotes.waveState.OnClientEvent:Connect(applyWaveState)
-	end
-	if remotes.mapVote then
-		remotes.mapVote.OnClientEvent:Connect(applyMapVotePayload)
-	end
-
-	if remotes.remotesFolder then
+	local function bindWaveRemotesAndAttributes()
+		if remotes.waveState then
+			remotes.waveState.OnClientEvent:Connect(applyWaveState)
+		end
+		if remotes.mapVote then
+			remotes.mapVote.OnClientEvent:Connect(applyMapVotePayload)
+		end
+		if not remotes.remotesFolder then
+			return
+		end
+		local folder = remotes.remotesFolder
 		local function syncWaveFromAttribute()
-			local n = remotes.remotesFolder:GetAttribute("CurrentWaveNumber")
+			local n = folder:GetAttribute("CurrentWaveNumber")
 			if type(n) == "number" then
 				uiState.wave = n
 				render()
 			end
 		end
 		local function syncEnemiesRemainingFromValue()
-			local nv = remotes.remotesFolder:FindFirstChild("WaveEnemiesRemaining")
+			local nv = folder:FindFirstChild("WaveEnemiesRemaining")
 			if nv and nv:IsA("IntValue") then
 				uiState.enemiesRemaining = math.max(0, nv.Value)
 				render()
 			end
 		end
-		remotes.remotesFolder:GetAttributeChangedSignal("CurrentWaveNumber"):Connect(syncWaveFromAttribute)
+		folder:GetAttributeChangedSignal("CurrentWaveNumber"):Connect(syncWaveFromAttribute)
 		syncWaveFromAttribute()
-		local waveEnemiesRemainingValue = remotes.remotesFolder:FindFirstChild("WaveEnemiesRemaining")
+		local waveEnemiesRemainingValue = folder:FindFirstChild("WaveEnemiesRemaining")
 		if waveEnemiesRemainingValue and waveEnemiesRemainingValue:IsA("IntValue") then
 			waveEnemiesRemainingValue.Changed:Connect(syncEnemiesRemainingFromValue)
 			syncEnemiesRemainingFromValue()
 		end
-		local snapshotState = remotes.remotesFolder:GetAttribute("CurrentWaveState")
-		local snapshotWave = remotes.remotesFolder:GetAttribute("CurrentWaveNumber")
-		local intermissionEndTime = remotes.remotesFolder:GetAttribute("IntermissionEndTime")
+		local snapshotState = folder:GetAttribute("CurrentWaveState")
+		local snapshotWave = folder:GetAttribute("CurrentWaveNumber")
+		local intermissionEndTime = folder:GetAttribute("IntermissionEndTime")
 		if type(snapshotState) == "string" then
 			applyWaveState({
 				state = snapshotState,
@@ -578,6 +581,7 @@ local function run(playerGui: PlayerGui)
 			})
 		end
 	end
+	bindWaveRemotesAndAttributes()
 
 	player.CharacterAdded:Connect(bindCharacter)
 	if player.Character then

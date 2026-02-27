@@ -126,7 +126,7 @@ Match client UI and HUD. Match folder names to responsibility.
 | **`Waves/`** | Wave HUD: WaveHud (entry), WaveHudController (logic), WaveHudView (UI), WaveHudRemotes (remotes), CountdownToken (countdown cancellation), MapVotePayloadUtil (map-vote payload + timer text), WaveHudMessages (game-over/win copy). |
 | **`Enemies/`** | Enemy health bars, death VFX. |
 | **`Shop/`** | Shop UI (catalog, buy). |
-| **`Classes/`** | Class UI, XP bar. |
+| **`Classes/`** | Class UI; **`Classes/XpBarHud/`** — XP bar: XpBarHud (entry), XpBarHudController, XpBarHudView, XpBarHudRemotes, XpBarHudPayloadUtil. |
 | **`Combat/`** | Crosshair, ammo HUD, dual-wield pose, damage numbers. |
 | **`Settings/`** | Match settings UI. |
 | **`Spectator/`** | Spectator mode client: Spectator (entry), SpectatorController (logic), SpectatorView (UI). |
