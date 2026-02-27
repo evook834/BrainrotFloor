@@ -1040,6 +1040,33 @@ local function applyWaveState(payload)
 	end
 end
 
+local function applyTerminalStateFallback()
+	local snapshotWave = remotesFolder and remotesFolder:GetAttribute("CurrentWaveNumber") or uiState.wave
+
+	if Workspace:GetAttribute("Won") == true then
+		if gameOverActive and uiState.waveState == "Won" then
+			return
+		end
+
+		applyWaveState({
+			state = "Won",
+			wave = snapshotWave,
+		})
+		return
+	end
+
+	if Workspace:GetAttribute("GameOver") == true then
+		if gameOverActive and uiState.waveState == "GameOver" then
+			return
+		end
+
+		applyWaveState({
+			state = "GameOver",
+			wave = snapshotWave,
+		})
+	end
+end
+
 local function bindCharacter(character)
 	hideRespawnCountdown()
 
@@ -1169,6 +1196,10 @@ if remotesFolder then
 		})
 	end
 end
+
+Workspace:GetAttributeChangedSignal("GameOver"):Connect(applyTerminalStateFallback)
+Workspace:GetAttributeChangedSignal("Won"):Connect(applyTerminalStateFallback)
+applyTerminalStateFallback()
 
 player.CharacterAdded:Connect(bindCharacter)
 if player.Character then

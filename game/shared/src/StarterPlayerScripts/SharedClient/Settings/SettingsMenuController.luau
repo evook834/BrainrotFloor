@@ -2,6 +2,9 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
+local SharedClient = script.Parent.Parent
+local FriendSystem = require(SharedClient:WaitForChild("Friends"):WaitForChild("FriendSystem"))
+local PlayerNameplates = require(SharedClient:WaitForChild("Friends"):WaitForChild("PlayerNameplates"))
 local SettingsMenuUi = require(script.Parent:WaitForChild("SettingsMenuUi"))
 
 type View = any
@@ -32,6 +35,11 @@ type Session = {
 }
 
 local activeSession: Session? = nil
+
+local function openFriendSystem(view: View)
+	view.panel.Visible = false
+	FriendSystem.open()
+end
 
 local function setActiveTab(view: View, tabName: "Audio" | "Gameplay")
 	local audioActive = tabName == "Audio"
@@ -221,8 +229,17 @@ local function run(options: RunOptions?)
 	}
 	activeSession = session
 
+	FriendSystem.start()
+	PlayerNameplates.run({
+		interactive = true,
+	})
+
 	table.insert(session.connections, view.launcherGear.Activated:Connect(function()
 		togglePanel(session)
+	end))
+
+	table.insert(session.connections, view.friendLauncherButton.Activated:Connect(function()
+		openFriendSystem(view)
 	end))
 
 	table.insert(session.connections, view.panelClose.Activated:Connect(function()

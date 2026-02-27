@@ -6,6 +6,7 @@
 local PlayerConfig = require(script.Parent.PlayerConfig)
 
 local SETTINGS_SCHEMA_VERSION = 1
+local SOCIAL_SCHEMA_VERSION = 1
 
 return {
 	settings = {
@@ -24,6 +25,14 @@ return {
 	classes = {
 		selectedClassId = "",
 		progressByClassId = {},
+	},
+	social = {
+		schemaVersion = SOCIAL_SCHEMA_VERSION,
+		friendsByUserId = {},
+		incomingRequestsByUserId = {},
+		outgoingRequestsByUserId = {},
+		requestCooldownsByUserId = {},
+		conversationsByUserId = {},
 	},
 	money = (PlayerConfig and PlayerConfig.StartingMoney) or 0,
 	inventory = {},

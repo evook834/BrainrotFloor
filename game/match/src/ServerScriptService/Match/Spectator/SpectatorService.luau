@@ -412,6 +412,29 @@ function SpectatorService.onPlayerRemove(player)
 	end
 end
 
+function SpectatorService.cancelAllPendingRespawns()
+	if not started then
+		return
+	end
+
+	local playersToExitSpectator = {}
+	for player, _ in pairs(spectatingPlayers) do
+		table.insert(playersToExitSpectator, player)
+	end
+
+	table.clear(pendingRespawnByPlayer)
+	spectatingPlayerCount = 0
+
+	for _, player in ipairs(playersToExitSpectator) do
+		spectatingPlayers[player] = nil
+		if player.Parent == Players then
+			notifySpectator(player, false, {}, 0)
+		end
+	end
+
+	updateSpectatorServerAttributes()
+end
+
 --============================================================================================--
 -- Explicit API Functions ---------------------------------------------------------------------
 --============================================================================================--
