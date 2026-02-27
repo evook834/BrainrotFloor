@@ -1,5 +1,52 @@
 local CatalogAndPricing = {}
 
+local function roundWholeNumber(value)
+	return math.max(0, math.floor((tonumber(value) or 0) + 0.5))
+end
+
+local function isValidWeaponDef(weaponDef)
+	return type(weaponDef) == "table" and type(weaponDef.Id) == "string" and weaponDef.Id ~= ""
+end
+
+local function calculateRefillCost(player, weaponDef, ammoSnapshot, pricingConfig, context)
+	local maxTotalAmmo = ammoSnapshot.maxTotalAmmo
+	local missingAmmo = ammoSnapshot.missingAmmo
+	if maxTotalAmmo <= 0 or missingAmmo <= 0 then
+		return 0, false
+	end
+
+	local weaponCost = context.getWeaponCostForPlayer(player, weaponDef)
+	local fullRefillCost = math.max(
+		pricingConfig.minimumWeaponRefillCost,
+		math.floor((weaponCost * pricingConfig.fullRefillCostScale) + 0.5)
+	)
+	local proportionalCost = math.floor((fullRefillCost * (missingAmmo / maxTotalAmmo)) + 0.5)
+	local refillCost = math.max(pricingConfig.minimumPurchaseCost, proportionalCost)
+
+	return math.max(0, refillCost), refillCost > 0
+end
+
+local function buildRefillQuoteFromSnapshot(weaponDef, refillKind, ammoSnapshot, refillCost, canRefill, extraFields)
+	local quote = {
+		weaponId = weaponDef.Id,
+		refillKind = refillKind,
+		isRefillable = true,
+		canRefill = canRefill,
+		cost = math.max(0, refillCost),
+		currentTotalAmmo = ammoSnapshot.currentTotalAmmo,
+		maxTotalAmmo = ammoSnapshot.maxTotalAmmo,
+		missingAmmo = ammoSnapshot.missingAmmo,
+	}
+
+	if type(extraFields) == "table" then
+		for key, value in pairs(extraFields) do
+			quote[key] = value
+		end
+	end
+
+	return quote
+end
+
 function CatalogAndPricing.canPurchaseNow(remotesFolder, config)
 	if not remotesFolder then
 		return false, "Unknown"
@@ -23,14 +70,14 @@ function CatalogAndPricing.getWeaponCostForPlayer(player, weaponDef, classServic
 		return classService.getWeaponShopCost(player, weaponDef)
 	end
 
-	return math.max(0, math.floor((tonumber((weaponDef or {}).Cost) or 0) + 0.5))
+	return roundWholeNumber((weaponDef or {}).Cost)
 end
 
 function CatalogAndPricing.getAmmoRefillPricingConfig(config)
 	local refillConfig = ((config or {}).Shop or {}).AmmoRefill or {}
 	local fullRefillCostScale = math.max(0, tonumber(refillConfig.FullRefillCostScale) or 0.35)
-	local minimumWeaponRefillCost = math.max(0, math.floor((tonumber(refillConfig.MinimumWeaponRefillCost) or 10) + 0.5))
-	local minimumPurchaseCost = math.max(0, math.floor((tonumber(refillConfig.MinimumPurchaseCost) or 1) + 0.5))
+	local minimumWeaponRefillCost = roundWholeNumber(refillConfig.MinimumWeaponRefillCost or 10)
+	local minimumPurchaseCost = roundWholeNumber(refillConfig.MinimumPurchaseCost or 1)
 
 	return {
 		fullRefillCostScale = fullRefillCostScale,
@@ -85,7 +132,7 @@ function CatalogAndPricing.buildWeaponAmmoRefillQuote(player, weaponDef, tool, p
 	if not (player and player:IsA("Player")) then
 		return nil
 	end
-	if type(weaponDef) ~= "table" or type(weaponDef.Id) ~= "string" or weaponDef.Id == "" then
+	if not isValidWeaponDef(weaponDef) then
 		return nil
 	end
 	if not (tool and tool:IsA("Tool")) then
@@ -107,48 +154,17 @@ function CatalogAndPricing.buildWeaponAmmoRefillQuote(player, weaponDef, tool, p
 		}
 	end
 
-	local maxTotalAmmo = ammoSnapshot.maxTotalAmmo
-	local missingAmmo = ammoSnapshot.missingAmmo
-	if maxTotalAmmo <= 0 or missingAmmo <= 0 then
-		return {
-			weaponId = weaponDef.Id,
-			tool = tool,
-			refillKind = "Tool",
-			isRefillable = true,
-			canRefill = false,
-			cost = 0,
-			currentTotalAmmo = ammoSnapshot.currentTotalAmmo,
-			maxTotalAmmo = maxTotalAmmo,
-			missingAmmo = missingAmmo,
-		}
-	end
-
-	local weaponCost = context.getWeaponCostForPlayer(player, weaponDef)
-	local fullRefillCost = math.max(
-		pricingConfig.minimumWeaponRefillCost,
-		math.floor((weaponCost * pricingConfig.fullRefillCostScale) + 0.5)
-	)
-	local proportionalCost = math.floor((fullRefillCost * (missingAmmo / maxTotalAmmo)) + 0.5)
-	local refillCost = math.max(pricingConfig.minimumPurchaseCost, proportionalCost)
-
-	return {
-		weaponId = weaponDef.Id,
+	local refillCost, canRefill = calculateRefillCost(player, weaponDef, ammoSnapshot, pricingConfig, context)
+	return buildRefillQuoteFromSnapshot(weaponDef, "Tool", ammoSnapshot, refillCost, canRefill, {
 		tool = tool,
-		refillKind = "Tool",
-		isRefillable = true,
-		canRefill = refillCost > 0,
-		cost = math.max(0, refillCost),
-		currentTotalAmmo = ammoSnapshot.currentTotalAmmo,
-		maxTotalAmmo = maxTotalAmmo,
-		missingAmmo = missingAmmo,
-	}
+	})
 end
 
 function CatalogAndPricing.buildSentryAmmoRefillQuote(player, weaponDef, sentryRecords, pricingConfig, context)
 	if not (player and player:IsA("Player")) then
 		return nil
 	end
-	if type(weaponDef) ~= "table" or type(weaponDef.Id) ~= "string" or weaponDef.Id == "" then
+	if not isValidWeaponDef(weaponDef) then
 		return nil
 	end
 	if type(sentryRecords) ~= "table" or #sentryRecords == 0 then
@@ -160,41 +176,10 @@ function CatalogAndPricing.buildSentryAmmoRefillQuote(player, weaponDef, sentryR
 		return nil
 	end
 
-	local maxTotalAmmo = ammoSnapshot.maxTotalAmmo
-	local missingAmmo = ammoSnapshot.missingAmmo
-	if maxTotalAmmo <= 0 or missingAmmo <= 0 then
-		return {
-			weaponId = weaponDef.Id,
-			refillKind = "Sentry",
-			sentryRecords = sentryRecords,
-			isRefillable = true,
-			canRefill = false,
-			cost = 0,
-			currentTotalAmmo = ammoSnapshot.currentTotalAmmo,
-			maxTotalAmmo = maxTotalAmmo,
-			missingAmmo = missingAmmo,
-		}
-	end
-
-	local weaponCost = context.getWeaponCostForPlayer(player, weaponDef)
-	local fullRefillCost = math.max(
-		pricingConfig.minimumWeaponRefillCost,
-		math.floor((weaponCost * pricingConfig.fullRefillCostScale) + 0.5)
-	)
-	local proportionalCost = math.floor((fullRefillCost * (missingAmmo / maxTotalAmmo)) + 0.5)
-	local refillCost = math.max(pricingConfig.minimumPurchaseCost, proportionalCost)
-
-	return {
-		weaponId = weaponDef.Id,
-		refillKind = "Sentry",
+	local refillCost, canRefill = calculateRefillCost(player, weaponDef, ammoSnapshot, pricingConfig, context)
+	return buildRefillQuoteFromSnapshot(weaponDef, "Sentry", ammoSnapshot, refillCost, canRefill, {
 		sentryRecords = sentryRecords,
-		isRefillable = true,
-		canRefill = refillCost > 0,
-		cost = math.max(0, refillCost),
-		currentTotalAmmo = ammoSnapshot.currentTotalAmmo,
-		maxTotalAmmo = maxTotalAmmo,
-		missingAmmo = missingAmmo,
-	}
+	})
 end
 
 function CatalogAndPricing.collectAmmoRefillQuotesForOwnedWeapons(player, context)

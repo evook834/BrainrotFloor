@@ -46,6 +46,23 @@ local function getTargetCharacter()
 	return targetPlayer.Character
 end
 
+local function findValidTarget()
+	if #livingPlayerUserIds == 0 then
+		return nil
+	end
+	local originalIndex = targetIndex
+	local attempts = 0
+	while attempts < #livingPlayerUserIds do
+		attempts = attempts + 1
+		local character = getTargetCharacter()
+		if character then
+			return character
+		end
+		cycleTarget(1)
+	end
+	return nil
+end
+
 local function getTargetRootPart(character)
 	if not character then
 		return nil
@@ -60,7 +77,12 @@ local function updateSpectatorCamera()
 	local character = getTargetCharacter()
 	local rootPart = getTargetRootPart(character)
 	if not rootPart then
-		return
+		-- Try to find a valid target if current one is invalid
+		character = findValidTarget()
+		rootPart = getTargetRootPart(character)
+		if not rootPart then
+			return
+		end
 	end
 	local targetCf = rootPart.CFrame * CFrame.new(SPECTATE_OFFSET)
 	local currentCf = camera.CFrame
@@ -231,6 +253,10 @@ local function onSpectatorState(payload)
 					targetIndex = math.max(1, #livingPlayerUserIds)
 				end
 				startCountdown()
+				-- Verify current target is valid, find valid one if not
+				if not getTargetCharacter() then
+					findValidTarget()
+				end
 			end
 		else
 			stopSpectating()

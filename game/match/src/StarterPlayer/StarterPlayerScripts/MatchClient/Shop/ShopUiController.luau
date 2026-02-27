@@ -17,6 +17,25 @@ local BUTTON_CLOSED = Color3.fromRGB(78, 52, 52)
 local BUTTON_LOCKED = Color3.fromRGB(76, 70, 52)
 local started = false
 
+local function roundWholeNumber(value)
+	return math.max(0, math.floor((tonumber(value) or 0) + 0.5))
+end
+
+local function extractCatalogFailure(catalog)
+	local failureMessage = "Could not load shop data."
+	local waveState = "Unknown"
+	if type(catalog) == "table" then
+		if type(catalog.message) == "string" and catalog.message ~= "" then
+			failureMessage = catalog.message
+		end
+		if type(catalog.waveState) == "string" and catalog.waveState ~= "" then
+			waveState = catalog.waveState
+		end
+	end
+
+	return failureMessage, waveState
+end
+
 local function run()
 	if started then
 		return
@@ -95,7 +114,7 @@ local function run()
 			view.setSubtitle(string.format("Store CLOSED while wave is active (%s)", waveState), SUBTITLE_CLOSED)
 		end
 
-		local refillAllCost = math.max(0, math.floor((tonumber(catalog.refillAllCost) or 0) + 0.5))
+		local refillAllCost = roundWholeNumber(catalog.refillAllCost)
 		local canRefillAll = catalog.canRefillAll == true and refillAllCost > 0
 		resetRefillAllButton()
 		if not canPurchase then
@@ -107,7 +126,7 @@ local function run()
 			refillAllButton.Text = string.format("Refill All Owned ($%d)", refillAllCost)
 			refillAllButton.BackgroundColor3 = BUTTON_ENABLED
 		else
-			local ownedRefillable = math.max(0, math.floor((tonumber(catalog.ownedRefillableWeapons) or 0) + 0.5))
+			local ownedRefillable = roundWholeNumber(catalog.ownedRefillableWeapons)
 			if ownedRefillable <= 0 then
 				refillAllButton.Text = "No Owned Ammo Weapons"
 			else
@@ -158,8 +177,8 @@ local function run()
 
 			local ownedAmmoLine = ""
 			if weapon.owned and type(weapon.currentAmmoTotal) == "number" and type(weapon.maxAmmoTotal) == "number" and weapon.maxAmmoTotal > 0 then
-				local currentTotal = math.max(0, math.floor((tonumber(weapon.currentAmmoTotal) or 0) + 0.5))
-				local maxTotal = math.max(0, math.floor((tonumber(weapon.maxAmmoTotal) or 0) + 0.5))
+				local currentTotal = roundWholeNumber(weapon.currentAmmoTotal)
+				local maxTotal = roundWholeNumber(weapon.maxAmmoTotal)
 				ownedAmmoLine = string.format("  AMMO %d/%d", currentTotal, maxTotal)
 			end
 
@@ -204,7 +223,7 @@ local function run()
 
 			local disabled = false
 			local isAmmoPurchase = false
-			local refillCost = math.max(0, math.floor((tonumber(weapon.refillCost) or 0) + 0.5))
+			local refillCost = roundWholeNumber(weapon.refillCost)
 			if weapon.owned then
 				if weapon.isRefillable ~= true then
 					disabled = true
@@ -278,16 +297,7 @@ local function run()
 		view.clearRows()
 		resetRefillAllButton()
 
-		local failureMessage = "Could not load shop data."
-		local waveState = "Unknown"
-		if type(catalog) == "table" then
-			if type(catalog.message) == "string" and catalog.message ~= "" then
-				failureMessage = catalog.message
-			end
-			if type(catalog.waveState) == "string" and catalog.waveState ~= "" then
-				waveState = catalog.waveState
-			end
-		end
+		local failureMessage, waveState = extractCatalogFailure(catalog)
 
 		view.setSubtitle(string.format("Store unavailable (%s)", waveState), SUBTITLE_CLOSED)
 		view.setStatus(failureMessage, STATUS_ERROR)

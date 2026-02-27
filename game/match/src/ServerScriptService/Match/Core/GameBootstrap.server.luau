@@ -1128,7 +1128,19 @@ local function onSpectatorRequest(player, request)
 		return { success = false, message = "Player no longer in game" }
 	end
 
-	if request == "toggleSpectate" then
+	if request == "enterSpectate" then
+		if spectatingPlayers[player] == true then
+			return { success = false, message = "Already spectating", isSpectating = true }
+		end
+		if not hasAnyLivingPlayers() then
+			return { success = false, message = "No living players to spectate" }
+		end
+		spectatingPlayers[player] = true
+		local respawnsAt = Workspace:GetServerTimeNow() + respawnDelaySeconds
+		notifySpectator(player, true, getLivingPlayerUserIds(), respawnsAt)
+		notifyAllSpectators()
+		return { success = true, isSpectating = true }
+	elseif request == "toggleSpectate" then
 		local wasSpectating = spectatingPlayers[player] == true
 		if wasSpectating then
 			spectatingPlayers[player] = nil

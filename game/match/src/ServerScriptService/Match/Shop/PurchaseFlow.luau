@@ -1,5 +1,32 @@
 local PurchaseFlow = {}
 
+local MESSAGE_UNKNOWN_WEAPON = "Unknown weapon."
+local MESSAGE_BETWEEN_WAVES = "You can only buy between waves."
+local MESSAGE_NOT_ENOUGH_MONEY = "Not enough money."
+local MESSAGE_MONEY_UNAVAILABLE = "Money data not available."
+local MESSAGE_NOT_OWNED = "You do not own this weapon."
+local MESSAGE_AMMO_FULL = "Ammo is already full."
+local MESSAGE_NO_AMMO = "This weapon does not use ammo."
+local MESSAGE_ALL_AMMO_FULL = "All owned weapon ammo is already full."
+
+local function failure(message)
+	return {
+		success = false,
+		message = message,
+	}
+end
+
+local function success(message)
+	return {
+		success = true,
+		message = message,
+	}
+end
+
+local function canPurchaseRightNow(context)
+	return context.canPurchaseNow() == true
+end
+
 local function getCurrentMoney(player, context)
 	if type(context.getCurrentMoney) == "function" then
 		return context.getCurrentMoney(player)
@@ -13,6 +40,19 @@ local function getCurrentMoney(player, context)
 	end
 
 	return nil
+end
+
+local function ensureMoney(player, requiredAmount, context)
+	local currentMoney = getCurrentMoney(player, context)
+	if currentMoney == nil then
+		return nil, failure(MESSAGE_MONEY_UNAVAILABLE)
+	end
+
+	if currentMoney < requiredAmount then
+		return nil, failure(MESSAGE_NOT_ENOUGH_MONEY)
+	end
+
+	return currentMoney, nil
 end
 
 local function tryCharge(player, amount, context)
@@ -95,72 +135,40 @@ end
 function PurchaseFlow.buyWeapon(player, weaponId, context)
 	local weaponDef = context.weaponById[weaponId]
 	if not weaponDef then
-		return {
-			success = false,
-			message = "Unknown weapon.",
-		}
+		return failure(MESSAGE_UNKNOWN_WEAPON)
 	end
 
-	local canPurchase = context.canPurchaseNow()
-	if not canPurchase then
-		return {
-			success = false,
-			message = "You can only buy between waves.",
-		}
+	if not canPurchaseRightNow(context) then
+		return failure(MESSAGE_BETWEEN_WAVES)
 	end
 
 	if not context.canPlayerUseWeapon(player, weaponDef) then
-		return {
-			success = false,
-			message = context.getClassRestrictionMessage(player),
-		}
+		return failure(context.getClassRestrictionMessage(player))
 	end
 
 	local requiredWeaponId = context.getRequiredOwnedWeaponId(weaponDef)
 	if requiredWeaponId and not context.playerOwnsWeapon(player, requiredWeaponId) then
-		return {
-			success = false,
-			message = context.getUpgradeRestrictionMessage(weaponDef),
-		}
+		return failure(context.getUpgradeRestrictionMessage(weaponDef))
 	end
 
 	if context.playerOwnsWeapon(player, weaponId) then
-		return {
-			success = false,
-			message = "You already own this weapon.",
-		}
-	end
-
-	local currentMoney = getCurrentMoney(player, context)
-	if currentMoney == nil then
-		return {
-			success = false,
-			message = "Money data not available.",
-		}
+		return failure("You already own this weapon.")
 	end
 
 	local weaponCost = context.getWeaponCostForPlayer(player, weaponDef)
-	if currentMoney < weaponCost then
-		return {
-			success = false,
-			message = "Not enough money.",
-		}
+	local _, moneyFailure = ensureMoney(player, weaponCost, context)
+	if moneyFailure then
+		return moneyFailure
 	end
 
 	if not tryCharge(player, weaponCost, context) then
-		return {
-			success = false,
-			message = "Not enough money.",
-		}
+		return failure(MESSAGE_NOT_ENOUGH_MONEY)
 	end
 
 	local granted, grantError = PurchaseFlow.grantWeapon(player, weaponDef, context)
 	if not granted then
 		refundCharge(player, weaponCost, context)
-		return {
-			success = false,
-			message = grantError or "Could not grant weapon.",
-		}
+		return failure(grantError or "Could not grant weapon.")
 	end
 
 	local baseCost = math.max(0, math.floor((tonumber(weaponDef.Cost) or 0) + 0.5))
@@ -169,93 +177,53 @@ function PurchaseFlow.buyWeapon(player, weaponId, context)
 		purchaseMessage = string.format("Bought %s for $%d (class discount)", weaponDef.DisplayName, weaponCost)
 	end
 
-	return {
-		success = true,
-		message = purchaseMessage,
-	}
+	return success(purchaseMessage)
 end
 
 function PurchaseFlow.buyAmmoForWeapon(player, weaponId, context)
 	local weaponDef = context.weaponById[weaponId]
 	if not weaponDef then
-		return {
-			success = false,
-			message = "Unknown weapon.",
-		}
+		return failure(MESSAGE_UNKNOWN_WEAPON)
 	end
 
-	local canPurchase = context.canPurchaseNow()
-	if not canPurchase then
-		return {
-			success = false,
-			message = "You can only buy between waves.",
-		}
+	if not canPurchaseRightNow(context) then
+		return failure(MESSAGE_BETWEEN_WAVES)
 	end
 
 	if not context.canPlayerUseWeapon(player, weaponDef) then
-		return {
-			success = false,
-			message = context.getClassRestrictionMessage(player),
-		}
+		return failure(context.getClassRestrictionMessage(player))
 	end
 
 	local refillSummary = context.collectAmmoRefillQuotesForOwnedWeapons(player)
 	local quote = refillSummary.quotesByWeaponId[weaponId]
 	if not quote then
-		return {
-			success = false,
-			message = "You do not own this weapon.",
-		}
+		return failure(MESSAGE_NOT_OWNED)
 	end
 
 	local isSentryRefill = quote.refillKind == "Sentry"
 	if isSentryRefill then
 		if type(quote.sentryRecords) ~= "table" or #quote.sentryRecords == 0 then
-			return {
-				success = false,
-				message = "You do not own this weapon.",
-			}
+			return failure(MESSAGE_NOT_OWNED)
 		end
 	elseif not quote.tool or quote.tool.Parent == nil then
-		return {
-			success = false,
-			message = "You do not own this weapon.",
-		}
+		return failure(MESSAGE_NOT_OWNED)
 	end
 
 	if quote.isRefillable ~= true then
-		return {
-			success = false,
-			message = "This weapon does not use ammo.",
-		}
+		return failure(MESSAGE_NO_AMMO)
 	end
 
 	if quote.canRefill ~= true or quote.cost <= 0 then
-		return {
-			success = false,
-			message = "Ammo is already full.",
-		}
+		return failure(MESSAGE_AMMO_FULL)
 	end
 
-	local currentMoney = getCurrentMoney(player, context)
-	if currentMoney == nil then
-		return {
-			success = false,
-			message = "Money data not available.",
-		}
-	end
-	if currentMoney < quote.cost then
-		return {
-			success = false,
-			message = "Not enough money.",
-		}
+	local _, moneyFailure = ensureMoney(player, quote.cost, context)
+	if moneyFailure then
+		return moneyFailure
 	end
 
 	if not tryCharge(player, quote.cost, context) then
-		return {
-			success = false,
-			message = "Not enough money.",
-		}
+		return failure(MESSAGE_NOT_ENOUGH_MONEY)
 	end
 
 	local didRefill = false
@@ -266,54 +234,29 @@ function PurchaseFlow.buyAmmoForWeapon(player, weaponId, context)
 	end
 	if not didRefill then
 		refundCharge(player, quote.cost, context)
-		return {
-			success = false,
-			message = "Ammo is already full.",
-		}
+		return failure(MESSAGE_AMMO_FULL)
 	end
 
-	return {
-		success = true,
-		message = string.format("Refilled %s ammo for $%d", weaponDef.DisplayName, quote.cost),
-	}
+	return success(string.format("Refilled %s ammo for $%d", weaponDef.DisplayName, quote.cost))
 end
 
 function PurchaseFlow.buyAmmoForAllOwnedWeapons(player, context)
-	local canPurchase = context.canPurchaseNow()
-	if not canPurchase then
-		return {
-			success = false,
-			message = "You can only buy between waves.",
-		}
+	if not canPurchaseRightNow(context) then
+		return failure(MESSAGE_BETWEEN_WAVES)
 	end
 
 	local refillSummary = context.collectAmmoRefillQuotesForOwnedWeapons(player)
 	if refillSummary.refillAllCost <= 0 or refillSummary.refillableWeaponsWithMissingAmmo <= 0 then
-		return {
-			success = false,
-			message = "All owned weapon ammo is already full.",
-		}
+		return failure(MESSAGE_ALL_AMMO_FULL)
 	end
 
-	local currentMoney = getCurrentMoney(player, context)
-	if currentMoney == nil then
-		return {
-			success = false,
-			message = "Money data not available.",
-		}
-	end
-	if currentMoney < refillSummary.refillAllCost then
-		return {
-			success = false,
-			message = "Not enough money.",
-		}
+	local _, moneyFailure = ensureMoney(player, refillSummary.refillAllCost, context)
+	if moneyFailure then
+		return moneyFailure
 	end
 
 	if not tryCharge(player, refillSummary.refillAllCost, context) then
-		return {
-			success = false,
-			message = "Not enough money.",
-		}
+		return failure(MESSAGE_NOT_ENOUGH_MONEY)
 	end
 
 	local spent = 0
@@ -340,10 +283,7 @@ function PurchaseFlow.buyAmmoForAllOwnedWeapons(player, context)
 
 	if refilledCount <= 0 then
 		refundCharge(player, refillSummary.refillAllCost, context)
-		return {
-			success = false,
-			message = "All owned weapon ammo is already full.",
-		}
+		return failure(MESSAGE_ALL_AMMO_FULL)
 	end
 
 	local refund = refillSummary.refillAllCost - spent
@@ -351,10 +291,7 @@ function PurchaseFlow.buyAmmoForAllOwnedWeapons(player, context)
 		refundCharge(player, refund, context)
 	end
 
-	return {
-		success = true,
-		message = string.format("Refilled ammo for %d weapon%s for $%d", refilledCount, if refilledCount == 1 then "" else "s", spent),
-	}
+	return success(string.format("Refilled ammo for %d weapon%s for $%d", refilledCount, if refilledCount == 1 then "" else "s", spent))
 end
 
 return PurchaseFlow
