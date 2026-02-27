@@ -4,6 +4,7 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 local GUI_NAME = "AmmoHud"
+local HUD_MOVE_MODE_ATTRIBUTE = "LobbyHudMoveModeEnabled"
 
 local existingGui = playerGui:FindFirstChild(GUI_NAME)
 if existingGui then
@@ -155,6 +156,16 @@ local function readAmmoSnapshot(tool)
 end
 
 local function refreshHud()
+	-- When HUD Move mode is enabled, always show a static preview matching the lobby HUD.
+	if playerGui:GetAttribute(HUD_MOVE_MODE_ATTRIBUTE) == true then
+		weaponNameLabel.Text = "WEAPON PREVIEW"
+		ammoLabel.Text = "30 / 120"
+		detailsLabel.Text = "MAG 30   RESERVE 90"
+		statusLabel.Visible = false
+		root.Visible = true
+		return
+	end
+
 	if not currentCharacter or not currentTool then
 		root.Visible = false
 		return
@@ -282,3 +293,5 @@ player.CharacterRemoving:Connect(function(character)
 		bindCharacter(nil)
 	end
 end)
+
+playerGui:GetAttributeChangedSignal(HUD_MOVE_MODE_ATTRIBUTE):Connect(refreshHud)

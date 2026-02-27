@@ -7,6 +7,8 @@ local Config = require(ReplicatedStorage.Shared.GameConfig)
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
+local HUD_MOVE_MODE_ATTRIBUTE = "LobbyHudMoveModeEnabled"
+
 local existingGui = playerGui:FindFirstChild("ClassXpBarHud")
 if existingGui then
 	existingGui:Destroy()
@@ -245,6 +247,7 @@ local pulseStrokeColor = Color3.fromRGB(132, 206, 255)
 local pulseBarFillColor = Color3.fromRGB(140, 221, 255)
 local levelUpPulseToken = 0
 local hudScaleMultiplier = 1
+local lastPayload = nil
 
 local function refreshHudScaleMultiplier()
 	local attributeScale = container:GetAttribute("HudScaleMultiplier")
@@ -335,9 +338,21 @@ local function playLevelUpPulse()
 end
 
 local function applyClassPayload(payload)
+	if playerGui:GetAttribute(HUD_MOVE_MODE_ATTRIBUTE) == true then
+		levelLabel.Text = "Lv 1"
+		perkLabel.Text = "Perk: Lobby preview"
+		bonusLabel.Text = "Active: No perk bonus yet"
+		xpNumberLabel.Text = "XP 0 / 100"
+		barFill.Size = UDim2.fromScale(0.4, 1)
+		barPercentLabel.Text = "40%"
+		return
+	end
+
 	if type(payload) ~= "table" or payload.success ~= true then
 		return
 	end
+
+	lastPayload = payload
 
 	local currentClassData = getCurrentClassData(payload)
 	if not currentClassData then
@@ -392,3 +407,11 @@ if classStateRemote and classStateRemote:IsA("RemoteEvent") then
 		applyClassPayload(payload)
 	end)
 end
+
+playerGui:GetAttributeChangedSignal(HUD_MOVE_MODE_ATTRIBUTE):Connect(function()
+	if lastPayload then
+		applyClassPayload(lastPayload)
+	else
+		applyClassPayload({})
+	end
+end)

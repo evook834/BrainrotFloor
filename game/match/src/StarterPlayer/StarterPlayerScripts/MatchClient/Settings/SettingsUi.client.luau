@@ -1,7 +1,7 @@
---[[ Match settings UI — thin launcher for shared SettingsUi. ]]
 local SharedClient = script.Parent.Parent.Parent:WaitForChild("SharedClient")
-local SettingsUi = require(SharedClient:WaitForChild("Settings"):WaitForChild("SettingsUi"))
+local SettingsMenuController = require(SharedClient:WaitForChild("Settings"):WaitForChild("SettingsMenuController"))
 
-SettingsUi.run({
+SettingsMenuController.run({
+	hudMoveModeAttribute = "LobbyHudMoveModeEnabled",
 	canReturnToLobby = true,
 })
