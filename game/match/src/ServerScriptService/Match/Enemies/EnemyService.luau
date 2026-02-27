@@ -1,154 +1,14 @@
-local ServerStorage = game:GetService("ServerStorage")
-local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Players = game:GetService("Players")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
-local Match = script.Parent.Parent
-local EnemyAIService = require(script.Parent.EnemyAIService)
-local DifficultyService = require(Match.Difficulty.DifficultyService)
-local EnemyVfxService = require(script.Parent.EnemyVfxService)
-local ModelRootResolver = require(script.Parent.ModelRootResolver)
+local EnemyFactory = require(script.Parent.EnemyFactory)
+local EnemyScaling = require(script.Parent.EnemyScaling)
+local EnemySpawnResolver = require(script.Parent.EnemySpawnResolver)
 
 local EnemyService = {}
 
-local function getEnemyTemplates()
-	local folder = ServerStorage:FindFirstChild(Config.Enemy.TemplateFolderName)
-	if not folder then
-		return {}
-	end
-
-	local templates = {}
-	for _, child in folder:GetChildren() do
-		if child:IsA("Model") and ModelRootResolver.resolveRootPart(child) then
-			table.insert(templates, child)
-		end
-	end
-
-	return templates
-end
-
-local function getTemplateByName(templateName)
-	local folder = ServerStorage:FindFirstChild(Config.Enemy.TemplateFolderName)
-	if not folder then
-		return nil
-	end
-
-	local template = folder:FindFirstChild(templateName)
-	if template and template:IsA("Model") and ModelRootResolver.resolveRootPart(template) then
-		return template
-	end
-
-	return nil
-end
-
-local function getSpawnPoints()
-	local spawnFolder = Workspace:FindFirstChild(Config.Enemy.SpawnFolderName)
-	if not spawnFolder then
-		return {}
-	end
-
-	local points = {}
-	for _, child in spawnFolder:GetChildren() do
-		if child:IsA("BasePart") then
-			table.insert(points, child)
-		end
-	end
-
-	return points
-end
-
-local function getEnemyContainer()
-	local container = Workspace:FindFirstChild(Config.Enemy.ContainerName)
-	if container then
-		return container
-	end
-
-	container = Instance.new("Folder")
-	container.Name = Config.Enemy.ContainerName
-	container.Parent = Workspace
-	return container
-end
-
 local function chooseRandom(list)
 	return list[math.random(1, #list)]
-end
-
-local function getTemplateProfile(templateName)
-	local templateProfile = (Config.Enemy.TemplateProfiles or {})[templateName]
-	if type(templateProfile) == "table" then
-		return templateProfile
-	end
-
-	return nil
-end
-
-local function getSpawnOffsetY(enemyModel, templateName, spawnPoint)
-	local halfHeight = 2
-	local ok, _, size = pcall(function()
-		return enemyModel:GetBoundingBox()
-	end)
-	if ok and size then
-		halfHeight = size.Y * 0.5
-	end
-
-	local templateProfile = getTemplateProfile(templateName)
-	local profileOffsetY = 0
-	if type(templateProfile) == "table" and type(templateProfile.SpawnOffsetY) == "number" then
-		profileOffsetY = templateProfile.SpawnOffsetY
-	end
-
-	local spawnPartHalfHeight = 0
-	if spawnPoint and spawnPoint:IsA("BasePart") then
-		spawnPartHalfHeight = spawnPoint.Size.Y * 0.5
-	end
-
-	return spawnPartHalfHeight + halfHeight + (Config.Enemy.SpawnPaddingY or 0.1) + profileOffsetY
-end
-
-local function addTemplateHitboxProxy(enemyModel, templateName, rootPart)
-	local templateProfile = getTemplateProfile(templateName)
-	if not templateProfile then
-		return
-	end
-
-	local hitboxScale = tonumber(templateProfile.HitboxScale) or 1
-	local hitboxPadding = tonumber(templateProfile.HitboxPadding) or 0
-	if hitboxScale <= 1 and hitboxPadding <= 0 then
-		return
-	end
-
-	local scaledSize = rootPart.Size * math.max(0.1, hitboxScale)
-	local totalPadding = math.max(0, hitboxPadding) * 2
-	local proxySize = Vector3.new(
-		math.max(0.2, scaledSize.X + totalPadding),
-		math.max(0.2, scaledSize.Y + totalPadding),
-		math.max(0.2, scaledSize.Z + totalPadding)
-	)
-
-	local existingProxy = enemyModel:FindFirstChild("HitboxProxy")
-	if existingProxy and existingProxy:IsA("BasePart") then
-		existingProxy:Destroy()
-	end
-
-	local proxy = Instance.new("Part")
-	proxy.Name = "HitboxProxy"
-	proxy.Size = proxySize
-	proxy.CFrame = rootPart.CFrame
-	proxy.Transparency = 1
-	proxy.Anchored = false
-	proxy.CanCollide = false
-	proxy.CanTouch = false
-	proxy.CanQuery = true
-	proxy.CastShadow = false
-	proxy.Massless = true
-	proxy.Parent = enemyModel
-
-	local weld = Instance.new("WeldConstraint")
-	weld.Name = "HitboxProxyWeld"
-	weld.Part0 = proxy
-	weld.Part1 = rootPart
-	weld.Parent = proxy
 end
 
 local function getSpawnCadence()
@@ -221,42 +81,9 @@ local function getDelayUntilNextBurst(spawnedCount, enemyCount, waveNumber, cade
 	return interval
 end
 
-local function getEnemyHealthMultiplierForDifficulty(difficulty)
-	local multiplier = tonumber(DifficultyService.getNumberSetting("EnemyHealthMultiplier", 1, difficulty)) or 1
-	if multiplier <= 0 then
-		return 1
-	end
-
-	return multiplier
-end
-
-local function getEnemyHealthMultiplierForPlayers(playerCount)
-	local scaling = Config.Wave.WaveScaling or {}
-	if scaling.Enabled == false then
-		return 1
-	end
-
-	local basePlayers = math.max(1, math.floor((tonumber(scaling.BasePlayers) or 1) + 0.5))
-	local extraPlayers = math.max(0, math.max(1, math.floor((tonumber(playerCount) or 1) + 0.5)) - basePlayers)
-	local multiplierPerExtraPlayer = math.max(0, tonumber(scaling.EnemyHealthMultiplierPerExtraPlayer) or 0.15)
-	local maxMultiplier = math.max(1, tonumber(scaling.MaxEnemyHealthMultiplier) or 1.75)
-	local multiplier = 1 + (extraPlayers * multiplierPerExtraPlayer)
-
-	return math.max(1, math.min(maxMultiplier, multiplier))
-end
-
-local function getEnemyDamageMultiplierForDifficulty(difficulty)
-	local multiplier = tonumber(DifficultyService.getNumberSetting("EnemyDamageMultiplier", 1, difficulty)) or 1
-	if multiplier < 0 then
-		return 0
-	end
-
-	return multiplier
-end
-
 function EnemyService.spawnWave(enemyCount, waveNumber, options)
-	local templates = getEnemyTemplates()
-	local spawnPoints = getSpawnPoints()
+	local templates = EnemySpawnResolver.getEnemyTemplates()
+	local spawnPoints = EnemySpawnResolver.getSpawnPoints()
 
 	if #templates == 0 then
 		warn("No enemy templates found in ServerStorage/EnemyTemplates")
@@ -268,19 +95,10 @@ function EnemyService.spawnWave(enemyCount, waveNumber, options)
 		return 0
 	end
 
-	local container = getEnemyContainer()
+	local container = EnemySpawnResolver.getEnemyContainer()
 	local spawned = 0
 	local cadence = getSpawnCadence()
-	local activeWaveNumber = waveNumber or 1
-	local activeDifficulty = DifficultyService.getCurrentDifficulty()
-	local playerCountForWave = math.max(1, #Players:GetPlayers())
-	if type(options) == "table" and type(options.playerCount) == "number" then
-		playerCountForWave = math.max(1, math.floor(options.playerCount + 0.5))
-	end
-	local enemyDifficultyHealthMultiplier = getEnemyHealthMultiplierForDifficulty(activeDifficulty)
-	local enemyPlayerHealthMultiplier = getEnemyHealthMultiplierForPlayers(playerCountForWave)
-	local enemyHealthMultiplier = enemyDifficultyHealthMultiplier * enemyPlayerHealthMultiplier
-	local enemyDamageMultiplier = getEnemyDamageMultiplierForDifficulty(activeDifficulty)
+	local waveContext = EnemyScaling.buildWaveContext(waveNumber, options)
 
 	if enemyCount > 0 and cadence.InitialDelaySeconds > 0 then
 		task.wait(cadence.InitialDelaySeconds)
@@ -288,68 +106,19 @@ function EnemyService.spawnWave(enemyCount, waveNumber, options)
 
 	local spawnIndex = 0
 	while spawnIndex < enemyCount do
-		local cadencePlayerCount = math.max(1, #Players:GetPlayers())
+		local cadencePlayerCount = EnemyScaling.resolvePlayerCount(nil)
 		local burstSize, intervalMultiplier, groupPauseMultiplier = getPlayerSpawnModifiers(cadencePlayerCount, cadence)
 		local toSpawnNow = math.min(burstSize, enemyCount - spawnIndex)
 
 		for burstIndex = 1, toSpawnNow do
 			spawnIndex += 1
 			local template = chooseRandom(templates)
-			local templateName = template.Name
 			local spawnPoint = chooseRandom(spawnPoints)
-			local enemy = template:Clone()
-			enemy.Name = string.format("Brainrot_%d", spawnIndex)
-
-			local humanoid = enemy:FindFirstChildOfClass("Humanoid")
-			local root = ModelRootResolver.resolveRootPart(enemy)
-
-			if root then
-				addTemplateHitboxProxy(enemy, templateName, root)
-				local spawnOffsetY = getSpawnOffsetY(enemy, templateName, spawnPoint)
-				enemy:PivotTo(spawnPoint.CFrame + Vector3.new(0, spawnOffsetY, 0))
-				enemy.Parent = container
-				enemy:SetAttribute("IsEnemy", true)
-				enemy:SetAttribute("Difficulty", activeDifficulty)
-				enemy:SetAttribute("EnemyPlayerCountForScaling", playerCountForWave)
-				enemy:SetAttribute("EnemyPlayerHealthMultiplier", enemyPlayerHealthMultiplier)
-				enemy:SetAttribute("EnemyHealthMultiplier", enemyHealthMultiplier)
-				enemy:SetAttribute("EnemyDamageMultiplier", enemyDamageMultiplier)
-				enemy:SetAttribute("EnemyType", templateName)
-				enemy:SetAttribute(
-					"Bounty",
-					(Config.Enemy.BaseBounty or 25) + math.max(0, activeWaveNumber - 1) * (Config.Enemy.BountyPerWave or 4)
-				)
+			local enemy = EnemyFactory.spawnFromTemplate(template, spawnPoint, container, waveContext, {
+				enemyName = string.format("Brainrot_%d", spawnIndex),
+			})
+			if enemy then
 				spawned += 1
-				EnemyAIService.start(enemy, templateName)
-
-				if humanoid then
-					local baseMaxHealth = math.max(1, humanoid.MaxHealth)
-					local healthRatio = math.clamp(humanoid.Health / baseMaxHealth, 0, 1)
-					local scaledMaxHealth = math.max(1, baseMaxHealth * enemyHealthMultiplier)
-					humanoid.MaxHealth = scaledMaxHealth
-					humanoid.Health = scaledMaxHealth * healthRatio
-					enemy:SetAttribute("EnemyMaxHealth", humanoid.MaxHealth)
-					enemy:SetAttribute("EnemyHealth", humanoid.Health)
-					humanoid.HealthChanged:Connect(function(newHealth)
-						enemy:SetAttribute("EnemyHealth", newHealth)
-					end)
-
-					humanoid.Died:Once(function()
-						EnemyVfxService.playDeathCloud(enemy)
-						task.delay(2, function()
-							if enemy and enemy.Parent then
-								enemy:Destroy()
-							end
-						end)
-					end)
-				else
-					local nonHumanoidHealth = math.max(1, (Config.Enemy.NonHumanoidMaxHealth or 120) * enemyHealthMultiplier)
-					enemy:SetAttribute("EnemyMaxHealth", nonHumanoidHealth)
-					enemy:SetAttribute("EnemyHealth", nonHumanoidHealth)
-				end
-			else
-				warn(string.format("Template %s has no BasePart to spawn from", template:GetFullName()))
-				enemy:Destroy()
 			end
 
 			if burstIndex < toSpawnNow and cadence.IntraBurstDelaySeconds > 0 then
@@ -360,7 +129,7 @@ function EnemyService.spawnWave(enemyCount, waveNumber, options)
 		local nextDelay = getDelayUntilNextBurst(
 			spawnIndex,
 			enemyCount,
-			activeWaveNumber,
+			waveContext.activeWaveNumber,
 			cadence,
 			intervalMultiplier,
 			groupPauseMultiplier
@@ -374,92 +143,32 @@ function EnemyService.spawnWave(enemyCount, waveNumber, options)
 end
 
 function EnemyService.spawnSingle(templateName, waveNumber, options)
-	local template = getTemplateByName(templateName)
+	local template = EnemySpawnResolver.getTemplateByName(templateName)
 	if not template then
 		warn(string.format("EnemyService.spawnSingle: template %q not found", tostring(templateName)))
 		return nil
 	end
 
-	local spawnPoints = getSpawnPoints()
+	local spawnPoints = EnemySpawnResolver.getSpawnPoints()
 	if #spawnPoints == 0 then
 		warn("No spawn points found in Workspace/SpawnPoints")
 		return nil
 	end
 
-	local container = getEnemyContainer()
-	local activeWaveNumber = waveNumber or 1
-	local activeDifficulty = DifficultyService.getCurrentDifficulty()
-	local playerCountForWave = math.max(1, #Players:GetPlayers())
-	if type(options) == "table" and type(options.playerCount) == "number" then
-		playerCountForWave = math.max(1, math.floor(options.playerCount + 0.5))
-	end
-	local enemyDifficultyHealthMultiplier = getEnemyHealthMultiplierForDifficulty(activeDifficulty)
-	local enemyPlayerHealthMultiplier = getEnemyHealthMultiplierForPlayers(playerCountForWave)
-	local enemyHealthMultiplier = enemyDifficultyHealthMultiplier * enemyPlayerHealthMultiplier
-	local enemyDamageMultiplier = getEnemyDamageMultiplierForDifficulty(activeDifficulty)
-	local enemyTier = (type(options) == "table" and type(options.tier) == "string" and options.tier) or "Easy"
+	local resolvedOptions = type(options) == "table" and options or {}
+	local enemyTier = (type(resolvedOptions.tier) == "string" and resolvedOptions.tier) or "Easy"
 
-	local spawnPoint = chooseRandom(spawnPoints)
-	local enemy = template:Clone()
-	enemy.Name = string.format("Brainrot_%s_%s", templateName, tostring(os.clock()):gsub("%.", "_"))
-
-	local humanoid = enemy:FindFirstChildOfClass("Humanoid")
-	local root = ModelRootResolver.resolveRootPart(enemy)
-
-	if not root then
-		warn(string.format("Template %s has no BasePart to spawn from", template:GetFullName()))
-		enemy:Destroy()
-		return nil
-	end
-
-	addTemplateHitboxProxy(enemy, templateName, root)
-	local spawnOffsetY = getSpawnOffsetY(enemy, templateName, spawnPoint)
-	enemy:PivotTo(spawnPoint.CFrame + Vector3.new(0, spawnOffsetY, 0))
-	enemy.Parent = container
-	enemy:SetAttribute("IsEnemy", true)
-	enemy:SetAttribute("Difficulty", activeDifficulty)
-	enemy:SetAttribute("EnemyPlayerCountForScaling", playerCountForWave)
-	enemy:SetAttribute("EnemyPlayerHealthMultiplier", enemyPlayerHealthMultiplier)
-	enemy:SetAttribute("EnemyHealthMultiplier", enemyHealthMultiplier)
-	enemy:SetAttribute("EnemyDamageMultiplier", enemyDamageMultiplier)
-	enemy:SetAttribute("EnemyType", templateName)
-	enemy:SetAttribute("EnemyTier", enemyTier)
-	enemy:SetAttribute(
-		"Bounty",
-		(Config.Enemy.BaseBounty or 25) + math.max(0, activeWaveNumber - 1) * (Config.Enemy.BountyPerWave or 4)
+	return EnemyFactory.spawnFromTemplate(
+		template,
+		chooseRandom(spawnPoints),
+		EnemySpawnResolver.getEnemyContainer(),
+		EnemyScaling.buildWaveContext(waveNumber, resolvedOptions),
+		{
+			enemyName = string.format("Brainrot_%s_%s", templateName, tostring(os.clock()):gsub("%.", "_")),
+			enemyTier = enemyTier,
+			onEnemyDied = resolvedOptions.onEnemyDied,
+		}
 	)
-	EnemyAIService.start(enemy, templateName)
-
-	if humanoid then
-		local baseMaxHealth = math.max(1, humanoid.MaxHealth)
-		local healthRatio = math.clamp(humanoid.Health / baseMaxHealth, 0, 1)
-		local scaledMaxHealth = math.max(1, baseMaxHealth * enemyHealthMultiplier)
-		humanoid.MaxHealth = scaledMaxHealth
-		humanoid.Health = scaledMaxHealth * healthRatio
-		enemy:SetAttribute("EnemyMaxHealth", humanoid.MaxHealth)
-		enemy:SetAttribute("EnemyHealth", humanoid.Health)
-		humanoid.HealthChanged:Connect(function(newHealth)
-			enemy:SetAttribute("EnemyHealth", newHealth)
-		end)
-
-		humanoid.Died:Once(function()
-			if type(options) == "table" and type(options.onEnemyDied) == "function" then
-				options.onEnemyDied()
-			end
-			EnemyVfxService.playDeathCloud(enemy)
-			task.delay(2, function()
-				if enemy and enemy.Parent then
-					enemy:Destroy()
-				end
-			end)
-		end)
-	else
-		local nonHumanoidHealth = math.max(1, (Config.Enemy.NonHumanoidMaxHealth or 120) * enemyHealthMultiplier)
-		enemy:SetAttribute("EnemyMaxHealth", nonHumanoidHealth)
-		enemy:SetAttribute("EnemyHealth", nonHumanoidHealth)
-	end
-
-	return enemy
 end
 
 return EnemyService

@@ -3,29 +3,15 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
+local SharedEnemyDefinitions = require(ReplicatedStorage.Shared.Enemy.EnemyDefinitions)
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local Match = script.Parent.Parent
 local ClassService = require(Match.Classes.ClassService)
 local DifficultyService = require(Match.Difficulty.DifficultyService)
+local EnemyRegistry = require(Match.Enemies.EnemyRegistry)
 local ModelRootResolver = require(script.Parent.ModelRootResolver)
 
 local EnemyAIService = {}
-
-local defaultProfile = {
-	MoveSpeed = 12,
-	AttackRange = 4.5,
-	AttackDamage = 12,
-	AttackCooldown = 1.2,
-	AcquireRange = 200,
-	ThinkInterval = 0.15,
-	TurnSpeed = 12,
-	FacingPitchOffsetDegrees = 0,
-	FacingYawOffsetDegrees = 0,
-	FacingRollOffsetDegrees = 0,
-	AttackWindup = 0.2,
-	ChaseAnimationId = "",
-	AttackAnimationId = "",
-}
 local SENTRY_TURRET_FOLDER_NAME = "SentryTurrets"
 
 local function normalizeAnimationId(rawId)
@@ -46,12 +32,10 @@ local function normalizeAnimationId(rawId)
 end
 
 local function mergeProfile(templateName)
-	local profile = table.clone(defaultProfile)
-
-	local configDefaultProfile = Config.Enemy.DefaultProfile or {}
-	for key, value in configDefaultProfile do
-		profile[key] = value
-	end
+	local configDefaultProfile = Config.Enemy.DefaultProfile
+	local profile = table.clone(
+		type(configDefaultProfile) == "table" and configDefaultProfile or SharedEnemyDefinitions.DefaultProfile
+	)
 
 	local templateProfiles = Config.Enemy.TemplateProfiles or {}
 	local templateProfile = templateProfiles[templateName]
@@ -304,7 +288,7 @@ local function getEnemyDamageMultiplier(enemyModel)
 end
 
 function EnemyAIService.start(enemyModel, templateName)
-	local rootPart = ModelRootResolver.resolveRootPart(enemyModel)
+	local rootPart = EnemyRegistry.getRootPart(enemyModel)
 	if not rootPart then
 		return
 	end
@@ -348,7 +332,7 @@ function EnemyAIService.start(enemyModel, templateName)
 				break
 			end
 
-			rootPart = ModelRootResolver.resolveRootPart(enemyModel)
+			rootPart = EnemyRegistry.getRootPart(enemyModel)
 			if not rootPart then
 				break
 			end
@@ -382,7 +366,7 @@ function EnemyAIService.start(enemyModel, templateName)
 								return
 							end
 
-							local liveRootPart = ModelRootResolver.resolveRootPart(enemyModel)
+							local liveRootPart = EnemyRegistry.getRootPart(enemyModel)
 							local liveTargetRoot = ModelRootResolver.resolveRootPart(targetHumanoid.Parent)
 							if not liveRootPart or not liveTargetRoot then
 								return

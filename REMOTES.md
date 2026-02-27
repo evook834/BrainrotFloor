@@ -69,3 +69,52 @@ The `Remotes` folder has attributes updated by the server for clients that read 
 The **Remotes** folder also contains:
 
 - `WaveEnemiesRemaining` (IntValue): number of enemies left to kill for the current wave to complete. Updated by the server when a wave starts and when each enemy dies. Clients can read `.Value` and listen to `.Changed` for the HUD.
+
+---
+
+## SpectatorService
+
+The **SpectatorService** module (`game/match/src/ServerScriptService/Match/Spectator/SpectatorService.luau`) provides a clean API for spectator mode management:
+
+### Functions
+
+| Function | Description |
+|----------|-------------|
+| `SpectatorService.start()` | Initialize the spectator service (called during match bootstrap). Sets up remotes and request handler. |
+| `SpectatorService.stop()` | Stop the spectator service and cleanup state. |
+| `SpectatorService.handleRequest(player, request)` | Handle spectator requests from clients. Returns `{ success, message?, isSpectating? }`. |
+| `SpectatorService.isSpectating(player)` | Check if a player is currently spectating. |
+| `SpectatorService.getSpectatingPlayers()` | Get table of all spectating players. |
+| `SpectatorService.getSpectatingPlayerCount()` | Get count of spectating players. |
+| `SpectatorService.getLivingPlayerUserIds()` | Get array of living player UserIds. |
+| `SpectatorService.onPlayerDeath(player)` | Call when a player dies. Returns `true` if player entered spectating. |
+| `SpectatorService.onPlayerRespawn(player, character)` | Call when a player respawns. Cleans up spectator state. |
+| `SpectatorService.onPlayerJoinDuringMatch(player)` | Call for late joiners during an active match. Forces spectator mode until respawn. |
+| `SpectatorService.onPlayerRemove(player)` | Call when a player leaves the game. Cleanup. |
+| `SpectatorService.enterSpectator(player)` | Explicit API to enter spectator mode. Returns `{ success, message?, isSpectating? }`. |
+| `SpectatorService.exitSpectator(player)` | Explicit API to exit spectator mode. Returns `{ success, message?, isSpectating? }`. |
+| `SpectatorService.spawnNow(player)` | Explicit API to force immediate spawn. Returns `{ success, message?, isSpectating? }`. |
+
+### Server Attributes
+
+The **Remotes** folder has these server-set attributes for client visibility:
+- `SpectatingPlayers` (IntValue): count of players currently in spectator mode. Updated when players enter/exit spectator state.
+- `CurrentSpectatorTarget` (StringValue): name of the player currently being spectated (first target). Updated when cycling or when new spectators join.
+
+### Client-Side API
+
+The client-side **Spectator** system is split into:
+- `game/match/src/StarterPlayer/StarterPlayerScripts/MatchClient/Spectator/Spectator.luau` - Entry module
+- `SpectatorController` - Handles camera control, target cycling, and remote communication
+- `SpectatorView` - Handles UI building and rendering
+
+The client handles:
+- Camera switching to `Scriptable` type and following target player
+- Q/E key handling for target cycling
+- T key for toggling/exit
+- UI display showing target name and respawn countdown
+- Wave state handling (exits spectator on GameOver/Won)
+
+### Deprecated Client Module
+
+The old `game/shared/src/StarterPlayerScripts/SharedClient/Spectator/SpectatorMode.client.luau` module is deprecated and replaced by the MatchClient structure above.

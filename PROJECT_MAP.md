@@ -30,7 +30,7 @@ Replicated to client and server. Config and catalogs only; may only `require` wi
 |---------------|--------|
 | **`GameConfig.luau`** | Top-level config; wires subsystems (waves director, enemies, classes, shop, player, remotes). |
 | **`Classes/`** | Class definitions and system config. |
-| **`Enemy/`** | Enemy config and profiles. |
+| **`Enemy/`** | Enemy config, definitions, profiles, presentation data. |
 | **`Player/`** | Player config (money, respawn, movement). |
 | **`Remotes/`** | Remote names and Remotes folder name. |
 | **`Shop/`** | Shop config and weapon catalog. |
@@ -102,11 +102,12 @@ Match server logic. Put each script in the folder whose description matches its 
 | **`Enemies/`** | Enemy spawn, lifecycle, AI, VFX, model/hitbox resolution, targeting. |
 | **`Combat/`** | Aim validation, damage application, feedback/DOT. |
 | **`Shop/`** | Commerce: catalog, pricing, purchase, inventory. |
-| **`Weapons/`** | Weapon and sentry runtime: tools, ammo, fire, VFX, remotes. |
+| **`Weapons/`** | Weapon and sentry runtime. Subsystems: **`Weapons/Tools/`** (tool creation, template lookup, ammo, shot origin; WeaponToolSetup, WeaponAmmoRuntime, WeaponShotResolver, WeaponToolFactory), **`Weapons/Combat/`** (fire facade/remotes/VFX; WeaponVfx, WeaponFireHandlers, WeaponRemoteBindings; per-mode handlers in `Weapons/Combat/Handlers/`), **`Weapons/Sentry/`** (deploy, placement, combat loop, repair, stat normalization; SentryRuntime, SentryTurretController, SentryStatResolver). |
 | **`Classes/`** | Class selection, XP, levels, persistence, combat rules. |
 | **`Pickups/`** | Ammo zones, pickups, player pickup. |
 | **`Difficulty/`** | Difficulty settings (multipliers, etc.). |
 | **`Settings/`** | Match settings (get/save). |
+| **`Spectator/`** | Spectator mode: SpectatorService server API and client Spectator (entry), SpectatorController (logic), SpectatorView (UI). |
 | **`Tools/`** | Ad-hoc or editor tools (e.g. layout generators). |
 | **`MapVote/`** | Placeholder for map-vote server logic. |
 | **`ReturnToLobby/`** | Placeholder for return-to-lobby server logic. |
@@ -124,7 +125,7 @@ Match client UI and HUD. Match folder names to responsibility.
 | **`Classes/`** | Class UI, XP bar. |
 | **`Combat/`** | Crosshair, ammo HUD, dual-wield pose, damage numbers. |
 | **`Settings/`** | Match settings UI. |
-| **`Spectator/`** | Spectator mode: when dead, spectate living players (camera follow, Q/E cycle). |
+| **`Spectator/`** | Spectator mode client: Spectator (entry), SpectatorController (logic), SpectatorView (UI). |
 | **`ReturnToLobby/`** | Placeholder for return-to-lobby client. |
 
 ### `game/match/src/Workspace/`

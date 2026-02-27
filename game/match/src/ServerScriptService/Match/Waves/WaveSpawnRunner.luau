@@ -4,13 +4,13 @@
 	Wave ends when (RemainingToSpawn == 0 and Alive == 0) or TotalSpawned >= 1500 then cleanup.
 ]]
 
-local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local WaveSpawnLogic = require(script.Parent.WaveSpawnLogic)
 local WaveSpawnSchedule = require(script.Parent.WaveSpawnSchedule)
 local Match = script.Parent.Parent
+local EnemyRegistry = require(Match.Enemies.EnemyRegistry)
 local EnemyService = require(Match.Enemies.EnemyService)
 
 local TIER_TO_ROLE = {
@@ -21,57 +21,11 @@ local TIER_TO_ROLE = {
 }
 
 local function getAliveCount()
-	local container = Workspace:FindFirstChild(Config.Enemy.ContainerName)
-	if not container then
-		return 0
-	end
-
-	local count = 0
-	for _, child in container:GetChildren() do
-		if not child:IsA("Model") then
-			continue
-		end
-		local humanoid = child:FindFirstChildOfClass("Humanoid")
-		if humanoid then
-			if humanoid.Health > 0 then
-				count += 1
-			end
-		else
-			count += 1
-		end
-	end
-	return count
+	return EnemyRegistry.getAliveCount()
 end
 
 local function getAliveByRole()
-	local roleAlive = { trash = 0, medium = 0, heavy = 0, special = 0 }
-	local container = Workspace:FindFirstChild(Config.Enemy.ContainerName)
-	if not container then
-		return roleAlive
-	end
-
-	for _, child in container:GetChildren() do
-		if not child:IsA("Model") then
-			continue
-		end
-		local humanoid = child:FindFirstChildOfClass("Humanoid")
-		local alive = true
-		if humanoid then
-			alive = humanoid.Health > 0
-		end
-		if not alive then
-			continue
-		end
-		local tier = child:GetAttribute("EnemyTier")
-		if type(tier) ~= "string" then
-			tier = "Easy"
-		end
-		local role = TIER_TO_ROLE[tier] or "trash"
-		if roleAlive[role] ~= nil then
-			roleAlive[role] += 1
-		end
-	end
-	return roleAlive
+	return EnemyRegistry.getAliveByRole()
 end
 
 local function isRunning(options)

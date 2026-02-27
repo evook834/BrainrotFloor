@@ -7,11 +7,20 @@
 	(e.g. "Boss") must exist in ServerStorage/EnemyTemplates or spawnSingle returns nil.
 ]]
 
-local EnemyCatalog = {
-	{ Id = "ramar", TemplateName = "Ramar", DisplayName = "Ramar", MinWave = 1, MaxWave = nil, Weight = 1, IsBoss = false },
-	{ Id = "bombardiro_crocodilo", TemplateName = "Bombardiro_Crocodilo", DisplayName = "Bombardiro Crocodilo", MinWave = 1, MaxWave = nil, Weight = 1, IsBoss = false },
-	{ Id = "karkerkar_tries", TemplateName = "KarKerKar_Tries", DisplayName = "KarKerKar Tries", MinWave = 1, MaxWave = nil, Weight = 1, IsBoss = false },
-	{ Id = "boss", TemplateName = "Boss", DisplayName = "Boss", MinWave = 11, MaxWave = 11, Weight = 1, IsBoss = true },
-}
+local EnemyDefinitions = require(script.Parent:WaitForChild("EnemyDefinitions"))
+
+local EnemyCatalog = {}
+
+for _, entry in ipairs(EnemyDefinitions.Entries) do
+	table.insert(EnemyCatalog, {
+		Id = entry.Id,
+		TemplateName = entry.TemplateName,
+		DisplayName = entry.DisplayName,
+		MinWave = entry.MinWave,
+		MaxWave = entry.MaxWave,
+		Weight = entry.Weight,
+		IsBoss = entry.IsBoss,
+	})
+end
 
 return EnemyCatalog

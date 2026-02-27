@@ -1,4 +1,5 @@
 local Workspace = game:GetService("Workspace")
+local SentryStatResolver = require(script.Parent.SentryStatResolver)
 
 local SentryRuntime = {}
 
@@ -244,19 +245,11 @@ function SentryRuntime.new(options)
 	end
 
 	local function resolveTurretMaxAmmo(weaponDef)
-		local configuredMaxAmmo = tonumber(weaponDef and weaponDef.TurretMaxAmmo)
-		if type(configuredMaxAmmo) == "number" and configuredMaxAmmo > 0 then
-			return math.max(1, math.floor(configuredMaxAmmo + 0.5))
-		end
-		return defaultSentryMaxAmmo
+		return SentryStatResolver.resolveTurretMaxAmmo(weaponDef, defaultSentryMaxAmmo)
 	end
 
 	local function resolveTurretInitialAmmo(weaponDef, turretMaxAmmo)
-		local configuredInitialAmmo = tonumber(weaponDef and weaponDef.TurretInitialAmmo)
-		if type(configuredInitialAmmo) == "number" and configuredInitialAmmo >= 0 then
-			return math.clamp(math.floor(configuredInitialAmmo + 0.5), 0, turretMaxAmmo)
-		end
-		return turretMaxAmmo
+		return SentryStatResolver.resolveTurretInitialAmmo(weaponDef, turretMaxAmmo)
 	end
 
 	local function syncSentryAmmoAttributes(record)
@@ -264,8 +257,7 @@ function SentryRuntime.new(options)
 			return
 		end
 
-		local maxAmmo = math.max(1, math.floor((tonumber(record.maxAmmo) or 0) + 0.5))
-		local ammo = math.clamp(math.floor((tonumber(record.ammo) or maxAmmo) + 0.5), 0, maxAmmo)
+		local ammo, maxAmmo = SentryStatResolver.resolveAmmoState(record.ammo, record.maxAmmo, 1)
 		record.maxAmmo = maxAmmo
 		record.ammo = ammo
 
@@ -361,16 +353,10 @@ function SentryRuntime.new(options)
 		local fallbackMaxAmmo = resolveTurretMaxAmmo(weaponDef)
 		for _, record in ipairs(sentryRecords) do
 			if record and record.model and record.model.Parent and record.humanoid and record.humanoid.Health > 0 then
-				local turretMaxAmmo = math.max(
-					1,
-					math.floor(
-						(tonumber(record.maxAmmo) or tonumber(record.model:GetAttribute("TurretMaxAmmo")) or fallbackMaxAmmo) + 0.5
-					)
-				)
-				local ammoBefore = math.clamp(
-					math.floor((tonumber(record.ammo) or tonumber(record.model:GetAttribute("TurretAmmo")) or turretMaxAmmo) + 0.5),
-					0,
-					turretMaxAmmo
+				local ammoBefore, turretMaxAmmo = SentryStatResolver.resolveAmmoStateFromCandidates(
+					{ record.maxAmmo, record.model:GetAttribute("TurretMaxAmmo"), fallbackMaxAmmo },
+					{ record.ammo, record.model:GetAttribute("TurretAmmo") },
+					fallbackMaxAmmo
 				)
 				record.maxAmmo = turretMaxAmmo
 				record.ammo = turretMaxAmmo
@@ -395,14 +381,10 @@ function SentryRuntime.new(options)
 				local model = record.model
 				local modelMaxAmmo = if model and model:IsA("Model") then model:GetAttribute("TurretMaxAmmo") else nil
 				local modelAmmo = if model and model:IsA("Model") then model:GetAttribute("TurretAmmo") else nil
-				local turretMaxAmmo = math.max(
-					1,
-					math.floor((tonumber(record.maxAmmo) or tonumber(modelMaxAmmo) or fallbackMaxAmmo) + 0.5)
-				)
-				local turretAmmo = math.clamp(
-					math.floor((tonumber(record.ammo) or tonumber(modelAmmo) or turretMaxAmmo) + 0.5),
-					0,
-					turretMaxAmmo
+				local turretAmmo, turretMaxAmmo = SentryStatResolver.resolveAmmoStateFromCandidates(
+					{ record.maxAmmo, modelMaxAmmo, fallbackMaxAmmo },
+					{ record.ammo, modelAmmo },
+					fallbackMaxAmmo
 				)
 				record.maxAmmo = turretMaxAmmo
 				record.ammo = turretAmmo

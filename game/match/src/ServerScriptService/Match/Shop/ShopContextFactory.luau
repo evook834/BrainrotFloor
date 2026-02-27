@@ -1,3 +1,8 @@
+--[[
+	ShopContextFactory — Factory for creating context objects for shop modules.
+	Provides dependency injection for catalog, pricing, and purchase operations.
+]]
+
 local ShopContextFactory = {}
 
 function ShopContextFactory.createAmmoQuoteContext(deps)
@@ -43,7 +48,7 @@ function ShopContextFactory.createWeaponPurchaseContext(deps)
 		getRequiredOwnedWeaponId = deps.getRequiredOwnedWeaponId,
 		playerOwnsWeapon = deps.playerOwnsWeapon,
 		getUpgradeRestrictionMessage = deps.getUpgradeRestrictionMessage,
-		getCurrentMoney = deps.getCurrentMoney,
+		getMoneyAmount = deps.getMoneyAmount,
 		trySpendMoney = deps.trySpendMoney,
 		refundMoney = deps.refundMoney,
 		getWeaponCostForPlayer = deps.getWeaponCostForPlayer,
@@ -58,7 +63,7 @@ function ShopContextFactory.createAmmoPurchaseContext(deps)
 		canPlayerUseWeapon = deps.canPlayerUseWeapon,
 		getClassRestrictionMessage = deps.getClassRestrictionMessage,
 		collectAmmoRefillQuotesForOwnedWeapons = deps.collectAmmoRefillQuotesForOwnedWeapons,
-		getCurrentMoney = deps.getCurrentMoney,
+		getMoneyAmount = deps.getMoneyAmount,
 		trySpendMoney = deps.trySpendMoney,
 		refundMoney = deps.refundMoney,
 		refillAmmoForTool = deps.refillAmmoForTool,
@@ -71,7 +76,7 @@ function ShopContextFactory.createAllAmmoPurchaseContext(deps)
 		weaponById = deps.weaponById,
 		canPurchaseNow = deps.canPurchaseNow,
 		collectAmmoRefillQuotesForOwnedWeapons = deps.collectAmmoRefillQuotesForOwnedWeapons,
-		getCurrentMoney = deps.getCurrentMoney,
+		getMoneyAmount = deps.getMoneyAmount,
 		trySpendMoney = deps.trySpendMoney,
 		refundMoney = deps.refundMoney,
 		refillAmmoForTool = deps.refillAmmoForTool,

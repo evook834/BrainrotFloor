@@ -11,12 +11,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local Match = script.Parent.Parent
-local ModelRootResolver = require(Match.Enemies.ModelRootResolver)
-local Match = script.Parent.Parent
+local EnemyRegistry = require(Match.Enemies.EnemyRegistry)
 local AimResolver = require(Match.Combat.AimResolver)
 
 local function getEnemyContainer()
-	return Workspace:FindFirstChild(Config.Enemy.ContainerName)
+	return EnemyRegistry.getEnemyContainer()
 end
 
 local function findEnemyModelFromDescendant(descendant, enemyContainer)
@@ -124,24 +123,22 @@ local function findEnemyAlongSegment(character, segmentStart, segmentEnd, extraR
 	local impactPoint = nil
 	local radiusPadding = math.max(0, extraRadius or 0)
 
-	for _, enemyModel in enemyContainer:GetChildren() do
-		if enemyModel:IsA("Model") then
-			local enemyRoot = ModelRootResolver.resolveRootPart(enemyModel)
-			if enemyRoot then
-				local nearestPoint = projectPointOnSegment(enemyRoot.Position, segmentStart, segmentEnd)
-				local distanceFromPath = (enemyRoot.Position - nearestPoint).Magnitude
-				local allowedRadius = getEffectiveEnemyHitRadius(enemyModel, enemyRoot) + radiusPadding
-				if distanceFromPath <= allowedRadius and hasClearPathToEnemy(character, segmentStart, enemyModel, enemyRoot, allowEnemyOcclusion) then
-					local alongDistance = (nearestPoint - segmentStart).Magnitude
-					if alongDistance < closestDistance then
-						closestDistance = alongDistance
-						closestEnemy = enemyModel
-						impactPoint = nearestPoint
-					end
+	EnemyRegistry.forEachTrackedEnemy(function(enemyModel)
+		local enemyRoot = EnemyRegistry.getRootPart(enemyModel)
+		if enemyRoot then
+			local nearestPoint = projectPointOnSegment(enemyRoot.Position, segmentStart, segmentEnd)
+			local distanceFromPath = (enemyRoot.Position - nearestPoint).Magnitude
+			local allowedRadius = getEffectiveEnemyHitRadius(enemyModel, enemyRoot) + radiusPadding
+			if distanceFromPath <= allowedRadius and hasClearPathToEnemy(character, segmentStart, enemyModel, enemyRoot, allowEnemyOcclusion) then
+				local alongDistance = (nearestPoint - segmentStart).Magnitude
+				if alongDistance < closestDistance then
+					closestDistance = alongDistance
+					closestEnemy = enemyModel
+					impactPoint = nearestPoint
 				end
 			end
 		end
-	end
+	end)
 
 	return closestEnemy, impactPoint
 end
@@ -156,25 +153,23 @@ local function getEnemiesInCone(character, origin, lookDirection, range, arcDegr
 	local normalizedLook = lookDirection.Magnitude > 0.001 and lookDirection.Unit or Vector3.new(0, 0, -1)
 	local halfArcRadians = math.rad(math.clamp((arcDegrees or 90) * 0.5, 1, 179))
 
-	for _, enemyModel in enemyContainer:GetChildren() do
-		if enemyModel:IsA("Model") then
-			local enemyRoot = ModelRootResolver.resolveRootPart(enemyModel)
-			if enemyRoot then
-				local offset = enemyRoot.Position - origin
-				local distance = offset.Magnitude
-				local targetRadius = getEffectiveEnemyHitRadius(enemyModel, enemyRoot)
-				if distance <= (range + targetRadius) and distance > 0.05 then
-					local direction = offset.Unit
-					local facingDot = normalizedLook:Dot(direction)
-					local angularSlackRadians = math.atan(targetRadius / math.max(distance, 0.01))
-					local enemyMinDot = math.cos(math.min(math.rad(179), halfArcRadians + angularSlackRadians))
-					if facingDot >= enemyMinDot and hasClearPathToEnemy(character, origin, enemyModel, enemyRoot, allowEnemyOcclusion) then
-						table.insert(enemies, enemyModel)
-					end
+	EnemyRegistry.forEachTrackedEnemy(function(enemyModel)
+		local enemyRoot = EnemyRegistry.getRootPart(enemyModel)
+		if enemyRoot then
+			local offset = enemyRoot.Position - origin
+			local distance = offset.Magnitude
+			local targetRadius = getEffectiveEnemyHitRadius(enemyModel, enemyRoot)
+			if distance <= (range + targetRadius) and distance > 0.05 then
+				local direction = offset.Unit
+				local facingDot = normalizedLook:Dot(direction)
+				local angularSlackRadians = math.atan(targetRadius / math.max(distance, 0.01))
+				local enemyMinDot = math.cos(math.min(math.rad(179), halfArcRadians + angularSlackRadians))
+				if facingDot >= enemyMinDot and hasClearPathToEnemy(character, origin, enemyModel, enemyRoot, allowEnemyOcclusion) then
+					table.insert(enemies, enemyModel)
 				end
 			end
 		end
-	end
+	end)
 
 	return enemies
 end

@@ -1,27 +1,32 @@
+--[[
+	ShopService — Main shop system service.
+	Manages shop remotes, weapon catalog, and purchase flows.
+	Orchestrates weapon trading and ammo refills.
+]]
+
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
-local PlayerDataService = require(ServerScriptService.Shared.PlayerData.PlayerDataService)
 local Match = script.Parent.Parent
 local ClassService = require(Match.Classes.ClassService)
 local ModelRootResolver = require(Match.Enemies.ModelRootResolver)
 local CatalogAndPricing = require(script.Parent.CatalogAndPricing)
 local ShopContextFactory = require(script.Parent.ShopContextFactory)
 local InventoryIndex = require(script.Parent.InventoryIndex)
-local ShopMoney = require(script.Parent.ShopMoney)
+local CurrencyService = require(script.Parent.Currency.CurrencyService)
 local PurchaseFlow = require(script.Parent.PurchaseFlow)
 local ShopConstants = require(script.Parent.ShopConstants)
 local EnemyDamageService = require(Match.Combat.EnemyDamageService)
-local SentryRuntime = require(Match.Weapons.SentryRuntime)
-local WeaponAmmoRuntime = require(Match.Weapons.WeaponAmmoRuntime)
-local WeaponToolSetup = require(Match.Weapons.WeaponToolSetup)
-local WeaponVfx = require(Match.Weapons.WeaponVfx)
-local SentryTurretController = require(Match.Weapons.SentryTurretController)
-local WeaponToolFactory = require(Match.Weapons.WeaponToolFactory)
-local WeaponFireHandlers = require(Match.Weapons.WeaponFireHandlers)
-local WeaponRemoteBindings = require(Match.Weapons.WeaponRemoteBindings)
+local SentryRuntime = require(Match.Weapons.Sentry.SentryRuntime)
+local WeaponAmmoRuntime = require(Match.Weapons.Tools.WeaponAmmoRuntime)
+local WeaponToolSetup = require(Match.Weapons.Tools.WeaponToolSetup)
+local WeaponVfx = require(Match.Weapons.Combat.WeaponVfx)
+local SentryTurretController = require(Match.Weapons.Sentry.SentryTurretController)
+local WeaponToolFactory = require(Match.Weapons.Tools.WeaponToolFactory)
+local WeaponFireHandlers = require(Match.Weapons.Combat.WeaponFireHandlers)
+local WeaponRemoteBindings = require(Match.Weapons.Combat.WeaponRemoteBindings)
 
 -- Aliases from ShopConstants
 local SENTRY_TURRET_FOLDER_NAME = ShopConstants.SENTRY_TURRET_FOLDER_NAME
@@ -33,14 +38,14 @@ local createMuzzleFlash = WeaponVfx.createMuzzleFlash
 local createFlamePuff = WeaponVfx.createFlamePuff
 local createExplosionEffect = WeaponVfx.createExplosionEffect
 
--- Aliases from WeaponToolSetup (weapon class; tool creation in WeaponToolFactory)
+-- Aliases from WeaponToolSetup
 local resolveWeaponClass = WeaponToolSetup.resolveWeaponClass
 
 local SHOP_DENIED_MESSAGE = "Move closer to the trader."
 
 local ShopService = {}
 
--- Module state: remotes, weapon catalog, runtimes
+-- Module state
 local started = false
 local remotesFolder = nil
 local shopOpenRemote = nil
@@ -62,13 +67,6 @@ local sentryRuntime = nil
 local classChangedCleanupDisconnect = nil
 local traderRootPart = nil
 local traderPrompt = nil
-local moneyOps = ShopMoney.create({
-	playerDataService = PlayerDataService,
-	enemyDamageService = EnemyDamageService,
-})
-local getCurrentMoney = moneyOps.getCurrentMoney
-local trySpendMoney = moneyOps.trySpendMoney
-local refundMoney = moneyOps.refundMoney
 
 local function isPlayerInstance(player)
 	return player and player:IsA("Player")
@@ -108,17 +106,9 @@ local function ensureRemote(parent, className, name)
 	return instance
 end
 
-local function getSentryTurretFolder()
-	return sentryRuntime.getSentryTurretFolder()
-end
-
-local function getMagazineSize(weaponDef, player)
-	return ammoRuntime.getMagazineSize(weaponDef, player)
-end
-
-local function getReloadSeconds(weaponDef, player)
-	return ammoRuntime.getReloadSeconds(weaponDef, player)
-end
+-- ================================================================================
+-- Sentry Turret Helpers
+-- ================================================================================
 
 sentryRuntime = SentryRuntime.new({
 	modelRootResolver = ModelRootResolver,
@@ -130,6 +120,10 @@ sentryRuntime = SentryRuntime.new({
 	sentryTurretFolderName = SENTRY_TURRET_FOLDER_NAME,
 	defaultSentryMaxAmmo = DEFAULT_SENTRY_MAX_AMMO,
 })
+
+local function getSentryTurretFolder()
+	return sentryRuntime.getSentryTurretFolder()
+end
 
 local function clearPlayerSentries(player, options)
 	sentryRuntime.clearPlayerSentries(player, options)
@@ -145,6 +139,10 @@ end
 
 SentryTurretController.init({ sentryRuntime = sentryRuntime, fireRocket = WeaponFireHandlers.fireRocket })
 
+-- ================================================================================
+-- Ammo Runtime Helpers
+-- ================================================================================
+
 local function normalizeAmmoRefillMode(value)
 	return ammoRuntime.normalizeAmmoRefillMode(value)
 end
@@ -159,6 +157,18 @@ end
 
 local function getSentryAmmoSnapshot(sentryRecords, weaponDef)
 	return sentryRuntime.getSentryAmmoSnapshot(sentryRecords, weaponDef)
+end
+
+-- ================================================================================
+-- Weapon Ownership & Catalog Helpers
+-- ================================================================================
+
+local function getMagazineSize(weaponDef, player)
+	return ammoRuntime.getMagazineSize(weaponDef, player)
+end
+
+local function getReloadSeconds(weaponDef, player)
+	return ammoRuntime.getReloadSeconds(weaponDef, player)
 end
 
 local function playerOwnsWeapon(player, weaponId)
@@ -202,6 +212,10 @@ local function getToolAmmoSnapshot(tool, weaponDef, owner)
 	return ammoRuntime.getToolAmmoSnapshot(tool, weaponDef, owner)
 end
 
+-- ================================================================================
+-- Ammo Refill Quotes
+-- ================================================================================
+
 local function collectAmmoRefillQuotesForOwnedWeapons(player)
 	return CatalogAndPricing.collectAmmoRefillQuotesForOwnedWeapons(
 		player,
@@ -222,6 +236,10 @@ end
 local function getClassRestrictionMessage(player)
 	return CatalogAndPricing.getClassRestrictionMessage(player, ClassService)
 end
+
+-- ================================================================================
+-- Shop Access
+-- ================================================================================
 
 local function getTraderConfig()
 	return Config.Shop.Trader or {}
@@ -313,6 +331,10 @@ local function runShopPurchaseIfAccessible(player, callback)
 	return callback()
 end
 
+-- ================================================================================
+-- Catalog & Purchase Handlers
+-- ================================================================================
+
 local function getCatalogForPlayer(player)
 	if not canPlayerAccessShop(player) then
 		local _, waveState = canPurchaseNow()
@@ -354,9 +376,9 @@ local function buyWeapon(player, weaponId)
 				getRequiredOwnedWeaponId = getRequiredOwnedWeaponId,
 				playerOwnsWeapon = playerOwnsWeapon,
 				getUpgradeRestrictionMessage = getUpgradeRestrictionMessage,
-				getCurrentMoney = getCurrentMoney,
-				trySpendMoney = trySpendMoney,
-				refundMoney = refundMoney,
+				getMoneyAmount = CurrencyService.getMoneyAmount,
+				trySpendMoney = CurrencyService.trySpendMoney,
+				refundMoney = CurrencyService.refundMoney,
 				getWeaponCostForPlayer = getWeaponCostForPlayer,
 				createWeaponTool = WeaponToolFactory.createWeaponTool,
 			})
@@ -375,9 +397,9 @@ local function buyAmmoForWeapon(player, weaponId)
 				canPlayerUseWeapon = canPlayerUseWeapon,
 				getClassRestrictionMessage = getClassRestrictionMessage,
 				collectAmmoRefillQuotesForOwnedWeapons = collectAmmoRefillQuotesForOwnedWeapons,
-				getCurrentMoney = getCurrentMoney,
-				trySpendMoney = trySpendMoney,
-				refundMoney = refundMoney,
+				getMoneyAmount = CurrencyService.getMoneyAmount,
+				trySpendMoney = CurrencyService.trySpendMoney,
+				refundMoney = CurrencyService.refundMoney,
 				refillAmmoForTool = refillAmmoForTool,
 				refillAmmoForSentryRecords = refillAmmoForSentryRecords,
 			})
@@ -393,9 +415,9 @@ local function buyAmmoForAllOwnedWeapons(player)
 				weaponById = weaponById,
 				canPurchaseNow = canPurchaseNow,
 				collectAmmoRefillQuotesForOwnedWeapons = collectAmmoRefillQuotesForOwnedWeapons,
-				getCurrentMoney = getCurrentMoney,
-				trySpendMoney = trySpendMoney,
-				refundMoney = refundMoney,
+				getMoneyAmount = CurrencyService.getMoneyAmount,
+				trySpendMoney = CurrencyService.trySpendMoney,
+				refundMoney = CurrencyService.refundMoney,
 				refillAmmoForTool = refillAmmoForTool,
 				refillAmmoForSentryRecords = refillAmmoForSentryRecords,
 			})
@@ -428,6 +450,10 @@ function ShopService.refillPlayerAmmo(player, options)
 
 	return anyRefilled
 end
+
+-- ================================================================================
+-- Shop UI & Trader
+-- ================================================================================
 
 local function ensureTraderPrompt()
 	local traderConfig = getTraderConfig()
@@ -483,11 +509,16 @@ local function getInvalidRequestResponse(message)
 	}
 end
 
+-- ================================================================================
+-- Service Lifecycle
+-- ================================================================================
+
 function ShopService.start()
 	if started then
 		return
 	end
 
+	-- Clear existing sentry turrets
 	local turretFolder = getSentryTurretFolder()
 	for _, child in ipairs(turretFolder:GetChildren()) do
 		if child:IsA("Model") then
@@ -495,25 +526,32 @@ function ShopService.start()
 		end
 	end
 
+	-- Initialize weapon catalog
 	table.clear(weaponById)
 	for _, weaponDef in ipairs(Config.Shop.Weapons or {}) do
 		weaponById[weaponDef.Id] = weaponDef
 	end
 
+	-- Get remotes folder
 	remotesFolder = ReplicatedStorage:FindFirstChild(Config.Remotes.Folder)
 	if not remotesFolder then
 		warn("ShopService could not find remotes folder")
 		return
 	end
 
+	-- Create shop remotes
 	shopOpenRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.ShopOpen)
 	shopGetCatalogFunction = ensureRemote(remotesFolder, "RemoteFunction", Config.Remotes.ShopGetCatalog)
 	shopBuyWeaponFunction = ensureRemote(remotesFolder, "RemoteFunction", Config.Remotes.ShopBuyWeapon)
 	shopBuyAmmoFunction = ensureRemote(remotesFolder, "RemoteFunction", Config.Remotes.ShopBuyAmmo)
+
+	-- Create combat remotes
 	weaponAimRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.WeaponAim)
 	weaponFireRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.WeaponFire)
 	weaponReloadRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.WeaponReload)
 	damageIndicatorRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.DamageIndicator)
+
+	-- Initialize weapon tool factory
 	WeaponToolFactory.init({
 		ammoRuntime = ammoRuntime,
 		sentryTurretController = SentryTurretController,
@@ -526,6 +564,7 @@ function ShopService.start()
 		fireFlamethrower = WeaponFireHandlers.fireFlamethrower,
 	})
 
+	-- Start weapon remote bindings
 	WeaponRemoteBindings.start({
 		weaponAimRemote = weaponAimRemote,
 		weaponFireRemote = weaponFireRemote,
@@ -539,11 +578,12 @@ function ShopService.start()
 		sentryRuntime = sentryRuntime,
 	})
 
-	-- Bind shop remotes
+	-- Bind shop remote handlers
 	shopGetCatalogFunction.OnServerInvoke = function(player)
 		return getCatalogForPlayer(player)
 	end
 
+	-- Handle class changes (clear player sentries on class change)
 	if not classChangedCleanupDisconnect and type(ClassService.registerClassChangedCallback) == "function" then
 		classChangedCleanupDisconnect = ClassService.registerClassChangedCallback(function(player, previousClassId, selectedClassId)
 			if not isPlayerInstance(player) then
@@ -559,6 +599,7 @@ function ShopService.start()
 		end)
 	end
 
+	-- Bind purchase handlers
 	shopBuyWeaponFunction.OnServerInvoke = function(player, weaponId)
 		if type(weaponId) ~= "string" then
 			return getInvalidRequestResponse("Invalid purchase request.")
@@ -588,8 +629,44 @@ function ShopService.start()
 		return buyAmmoForWeapon(player, weaponId)
 	end
 
+	-- Ensure trader prompt exists
 	ensureTraderPrompt()
+
 	started = true
+end
+
+function ShopService.stop()
+	if not started then
+		return
+	end
+
+	-- Clean up class changed callback
+	if classChangedCleanupDisconnect then
+		classChangedCleanupDisconnect:Disconnect()
+		classChangedCleanupDisconnect = nil
+	end
+
+	-- Clear remotes
+	if remotesFolder then
+		local remotesToClear = {
+			Config.Remotes.ShopOpen,
+			Config.Remotes.ShopGetCatalog,
+			Config.Remotes.ShopBuyWeapon,
+			Config.Remotes.ShopBuyAmmo,
+			Config.Remotes.WeaponAim,
+			Config.Remotes.WeaponFire,
+			Config.Remotes.WeaponReload,
+			Config.Remotes.DamageIndicator,
+		}
+		for _, name in ipairs(remotesToClear) do
+			local remote = remotesFolder:FindFirstChild(name)
+			if remote then
+				remote:Destroy()
+			end
+		end
+	end
+
+	started = false
 end
 
 return ShopService

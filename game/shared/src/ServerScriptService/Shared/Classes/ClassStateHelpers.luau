@@ -44,6 +44,18 @@ function ClassStateHelpers.buildClassRegistry(rawClassSystemConfig)
 	return classById, classOrder, duplicateClassIds
 end
 
+function ClassStateHelpers.warnDuplicateClassIds(scope, duplicateClassIds)
+	local duplicateIds = {}
+	for classId in pairs(duplicateClassIds or {}) do
+		table.insert(duplicateIds, classId)
+	end
+	table.sort(duplicateIds)
+
+	for _, classId in ipairs(duplicateIds) do
+		warn(string.format("%s found duplicate class id '%s'; using the last definition.", tostring(scope), classId))
+	end
+end
+
 function ClassStateHelpers.getDefaultClassId(rawClassSystemConfig, classById, classOrder)
 	local classSystemConfig = rawClassSystemConfig or {}
 	local configured = ClassStateHelpers.normalizeToken(classSystemConfig.DefaultClassId)

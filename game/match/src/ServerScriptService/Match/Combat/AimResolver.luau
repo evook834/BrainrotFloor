@@ -7,7 +7,7 @@ local Workspace = game:GetService("Workspace")
 
 local Match = script.Parent.Parent
 local ShopConstants = require(Match.Shop.ShopConstants)
-local WeaponVfx = require(Match.Weapons.WeaponVfx)
+local WeaponVfx = require(Match.Weapons.Combat.WeaponVfx)
 
 local FIRE_CONE_MIN_DOT = ShopConstants.FIRE_CONE_MIN_DOT
 

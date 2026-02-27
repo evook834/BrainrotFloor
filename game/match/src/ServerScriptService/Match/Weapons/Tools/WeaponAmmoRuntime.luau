@@ -17,6 +17,26 @@ function WeaponAmmoRuntime.new(options)
 
 	local updateAmmoAttributes
 
+	local function toRoundedNonNegative(value, defaultValue)
+		local numericValue = tonumber(value)
+		if type(numericValue) ~= "number" then
+			numericValue = tonumber(defaultValue) or 0
+		end
+		return math.max(0, math.floor(numericValue + 0.5))
+	end
+
+	local function clampRounded(value, defaultValue, maxValue)
+		local roundedValue = toRoundedNonNegative(value, defaultValue)
+		if type(maxValue) == "number" then
+			return math.min(roundedValue, math.max(0, math.floor(maxValue + 0.5)))
+		end
+		return roundedValue
+	end
+
+	local function getWeaponDisplayName(tool, weaponDef)
+		return tostring((weaponDef and weaponDef.DisplayName) or tool.Name)
+	end
+
 	local function getMagazineSize(weaponDef, player)
 		local magazineSize = nil
 		if player and player:IsA("Player") then
@@ -142,17 +162,13 @@ function WeaponAmmoRuntime.new(options)
 			tool:SetAttribute("TotalAmmo", nil)
 			tool:SetAttribute("TotalAmmoMax", nil)
 			tool:SetAttribute("IsReloading", false)
-			tool.ToolTip = tostring((weaponDef and weaponDef.DisplayName) or tool.Name)
+			tool.ToolTip = getWeaponDisplayName(tool, weaponDef)
 			return
 		end
 
-		state.ammo = math.max(0, math.floor((tonumber(state.ammo) or magazineSize) + 0.5))
-		state.ammo = math.min(state.ammo, magazineSize)
-		state.reserveAmmoCapacity = math.max(0, math.floor((tonumber(state.reserveAmmoCapacity) or 0) + 0.5))
-		state.reserveAmmo = math.max(0, math.floor((tonumber(state.reserveAmmo) or state.reserveAmmoCapacity) + 0.5))
-		if state.reserveAmmo > state.reserveAmmoCapacity then
-			state.reserveAmmo = state.reserveAmmoCapacity
-		end
+		state.ammo = clampRounded(state.ammo, magazineSize, magazineSize)
+		state.reserveAmmoCapacity = toRoundedNonNegative(state.reserveAmmoCapacity, 0)
+		state.reserveAmmo = clampRounded(state.reserveAmmo, state.reserveAmmoCapacity, state.reserveAmmoCapacity)
 
 		local totalAmmo = state.ammo + state.reserveAmmo
 		local totalAmmoCapacity = magazineSize + state.reserveAmmoCapacity
@@ -165,13 +181,13 @@ function WeaponAmmoRuntime.new(options)
 		tool:SetAttribute("IsReloading", state.isReloading == true)
 
 		if state.isReloading then
-			tool.ToolTip = string.format("%s | Reloading...", tostring((weaponDef and weaponDef.DisplayName) or tool.Name))
+			tool.ToolTip = string.format("%s | Reloading...", getWeaponDisplayName(tool, weaponDef))
 		elseif totalAmmo <= 0 then
-			tool.ToolTip = string.format("%s | Out of ammo", tostring((weaponDef and weaponDef.DisplayName) or tool.Name))
+			tool.ToolTip = string.format("%s | Out of ammo", getWeaponDisplayName(tool, weaponDef))
 		else
 			tool.ToolTip = string.format(
 				"%s | Ammo %d/%d | Reserve %d",
-				tostring((weaponDef and weaponDef.DisplayName) or tool.Name),
+				getWeaponDisplayName(tool, weaponDef),
 				state.ammo,
 				magazineSize,
 				state.reserveAmmo
@@ -190,9 +206,8 @@ function WeaponAmmoRuntime.new(options)
 			return
 		end
 
-		state.ammo = math.max(0, math.floor((tonumber(state.ammo) or magazineSize) + 0.5))
-		state.ammo = math.min(state.ammo, magazineSize)
-		state.reserveAmmo = math.max(0, math.floor((tonumber(state.reserveAmmo) or 0) + 0.5))
+		state.ammo = clampRounded(state.ammo, magazineSize, magazineSize)
+		state.reserveAmmo = toRoundedNonNegative(state.reserveAmmo, 0)
 		if state.ammo >= magazineSize or state.reserveAmmo <= 0 then
 			updateAmmoAttributes(tool, weaponDef, state, owner)
 			return
@@ -231,9 +246,8 @@ function WeaponAmmoRuntime.new(options)
 			return false
 		end
 
-		state.ammo = math.max(0, math.floor((tonumber(state.ammo) or magazineSize) + 0.5))
-		state.ammo = math.min(state.ammo, magazineSize)
-		state.reserveAmmo = math.max(0, math.floor((tonumber(state.reserveAmmo) or 0) + 0.5))
+		state.ammo = clampRounded(state.ammo, magazineSize, magazineSize)
+		state.reserveAmmo = toRoundedNonNegative(state.reserveAmmo, 0)
 
 		if state.ammo <= 0 then
 			if state.reserveAmmo > 0 then
@@ -279,8 +293,8 @@ function WeaponAmmoRuntime.new(options)
 		end
 
 		local reserveAmmoCapacity = math.max(0, math.floor((tonumber(state.reserveAmmoCapacity) or 0) + 0.5))
-		local ammoBefore = math.max(0, math.floor((tonumber(state.ammo) or 0) + 0.5))
-		local reserveBefore = math.max(0, math.floor((tonumber(state.reserveAmmo) or 0) + 0.5))
+		local ammoBefore = toRoundedNonNegative(state.ammo, 0)
+		local reserveBefore = toRoundedNonNegative(state.reserveAmmo, 0)
 
 		state.ammo = math.clamp(ammoBefore, 0, magazineSize)
 		state.reserveAmmo = math.clamp(reserveBefore, 0, reserveAmmoCapacity)
@@ -325,8 +339,8 @@ function WeaponAmmoRuntime.new(options)
 		local currentAmmo = if state then state.ammo else tool:GetAttribute("CurrentAmmo")
 		local reserveAmmo = if state then state.reserveAmmo else tool:GetAttribute("ReserveAmmo")
 
-		currentAmmo = math.clamp(math.floor((tonumber(currentAmmo) or magazineSize) + 0.5), 0, magazineSize)
-		reserveAmmo = math.clamp(math.floor((tonumber(reserveAmmo) or reserveAmmoCapacity) + 0.5), 0, reserveAmmoCapacity)
+		currentAmmo = math.clamp(toRoundedNonNegative(currentAmmo, magazineSize), 0, magazineSize)
+		reserveAmmo = math.clamp(toRoundedNonNegative(reserveAmmo, reserveAmmoCapacity), 0, reserveAmmoCapacity)
 
 		local currentTotalAmmo = currentAmmo + reserveAmmo
 		local maxTotalAmmo = magazineSize + reserveAmmoCapacity

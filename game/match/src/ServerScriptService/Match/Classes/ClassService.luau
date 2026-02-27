@@ -110,14 +110,7 @@ local function buildClassRegistry()
 		table.insert(classOrder, classDef)
 	end
 
-	local duplicateIds = {}
-	for classId in pairs(duplicateClassIds) do
-		table.insert(duplicateIds, classId)
-	end
-	table.sort(duplicateIds)
-	for _, classId in ipairs(duplicateIds) do
-		warn(string.format("ClassService found duplicate class id '%s'; using the last definition.", classId))
-	end
+	ClassStateHelpers.warnDuplicateClassIds("ClassService", duplicateClassIds)
 end
 
 local function buildWeaponRegistry()
@@ -278,6 +271,23 @@ local function enforcePlayerLoadout(player)
 	classRuntimeEffects.enforcePlayerLoadout(player)
 end
 
+local function disconnectCharacterConnection(player)
+	local connection = characterConnectionByPlayer[player]
+	if not connection then
+		return
+	end
+
+	connection:Disconnect()
+	characterConnectionByPlayer[player] = nil
+end
+
+local function scheduleApplyCharacterState(player, character)
+	task.defer(function()
+		applyCharacterClassBonuses(player, character)
+		enforcePlayerLoadout(player)
+	end)
+end
+
 local function buildPayloadForPlayer(player)
 	return classStateSync.buildPayloadForPlayer(player)
 end
@@ -373,23 +383,14 @@ local function bindPlayer(player)
 		getOrCreateClassProgress(state, state.selectedClassId)
 	end
 
-	if characterConnectionByPlayer[player] then
-		characterConnectionByPlayer[player]:Disconnect()
-		characterConnectionByPlayer[player] = nil
-	end
+	disconnectCharacterConnection(player)
 
 	characterConnectionByPlayer[player] = player.CharacterAdded:Connect(function(character)
-		task.defer(function()
-			applyCharacterClassBonuses(player, character)
-			enforcePlayerLoadout(player)
-		end)
+		scheduleApplyCharacterState(player, character)
 	end)
 
 	if player.Character then
-		task.defer(function()
-			applyCharacterClassBonuses(player, player.Character)
-			enforcePlayerLoadout(player)
-		end)
+		scheduleApplyCharacterState(player, player.Character)
 	end
 
 	pushPlayerState(player, "Init", true)
@@ -579,11 +580,7 @@ function ClassService.start()
 	Players.PlayerRemoving:Connect(function(player)
 		playerStateByPlayer[player] = nil
 		classStateSync.clearPlayer(player)
-
-		if characterConnectionByPlayer[player] then
-			characterConnectionByPlayer[player]:Disconnect()
-			characterConnectionByPlayer[player] = nil
-		end
+		disconnectCharacterConnection(player)
 	end)
 
 	for _, player in Players:GetPlayers() do

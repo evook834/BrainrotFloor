@@ -223,8 +223,6 @@ local function disableHumanoidRegen(humanoid)
 	end)
 end
 
--- Spectator state (kept in GameBootstrap for coordination with gameOverTriggered)
-local pendingRespawnByPlayer = {}
 local gameOverTriggered = false
 local winTriggered = false
 local returnLobbyInFlightByUserId = {}
@@ -244,6 +242,19 @@ end
 
 local function isDifficulty(value)
 	return difficultyLookup[value] == true
+end
+
+local function hasAnyLivingPlayers()
+	for _, player in ipairs(Players:GetPlayers()) do
+		local character = player.Character
+		if character then
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			if humanoid and humanoid.Health > 0 and humanoid:GetState() ~= Enum.HumanoidStateType.Dead then
+				return true
+			end
+		end
+	end
+	return false
 end
 
 local function normalizePlaceId(value)
@@ -331,39 +342,8 @@ end
 
 local mapVoteOptions, mapVoteOptionLookup = collectMapVoteOptions()
 
-local function invalidateRespawn(player)
-	pendingRespawnByPlayer[player] = (pendingRespawnByPlayer[player] or 0) + 1
-end
-
--- Spectator state and functions (kept for coordination with gameOverTriggered)
-local spectatingPlayers = {}
-local spectatorRemote = nil
-
-local function notifySpectator(targetPlayer, isSpectating, livingPlayerUserIds, respawnsAt)
-	if not spectatorRemote or targetPlayer.Parent ~= Players then
-		return
-	end
-	spectatorRemote:FireClient(targetPlayer, {
-		isSpectating = isSpectating,
-		livingPlayerUserIds = livingPlayerUserIds or {},
-		respawnsAt = respawnsAt,
-	})
-end
-
-local function notifyAllSpectators()
-	local living = getLivingPlayerUserIds()
-	for spectatingPlayer, _ in pairs(spectatingPlayers) do
-		if spectatingPlayer.Parent == Players then
-			local respawnsAt = pendingRespawnByPlayer[spectatingPlayer] and (Workspace:GetServerTimeNow() + respawnDelaySeconds) or nil
-			notifySpectator(spectatingPlayer, true, living, respawnsAt)
-		end
-	end
-end
-
 local function cancelAllPendingRespawns()
-	for _, player in Players:GetPlayers() do
-		invalidateRespawn(player)
-	end
+	-- SpectatorService handles respawn cancellation
 end
 
 local function resolveDifficultyForNextMap()
@@ -941,41 +921,13 @@ local function ensureDifficultyAttribute()
 	Workspace:SetAttribute("Difficulty", DifficultyService.getCurrentDifficulty())
 end
 
-local respawnDelaySeconds = (Config.Player and Config.Player.RespawnDelaySeconds) or 60
-
-local function getRespawnsAtForPlayer(player)
-	if pendingRespawnByPlayer[player] then
-		return Workspace:GetServerTimeNow() + respawnDelaySeconds
-	end
-	return nil
-end
-
 local function scheduleRespawn(player)
 	if gameOverTriggered then
 		return
 	end
 
-	local respawnToken = (pendingRespawnByPlayer[player] or 0) + 1
-	pendingRespawnByPlayer[player] = respawnToken
-
-	task.spawn(function()
-		task.wait(respawnDelaySeconds)
-		if player.Parent ~= Players then
-			return
-		end
-
-		if pendingRespawnByPlayer[player] ~= respawnToken then
-			return
-		end
-
-		if gameOverTriggered then
-			return
-		end
-
-		spectatingPlayers[player] = nil
-		notifySpectator(player, false, {}, 0)
-		player:LoadCharacter()
-	end)
+	-- Use SpectatorService for death handling
+	SpectatorService.onPlayerDeath(player)
 end
 
 local function isMatchRunningForLateJoin()
@@ -983,23 +935,7 @@ local function isMatchRunningForLateJoin()
 end
 
 local function scheduleLateJoinSpawn(player)
-	task.spawn(function()
-		task.wait(respawnDelaySeconds)
-		if player.Parent ~= Players then
-			return
-		end
-		if gameOverTriggered then
-			return
-		end
-		if spectatingPlayers[player] ~= true then
-			return
-		end
-		spectatingPlayers[player] = nil
-		pendingRespawnByPlayer[player] = nil
-		notifySpectator(player, false, {}, 0)
-		notifyAllSpectators()
-		player:LoadCharacter()
-	end)
+	SpectatorService.onPlayerJoinDuringMatch(player)
 end
 
 local function bindPlayerSystems(player)
@@ -1008,15 +944,7 @@ local function bindPlayerSystems(player)
 	sendMapVoteSnapshot(player)
 
 	local function onCharacter(character)
-		local wasSpectating = spectatingPlayers[player] == true
-		spectatingPlayers[player] = nil
-		pendingRespawnByPlayer[player] = nil
-		if wasSpectating and spectatorRemote then
-			notifySpectator(player, false, {}, 0)
-			notifyAllSpectators()
-		end
-
-		invalidateRespawn(player)
+		SpectatorService.onPlayerRespawn(player, character)
 
 		local humanoid = character:WaitForChild("Humanoid", 10)
 		if not humanoid then
@@ -1035,8 +963,6 @@ local function bindPlayerSystems(player)
 
 				if hasAnyLivingPlayers() then
 					scheduleRespawn(player)
-					spectatingPlayers[player] = true
-					notifyAllSpectators()
 					return
 				end
 
@@ -1050,11 +976,7 @@ local function bindPlayerSystems(player)
 		task.spawn(onCharacter, player.Character)
 	elseif not gameOverTriggered then
 		if isMatchRunningForLateJoin() then
-			spectatingPlayers[player] = true
-			local respawnsAt = Workspace:GetServerTimeNow() + respawnDelaySeconds
-			notifySpectator(player, true, getLivingPlayerUserIds(), respawnsAt)
-			notifyAllSpectators()
-			scheduleLateJoinSpawn(player)
+			SpectatorService.onPlayerJoinDuringMatch(player)
 		else
 			player:LoadCharacter()
 		end
@@ -1091,70 +1013,8 @@ ensureRemoteEvent(remotesFolder, Config.Remotes.WeaponReload)
 ensureRemoteEvent(remotesFolder, Config.Remotes.DamageIndicator)
 
 teleportLoadingRemote = ensureRemoteEvent(remotesFolder, Config.Remotes.TeleportLoading)
-spectatorRemote = ensureRemoteEvent(remotesFolder, Config.Remotes.SpectatorState)
 
-local spectatorRequestRemote = ensureRemoteFunction(remotesFolder, Config.Remotes.SpectatorRequest)
-local function onSpectatorRequest(player, request)
-	if player.Parent ~= Players then
-		return { success = false, message = "Player no longer in game" }
-	end
-
-	if request == "enterSpectate" then
-		if spectatingPlayers[player] == true then
-			return { success = false, message = "Already spectating", isSpectating = true }
-		end
-		if not hasAnyLivingPlayers() then
-			return { success = false, message = "No living players to spectate" }
-		end
-		spectatingPlayers[player] = true
-		local respawnsAt = Workspace:GetServerTimeNow() + respawnDelaySeconds
-		notifySpectator(player, true, getLivingPlayerUserIds(), respawnsAt)
-		notifyAllSpectators()
-		return { success = true, isSpectating = true }
-	elseif request == "toggleSpectate" then
-		local wasSpectating = spectatingPlayers[player] == true
-		if wasSpectating then
-			spectatingPlayers[player] = nil
-			pendingRespawnByPlayer[player] = nil
-			notifySpectator(player, false, {}, 0)
-			notifyAllSpectators()
-			return { success = true, isSpectating = false }
-		else
-			if not hasAnyLivingPlayers() then
-				return { success = false, message = "No living players to spectate" }
-			end
-			spectatingPlayers[player] = true
-			local respawnsAt = Workspace:GetServerTimeNow() + respawnDelaySeconds
-			notifySpectator(player, true, getLivingPlayerUserIds(), respawnsAt)
-			notifyAllSpectators()
-			return { success = true, isSpectating = true }
-		end
-	elseif request == "spawnNow" then
-		if spectatingPlayers[player] ~= true then
-			return { success = false, message = "Not in spectator mode" }
-		end
-		spectatingPlayers[player] = nil
-		pendingRespawnByPlayer[player] = nil
-		player:LoadCharacter()
-		notifySpectator(player, false, {}, 0)
-		notifyAllSpectators()
-		return { success = true, isSpectating = false }
-	elseif request == "exitSpectate" then
-		if spectatingPlayers[player] ~= true then
-			return { success = false, message = "Not in spectator mode" }
-		end
-		spectatingPlayers[player] = nil
-		pendingRespawnByPlayer[player] = nil
-		notifySpectator(player, false, {}, 0)
-		notifyAllSpectators()
-		return { success = true, isSpectating = false }
-	else
-		return { success = false, message = ("Unknown request: %s"):format(tostring(request)) }
-	end
-end
-if spectatorRequestRemote then
-	spectatorRequestRemote.OnServerInvoke = onSpectatorRequest
-end
+SpectatorService.start()
 
 local templateFolder = ensureFolder(ServerStorage, Config.Enemy.TemplateFolderName)
 local spawnFolder = ensureFolder(Workspace, Config.Enemy.SpawnFolderName)
@@ -1167,8 +1027,7 @@ Workspace:SetAttribute("GameOver", false)
 Players.CharacterAutoLoads = false
 Players.PlayerAdded:Connect(bindPlayerSystems)
 Players.PlayerRemoving:Connect(function(player)
-	pendingRespawnByPlayer[player] = nil
-	spectatingPlayers[player] = nil
+	SpectatorService.onPlayerRemove(player)
 	returnLobbyInFlightByUserId[player.UserId] = nil
 	returnLobbyLastRequestByUserId[player.UserId] = nil
 
@@ -1184,6 +1043,7 @@ for _, player in Players:GetPlayers() do
 	bindPlayerSystems(player)
 end
 
+-- Start services
 PlayerDataService.start()
 OfflinePlayerDataEditor.start()
 ClassService.start()

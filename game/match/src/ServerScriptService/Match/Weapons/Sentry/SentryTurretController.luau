@@ -14,14 +14,16 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
-local Match = script.Parent.Parent
+local Match = script.Parent.Parent.Parent
+local Weapons = script.Parent.Parent
 local ClassService = require(Match.Classes.ClassService)
 local ModelRootResolver = require(Match.Enemies.ModelRootResolver)
 local AimResolver = require(Match.Combat.AimResolver)
-local WeaponVfx = require(script.Parent.WeaponVfx)
-local WeaponToolSetup = require(script.Parent.WeaponToolSetup)
 local EnemyDamageService = require(Match.Combat.EnemyDamageService)
 local ShopConstants = require(Match.Shop.ShopConstants)
+local WeaponVfx = require(Weapons.Combat.WeaponVfx)
+local WeaponToolSetup = require(Weapons.Tools.WeaponToolSetup)
+local SentryStatResolver = require(script.Parent.SentryStatResolver)
 
 local MAX_SENTRY_COUNT_PER_PLAYER = ShopConstants.MAX_SENTRY_COUNT_PER_PLAYER
 local SENTRY_REPAIR_INTERRUPT_SECONDS = ShopConstants.SENTRY_REPAIR_INTERRUPT_SECONDS
@@ -497,17 +499,16 @@ local function startTurretCombatLoop(record)
 				continue
 			end
 
-			local maxAmmo = tonumber(record.maxAmmo)
-			if type(maxAmmo) ~= "number" or maxAmmo <= 0 then
-				local modelMaxAmmo = if record.model and record.model:IsA("Model") then record.model:GetAttribute("TurretMaxAmmo") else nil
-				maxAmmo = tonumber(modelMaxAmmo)
-			end
-			if type(maxAmmo) ~= "number" or maxAmmo <= 0 then
-				maxAmmo = sentryRuntime.resolveTurretMaxAmmo(record.weaponDef)
-			end
-			maxAmmo = math.max(1, math.floor(maxAmmo + 0.5))
+			local modelMaxAmmo = if record.model and record.model:IsA("Model") then record.model:GetAttribute("TurretMaxAmmo") else nil
+			local modelAmmo = if record.model and record.model:IsA("Model") then record.model:GetAttribute("TurretAmmo") else nil
+			local fallbackMaxAmmo = sentryRuntime.resolveTurretMaxAmmo(record.weaponDef)
+			local ammo, maxAmmo = SentryStatResolver.resolveAmmoStateFromCandidates(
+				{ record.maxAmmo, modelMaxAmmo, fallbackMaxAmmo },
+				{ record.ammo, modelAmmo },
+				fallbackMaxAmmo
+			)
 			record.maxAmmo = maxAmmo
-			record.ammo = math.clamp(math.floor((tonumber(record.ammo) or maxAmmo) + 0.5), 0, maxAmmo)
+			record.ammo = ammo
 			if record.ammo <= 0 then
 				sentryRuntime.syncSentryAmmoAttributes(record)
 				continue
@@ -697,17 +698,21 @@ local function deploySentryTurret(player, character, rootPart, weaponDef, explic
 		return false
 	end
 
-	local turretMaxHealth = math.max(50, tonumber(weaponDef.TurretMaxHealth) or 420)
-	local turretDamage = math.max(1, tonumber(weaponDef.TurretDamage) or 26)
-	local turretFireCooldown = math.max(0.05, tonumber(weaponDef.TurretFireCooldown) or 0.2)
-	local turretAcquireRange = math.max(100, tonumber(weaponDef.TurretAcquireRange) or 100000)
-	local turretThinkInterval = math.max(0.05, tonumber(weaponDef.TurretThinkInterval) or 0.08)
-	local turretAttackMode = normalizeWeaponToken(weaponDef.TurretAttackMode or "Bullet")
-	local turretRocketCount = math.max(1, math.floor((tonumber(weaponDef.TurretRocketCount) or 1) + 0.5))
-	local turretRocketBlastRadius = math.max(4, tonumber(weaponDef.TurretRocketBlastRadius) or 8)
-	local turretRocketProjectileSpeed = math.max(30, tonumber(weaponDef.TurretRocketProjectileSpeed) or 140)
-	local turretRocketRange = math.max(20, tonumber(weaponDef.TurretRocketRange) or tonumber(weaponDef.Range) or 180)
-	local turretRocketSpreadDegrees = math.max(0, tonumber(weaponDef.TurretRocketSpreadDegrees) or DEFAULT_TURRET_ROCKET_SPREAD_DEGREES)
+	local combatStats = SentryStatResolver.resolveCombatStats(weaponDef, {
+		normalizeWeaponToken = normalizeWeaponToken,
+		defaultRocketSpreadDegrees = DEFAULT_TURRET_ROCKET_SPREAD_DEGREES,
+	})
+	local turretMaxHealth = combatStats.turretMaxHealth
+	local turretDamage = combatStats.turretDamage
+	local turretFireCooldown = combatStats.turretFireCooldown
+	local turretAcquireRange = combatStats.turretAcquireRange
+	local turretThinkInterval = combatStats.turretThinkInterval
+	local turretAttackMode = combatStats.turretAttackMode
+	local turretRocketCount = combatStats.turretRocketCount
+	local turretRocketBlastRadius = combatStats.turretRocketBlastRadius
+	local turretRocketProjectileSpeed = combatStats.turretRocketProjectileSpeed
+	local turretRocketRange = combatStats.turretRocketRange
+	local turretRocketSpreadDegrees = combatStats.turretRocketSpreadDegrees
 	local turretMaxAmmo = sentryRuntime.resolveTurretMaxAmmo(weaponDef)
 	local turretInitialAmmo = sentryRuntime.resolveTurretInitialAmmo(weaponDef, turretMaxAmmo)
 

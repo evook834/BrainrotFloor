@@ -3,9 +3,8 @@
 	Used by ShopService for createToolFromTemplate, createFallbackWeaponTool, and dual-wield setup.
 ]]
 
-local ServerStorage = game:GetService("ServerStorage")
-
 local WeaponToolSetup = {}
+local WeaponTemplateResolver = require(script.Parent.WeaponTemplateResolver)
 
 local function resolveWeaponClass(weaponDef)
 	if type(weaponDef.WeaponClass) == "string" and weaponDef.WeaponClass ~= "" then
@@ -29,35 +28,6 @@ end
 local function isMeleeWeaponClass(weaponClass)
 	local weaponClassToken = normalizeWeaponToken(weaponClass)
 	return weaponClassToken == "melee" or weaponClassToken == "sword"
-end
-
-local function createCenterHandleForModel(model, tool)
-	local ok, bboxCFrame, bboxSize = pcall(function()
-		return model:GetBoundingBox()
-	end)
-	if not ok or not bboxCFrame then
-		return nil
-	end
-
-	local oldHandle = model:FindFirstChild("Handle", true)
-	if oldHandle and oldHandle:IsA("BasePart") then
-		oldHandle.Name = "VisualHandle"
-	end
-
-	local handle = Instance.new("Part")
-	handle.Name = "Handle"
-	handle.Size = Vector3.new(
-		math.clamp((bboxSize and bboxSize.X or 1) * 0.15, 0.2, 1),
-		math.clamp((bboxSize and bboxSize.Y or 1) * 0.15, 0.2, 1),
-		math.clamp((bboxSize and bboxSize.Z or 1) * 0.15, 0.2, 1)
-	)
-	handle.CFrame = bboxCFrame
-	handle.Transparency = 1
-	handle.CanCollide = false
-	handle.Massless = true
-	handle.Anchored = false
-	handle.Parent = tool
-	return handle
 end
 
 local function hasWeldBetween(partA, partB)
@@ -306,130 +276,12 @@ function WeaponToolSetup.createDualWieldOffhandVisual(tool, character, handle, w
 	state.offhandRoot = offhandRoot
 end
 
--- Template lookup (normalizeTemplateKey, keyMatches, etc.) — used by findShopItemTemplate and buildSentryModelFromTemplate
-local function normalizeTemplateKey(value)
-	if type(value) ~= "string" then
-		return ""
-	end
-	return string.lower((string.gsub(value, "[^%w]", "")))
-end
-
-local function keyMatches(candidateKey, queryKey)
-	if queryKey == "" then
-		return false
-	end
-	if candidateKey == queryKey then
-		return true
-	end
-	if not string.find(candidateKey, queryKey, 1, true) then
-		return false
-	end
-	if #queryKey <= 2 then
-		return string.sub(candidateKey, 1, #queryKey) == queryKey
-	end
-	return true
-end
-
-local function isTemplateCandidate(instance)
-	return instance:IsA("Tool") or instance:IsA("Model") or instance:IsA("BasePart")
-end
-
-local function collectTemplateCandidates(container, out)
-	for _, child in container:GetChildren() do
-		if isTemplateCandidate(child) then
-			table.insert(out, child)
-		elseif child:IsA("Folder") then
-			collectTemplateCandidates(child, out)
-		end
-	end
-end
-
-local function matchesTemplateCandidate(candidate, templateNameLower, templateNameKey, idLower, nameLower, idKey, nameKey)
-	local candidateNameLower = string.lower(candidate.Name)
-	local candidateKey = normalizeTemplateKey(candidate.Name)
-
-	if templateNameLower ~= "" and candidateNameLower == templateNameLower then
-		return true
-	end
-	if keyMatches(candidateKey, templateNameKey) then
-		return true
-	end
-	if candidateNameLower == idLower or candidateNameLower == nameLower then
-		return true
-	end
-	if keyMatches(candidateKey, idKey) then
-		return true
-	end
-	if keyMatches(candidateKey, nameKey) then
-		return true
-	end
-	local attributeKey = normalizeTemplateKey(
-		candidate:GetAttribute("WeaponId")
-			or candidate:GetAttribute("ShopWeaponId")
-			or candidate:GetAttribute("TemplateId")
-	)
-	if attributeKey ~= "" and (attributeKey == idKey or attributeKey == nameKey or attributeKey == templateNameKey) then
-		return true
-	end
-	return false
-end
-
 function WeaponToolSetup.findShopItemTemplate(weaponDef)
-	local shopItemsFolder = ServerStorage:FindFirstChild("ShopItems")
-	if not shopItemsFolder then
-		return nil
-	end
-
-	local templateName = weaponDef.TemplateName
-	local templateNameLower = string.lower(templateName or "")
-	local templateNameKey = normalizeTemplateKey(templateName)
-	local idLower = string.lower(weaponDef.Id or "")
-	local nameLower = string.lower(weaponDef.DisplayName or "")
-	local idKey = normalizeTemplateKey(weaponDef.Id)
-	local nameKey = normalizeTemplateKey(weaponDef.DisplayName)
-
-	local templateCandidates = {}
-	collectTemplateCandidates(shopItemsFolder, templateCandidates)
-
-	for _, candidate in templateCandidates do
-		if matchesTemplateCandidate(candidate, templateNameLower, templateNameKey, idLower, nameLower, idKey, nameKey) then
-			return candidate
-		end
-	end
-	return nil
+	return WeaponTemplateResolver.findShopItemTemplate(weaponDef)
 end
 
 function WeaponToolSetup.buildSentryModelFromTemplate(weaponDef)
-	local template = WeaponToolSetup.findShopItemTemplate(weaponDef)
-	if not template then
-		return nil
-	end
-
-	if template:IsA("Model") then
-		return template:Clone()
-	end
-	if template:IsA("Tool") then
-		local clonedTool = template:Clone()
-		local model = Instance.new("Model")
-		model.Name = clonedTool.Name
-		for _, child in ipairs(clonedTool:GetChildren()) do
-			child.Parent = model
-		end
-		clonedTool:Destroy()
-		if not model:FindFirstChildWhichIsA("BasePart", true) then
-			model:Destroy()
-			return nil
-		end
-		return model
-	end
-	if template:IsA("BasePart") then
-		local model = Instance.new("Model")
-		model.Name = template.Name
-		local part = template:Clone()
-		part.Parent = model
-		return model
-	end
-	return nil
+	return WeaponTemplateResolver.buildSentryModelFromTemplate(weaponDef)
 end
 
 function WeaponToolSetup.createFallbackWeaponTool(weaponDef)
@@ -460,37 +312,7 @@ function WeaponToolSetup.createFallbackWeaponTool(weaponDef)
 end
 
 function WeaponToolSetup.createToolFromTemplate(weaponDef)
-	local template = WeaponToolSetup.findShopItemTemplate(weaponDef)
-	if not template then
-		return nil
-	end
-
-	if template:IsA("Tool") then
-		return template:Clone()
-	end
-
-	local tool = Instance.new("Tool")
-	local cloned = template:Clone()
-
-	if template:IsA("Model") then
-		cloned.Parent = tool
-		local handle = createCenterHandleForModel(cloned, tool)
-		if not (handle and handle:IsA("BasePart")) then
-			tool:Destroy()
-			warn(string.format("Shop item template '%s' could not create centered handle", template.Name))
-			return nil
-		end
-		return tool
-	end
-	if template:IsA("BasePart") then
-		cloned.Name = "Handle"
-		cloned.Parent = tool
-		return tool
-	end
-
-	tool:Destroy()
-	warn(string.format("Shop item template '%s' is unsupported type %s", template.Name, template.ClassName))
-	return nil
+	return WeaponTemplateResolver.createToolFromTemplate(weaponDef)
 end
 
 function WeaponToolSetup.resolveWeaponClass(weaponDef)

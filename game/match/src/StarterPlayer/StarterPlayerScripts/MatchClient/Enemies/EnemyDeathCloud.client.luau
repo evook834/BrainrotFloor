@@ -4,36 +4,13 @@ local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
+local EnemyPresentation = require(ReplicatedStorage.Shared.Enemy.EnemyPresentation)
+local EnemyModelUtils = require(script.Parent.EnemyModelUtils)
 
+local DEATH_CLOUD_CONFIG = EnemyPresentation.DeathCloud
 local randomGenerator = Random.new()
 local trackedState = setmetatable({}, { __mode = "k" })
 local playedCloud = setmetatable({}, { __mode = "k" })
-
-local function resolveEnemyPosition(enemyModel)
-	local rootPart = enemyModel.PrimaryPart
-	if not rootPart or not rootPart:IsA("BasePart") then
-		rootPart = enemyModel:FindFirstChild("HumanoidRootPart", true)
-	end
-	if not rootPart or not rootPart:IsA("BasePart") then
-		rootPart = enemyModel:FindFirstChildWhichIsA("BasePart", true)
-	end
-	if rootPart and rootPart:IsA("BasePart") then
-		return rootPart.Position + Vector3.new(0, math.max(0.4, rootPart.Size.Y * 0.35), 0), rootPart.Size
-	end
-
-	local okPivot, pivot = pcall(function()
-		return enemyModel:GetPivot()
-	end)
-	local okSize, extents = pcall(function()
-		return enemyModel:GetExtentsSize()
-	end)
-	if okPivot and pivot then
-		local size = okSize and extents or Vector3.new(3, 3, 3)
-		return pivot.Position + Vector3.new(0, math.max(0.6, size.Y * 0.35), 0), size
-	end
-
-	return nil, nil
-end
 
 local function createPuff(position, scale, colorMin, colorMax)
 	local puff = Instance.new("Part")
@@ -264,22 +241,22 @@ local function playDeathCloud(enemyModel)
 	end
 	playedCloud[enemyModel] = true
 
-	local position, size = resolveEnemyPosition(enemyModel)
+	local position, size = EnemyModelUtils.resolveEffectPosition(enemyModel)
 	if not position then
 		return
 	end
 
 	local scale = 1
 	if size then
-		scale = math.max(0.9, math.min(1.9, size.Magnitude / 6))
+		scale = math.max(DEATH_CLOUD_CONFIG.Scale.Min, math.min(DEATH_CLOUD_CONFIG.Scale.Max, size.Magnitude / DEATH_CLOUD_CONFIG.Scale.SizeDivisor))
 	end
 
 	local styleRoll = randomGenerator:NextInteger(1, 100)
-	if styleRoll <= 38 then
+	if styleRoll <= DEATH_CLOUD_CONFIG.StyleRollMax.Smoke then
 		playSmokeStyle(position, scale)
-	elseif styleRoll <= 66 then
+	elseif styleRoll <= DEATH_CLOUD_CONFIG.StyleRollMax.Explosion then
 		playExplosionStyle(position, scale)
-	elseif styleRoll <= 84 then
+	elseif styleRoll <= DEATH_CLOUD_CONFIG.StyleRollMax.Shockwave then
 		playShockwaveStyle(position, scale)
 	else
 		playAshBurstStyle(position, scale)

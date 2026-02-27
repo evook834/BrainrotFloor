@@ -7,11 +7,11 @@
 
 local Players = game:GetService("Players")
 
-local Match = script.Parent.Parent
+local Match = script.Parent.Parent.Parent
 local ClassService = require(Match.Classes.ClassService)
-local WeaponToolSetup = require(script.Parent.WeaponToolSetup)
-local Match = script.Parent.Parent
 local AimResolver = require(Match.Combat.AimResolver)
+local WeaponToolSetup = require(script.Parent.WeaponToolSetup)
+local WeaponShotResolver = require(script.Parent.WeaponShotResolver)
 
 local ammoRuntime = nil
 local sentryTurretController = nil
@@ -24,7 +24,6 @@ local fireGrenadeLauncher = nil
 local fireFlamethrower = nil
 
 local resolveWeaponClass = WeaponToolSetup.resolveWeaponClass
-local normalizeWeaponToken = WeaponToolSetup.normalizeWeaponToken
 local isMeleeWeaponClass = WeaponToolSetup.isMeleeWeaponClass
 local createToolFromTemplate = WeaponToolSetup.createToolFromTemplate
 local createFallbackWeaponTool = WeaponToolSetup.createFallbackWeaponTool
@@ -32,6 +31,47 @@ local prepareToolParts = WeaponToolSetup.prepareToolParts
 local isDualWieldWeapon = WeaponToolSetup.isDualWieldWeapon
 local createDualWieldOffhandVisual = WeaponToolSetup.createDualWieldOffhandVisual
 local clearDualWieldOffhand = WeaponToolSetup.clearDualWieldOffhand
+
+local function shouldValidateRequestedAimDirection(weaponClass)
+	return weaponClass ~= "SentryDeployer" and weaponClass ~= "RepairTool"
+end
+
+local function resolveActiveFireContext(owner, tool)
+	if not owner or not owner:IsA("Player") then
+		return nil
+	end
+
+	local character = owner.Character
+	if not character or tool.Parent ~= character then
+		return nil
+	end
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	local rootPart = character:FindFirstChild("HumanoidRootPart")
+	if not humanoid or humanoid.Health <= 0 or not rootPart then
+		return nil
+	end
+
+	return character, rootPart
+end
+
+local function resolveActiveReloadContext(owner, tool)
+	if not owner or not owner:IsA("Player") then
+		return nil
+	end
+
+	local character = owner.Character
+	if not character or tool.Parent ~= character then
+		return nil
+	end
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then
+		return nil
+	end
+
+	return character
+end
 
 function init(options)
 	if type(options) ~= "table" then
@@ -89,27 +129,7 @@ local function startReload(tool, weaponDef, state, owner)
 end
 
 local function getWeaponOriginAndDirection(player, character, rootPart, handle)
-	local origin = rootPart.Position + Vector3.new(0, 1.5, 0)
-	if handle and handle:IsA("BasePart") then
-		origin = handle.Position
-	end
-
-	local direction = AimResolver.getPlayerAimDirection(player, character, rootPart, origin)
-	if direction.Magnitude <= 0.001 then
-		direction = rootPart.CFrame.LookVector
-	end
-	direction = direction.Unit
-
-	if handle and handle:IsA("BasePart") then
-		origin += direction * math.max(0.8, handle.Size.Z * 0.45)
-		direction = AimResolver.getPlayerAimDirection(player, character, rootPart, origin)
-		if direction.Magnitude <= 0.001 then
-			direction = rootPart.CFrame.LookVector
-		end
-		direction = direction.Unit
-	end
-
-	return origin, direction
+	return WeaponShotResolver.getWeaponOriginAndDirection(player, character, rootPart, handle)
 end
 
 local function consumeOwnedWeaponInstances(player, weaponId)
@@ -164,7 +184,65 @@ local function configureWeaponTool(tool, weaponDef, owner)
 	state.nextDualWieldShotLeft = false
 	updateAmmoAttributes(tool, weaponDef, state, owner)
 
-	local function fireWeapon(owner, character, humanoid, rootPart, explicitShotOrigin, explicitShotDirection)
+	local function resolveShotRay(ownerPlayer, rootPart, origin, direction, explicitShotOrigin, explicitShotDirection)
+		if typeof(explicitShotOrigin) == "Vector3" and typeof(explicitShotDirection) == "Vector3" and explicitShotDirection.Magnitude > 0.001 then
+			return explicitShotOrigin, AimResolver.clampDirectionToForwardFireArc(rootPart, explicitShotDirection, direction)
+		end
+		return AimResolver.getPlayerShotRay(ownerPlayer, rootPart, origin, direction)
+	end
+
+	local function fireDefaultBullet(ownerPlayer, characterModel, origin, direction, shotOrigin, shotDirection)
+		local muzzleOrigin = origin
+		if dualWieldEnabled and state.nextDualWieldShotLeft and state.offhandRoot and state.offhandRoot.Parent then
+			local offhandRoot = state.offhandRoot
+			muzzleOrigin = offhandRoot.Position + (direction * math.max(0.8, offhandRoot.Size.Z * 0.45))
+		end
+
+		if fireBulletShot then
+			fireBulletShot(ownerPlayer, characterModel, muzzleOrigin, direction, weaponDef, shotOrigin, shotDirection)
+		end
+
+		if dualWieldEnabled then
+			state.nextDualWieldShotLeft = not state.nextDualWieldShotLeft
+		end
+	end
+
+	local weaponClassFireHandlers = {
+		SentryDeployer = function(ownerPlayer, characterModel, rootPart, _origin, _direction, shotOrigin, shotDirection)
+			local didDeploy = sentryTurretController
+				and sentryTurretController.deploySentryTurret(ownerPlayer, characterModel, rootPart, weaponDef, shotOrigin, shotDirection)
+			if didDeploy then
+				consumeOwnedWeaponInstances(ownerPlayer, weaponDef.Id)
+			end
+			return true
+		end,
+		RepairTool = function(ownerPlayer)
+			if sentryTurretController then
+				sentryTurretController.repairOwnedSentries(ownerPlayer, weaponDef)
+			end
+			return true
+		end,
+		Flamethrower = function(ownerPlayer, characterModel)
+			if fireFlamethrower then
+				fireFlamethrower(ownerPlayer, characterModel, weaponDef, state, handle)
+			end
+			return true
+		end,
+		RPG = function(ownerPlayer, characterModel, _rootPart, origin, direction, shotOrigin, shotDirection)
+			if fireRocket then
+				fireRocket(ownerPlayer, characterModel, origin, direction, weaponDef, shotOrigin, shotDirection)
+			end
+			return true
+		end,
+		GrenadeLauncher = function(ownerPlayer, characterModel, _rootPart, origin, direction, shotOrigin, shotDirection)
+			if fireGrenadeLauncher then
+				fireGrenadeLauncher(ownerPlayer, characterModel, origin, direction, weaponDef, shotOrigin, shotDirection)
+			end
+			return true
+		end,
+	}
+
+	local function fireWeapon(owner, character, rootPart, explicitShotOrigin, explicitShotDirection)
 		if not ClassService.canPlayerUseWeapon(owner, weaponDef) then
 			ClassService.enforcePlayerLoadout(owner)
 			return
@@ -184,7 +262,9 @@ local function configureWeaponTool(tool, weaponDef, owner)
 			return
 		end
 
-		if weaponClass ~= "SentryDeployer" and weaponClass ~= "RepairTool" and not AimResolver.canPlayerFireTowardRequestedDirection(owner, rootPart, explicitShotDirection) then
+		if shouldValidateRequestedAimDirection(weaponClass)
+			and not AimResolver.canPlayerFireTowardRequestedDirection(owner, rootPart, explicitShotDirection)
+		then
 			return
 		end
 
@@ -202,73 +282,31 @@ local function configureWeaponTool(tool, weaponDef, owner)
 		end
 
 		local origin, direction = getWeaponOriginAndDirection(owner, character, rootPart, handle)
-		local shotOrigin, shotDirection = nil, nil
-		if typeof(explicitShotOrigin) == "Vector3" and typeof(explicitShotDirection) == "Vector3" and explicitShotDirection.Magnitude > 0.001 then
-			shotOrigin = explicitShotOrigin
-			shotDirection = AimResolver.clampDirectionToForwardFireArc(rootPart, explicitShotDirection, direction)
-		else
-			shotOrigin, shotDirection = AimResolver.getPlayerShotRay(owner, rootPart, origin, direction)
-		end
+		local shotOrigin, shotDirection = resolveShotRay(owner, rootPart, origin, direction, explicitShotOrigin, explicitShotDirection)
 
-		if weaponClass == "SentryDeployer" then
-			local didDeploy = sentryTurretController and sentryTurretController.deploySentryTurret(owner, character, rootPart, weaponDef, shotOrigin, shotDirection)
-			if didDeploy then
-				consumeOwnedWeaponInstances(owner, weaponDef.Id)
-			end
-		elseif weaponClass == "RepairTool" then
-			if sentryTurretController then
-				sentryTurretController.repairOwnedSentries(owner, weaponDef)
-			end
-		elseif isMeleeWeaponClass(weaponClass) then
+		if isMeleeWeaponClass(weaponClass) then
 			if fireMeleeAttack then
 				fireMeleeAttack(owner, character, origin, direction, weaponDef, state, tool)
 			end
-		elseif weaponClass == "Flamethrower" then
-			if fireFlamethrower then
-				fireFlamethrower(owner, character, weaponDef, state, handle)
-			end
-		elseif weaponClass == "RPG" then
-			if fireRocket then
-				fireRocket(owner, character, origin, direction, weaponDef, shotOrigin, shotDirection)
-			end
-		elseif weaponClass == "GrenadeLauncher" then
-			if fireGrenadeLauncher then
-				fireGrenadeLauncher(owner, character, origin, direction, weaponDef, shotOrigin, shotDirection)
-			end
-		else
-			local muzzleOrigin = origin
-			if dualWieldEnabled and state.nextDualWieldShotLeft and state.offhandRoot and state.offhandRoot.Parent then
-				local offhandRoot = state.offhandRoot
-				muzzleOrigin = offhandRoot.Position + (direction * math.max(0.8, offhandRoot.Size.Z * 0.45))
-			end
-
-			if fireBulletShot then
-				fireBulletShot(owner, character, muzzleOrigin, direction, weaponDef, shotOrigin, shotDirection)
-			end
-
-			if dualWieldEnabled then
-				state.nextDualWieldShotLeft = not state.nextDualWieldShotLeft
-			end
+			return
 		end
+
+		local classFireHandler = weaponClassFireHandlers[weaponClass]
+		if classFireHandler then
+			classFireHandler(owner, character, rootPart, origin, direction, shotOrigin, shotDirection)
+			return
+		end
+
+		fireDefaultBullet(owner, character, origin, direction, shotOrigin, shotDirection)
 	end
 
 	state.fireHandler = function(owner, explicitShotOrigin, explicitShotDirection)
-		if not owner or not owner:IsA("Player") then
+		local character, rootPart = resolveActiveFireContext(owner, tool)
+		if not character or not rootPart then
 			return
 		end
 
-		local character = owner.Character
-		if not character or tool.Parent ~= character then
-			return
-		end
-
-		local humanoid = character:FindFirstChildOfClass("Humanoid")
-		local rootPart = character:FindFirstChild("HumanoidRootPart")
-		if not humanoid or humanoid.Health <= 0 or not rootPart then
-			return
-		end
-
-		fireWeapon(owner, character, humanoid, rootPart, explicitShotOrigin, explicitShotDirection)
+		fireWeapon(owner, character, rootPart, explicitShotOrigin, explicitShotDirection)
 	end
 
 	state.reloadHandler = function(owner)
@@ -281,13 +319,8 @@ local function configureWeaponTool(tool, weaponDef, owner)
 			return
 		end
 
-		local character = owner.Character
-		if not character or tool.Parent ~= character then
-			return
-		end
-
-		local humanoid = character:FindFirstChildOfClass("Humanoid")
-		if not humanoid or humanoid.Health <= 0 then
+		local character = resolveActiveReloadContext(owner, tool)
+		if not character then
 			return
 		end
 
@@ -309,13 +342,12 @@ local function configureWeaponTool(tool, weaponDef, owner)
 			return
 		end
 
-		local humanoid = character:FindFirstChildOfClass("Humanoid")
-		local rootPart = character:FindFirstChild("HumanoidRootPart")
-		if not humanoid or humanoid.Health <= 0 or not rootPart then
+		local liveCharacter, rootPart = resolveActiveFireContext(owner, tool)
+		if not liveCharacter or not rootPart then
 			return
 		end
 
-		fireWeapon(owner, character, humanoid, rootPart, nil, nil)
+		fireWeapon(owner, liveCharacter, rootPart, nil, nil)
 	end)
 
 	tool.Equipped:Connect(function()

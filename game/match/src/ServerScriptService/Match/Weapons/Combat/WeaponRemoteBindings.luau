@@ -6,13 +6,19 @@
 
 local Players = game:GetService("Players")
 
-local Match = script.Parent.Parent
+local Match = script.Parent.Parent.Parent
 local AimResolver = require(Match.Combat.AimResolver)
 local EnemyDamageService = require(Match.Combat.EnemyDamageService)
 
 local WeaponRemoteBindings = {}
+local started = false
 
 local function start(context)
+	if started then
+		return
+	end
+	started = true
+
 	local weaponAimRemote = context.weaponAimRemote
 	local weaponFireRemote = context.weaponFireRemote
 	local weaponReloadRemote = context.weaponReloadRemote

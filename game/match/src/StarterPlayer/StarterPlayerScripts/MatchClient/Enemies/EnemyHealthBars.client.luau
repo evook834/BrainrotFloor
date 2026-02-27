@@ -2,15 +2,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
+local EnemyPresentation = require(ReplicatedStorage.Shared.Enemy.EnemyPresentation)
+local EnemyModelUtils = require(script.Parent.EnemyModelUtils)
 
 local ENEMY_CONTAINER_NAME = Config.Enemy.ContainerName
-local BAR_WIDTH_PX = 90
-local BAR_HEIGHT_PX = 6
-
-local HIGH_HP_COLOR = Color3.fromRGB(65, 220, 90) -- Green
-local MID_HP_COLOR = Color3.fromRGB(245, 215, 70) -- Yellow
-local LOW_HP_COLOR = Color3.fromRGB(245, 150, 60) -- Orange
-local CRITICAL_HP_COLOR = Color3.fromRGB(220, 55, 55) -- Red
+local HEALTH_BAR_CONFIG = EnemyPresentation.HealthBar
+local HEALTH_BAR_COLORS = HEALTH_BAR_CONFIG.Colors
 
 local ENEMY_TRACKING = {}
 local activeContainer: Instance? = nil
@@ -18,45 +15,16 @@ local containerAddedConnection: RBXScriptConnection? = nil
 local containerRemovedConnection: RBXScriptConnection? = nil
 
 local function getHealthColor(healthRatio: number): Color3
-	if healthRatio <= 0.2 then
-		return CRITICAL_HP_COLOR
+	if healthRatio <= HEALTH_BAR_CONFIG.CriticalThreshold then
+		return HEALTH_BAR_COLORS.Critical
 	end
-	if healthRatio <= 0.45 then
-		return LOW_HP_COLOR
+	if healthRatio <= HEALTH_BAR_CONFIG.LowThreshold then
+		return HEALTH_BAR_COLORS.Low
 	end
-	if healthRatio <= 0.7 then
-		return MID_HP_COLOR
+	if healthRatio <= HEALTH_BAR_CONFIG.MidThreshold then
+		return HEALTH_BAR_COLORS.Mid
 	end
-	return HIGH_HP_COLOR
-end
-
-local function resolveRootPart(enemyModel: Model): BasePart?
-	if enemyModel.PrimaryPart and enemyModel.PrimaryPart:IsA("BasePart") then
-		return enemyModel.PrimaryPart
-	end
-
-	local humanoidRootPart = enemyModel:FindFirstChild("HumanoidRootPart", true)
-	if humanoidRootPart and humanoidRootPart:IsA("BasePart") then
-		return humanoidRootPart
-	end
-
-	local anyPart = enemyModel:FindFirstChildWhichIsA("BasePart", true)
-	if anyPart then
-		return anyPart
-	end
-
-	return nil
-end
-
-local function getBarHeightOffset(enemyModel: Model): number
-	local height = 4
-	local ok, size = pcall(function()
-		return enemyModel:GetExtentsSize()
-	end)
-	if ok and size then
-		height = size.Y
-	end
-	return math.clamp((height * 0.55) + 1, 2.2, 12)
+	return HEALTH_BAR_COLORS.High
 end
 
 local function createHealthBar(enemyModel: Model, rootPart: BasePart): (BillboardGui, Frame)
@@ -65,15 +33,15 @@ local function createHealthBar(enemyModel: Model, rootPart: BasePart): (Billboar
 	billboard.Adornee = rootPart
 	billboard.AlwaysOnTop = true
 	billboard.LightInfluence = 0
-	billboard.MaxDistance = 220
-	billboard.Size = UDim2.fromOffset(BAR_WIDTH_PX, BAR_HEIGHT_PX)
-	billboard.StudsOffsetWorldSpace = Vector3.new(0, getBarHeightOffset(enemyModel), 0)
+	billboard.MaxDistance = HEALTH_BAR_CONFIG.MaxDistance
+	billboard.Size = UDim2.fromOffset(HEALTH_BAR_CONFIG.WidthPx, HEALTH_BAR_CONFIG.HeightPx)
+	billboard.StudsOffsetWorldSpace = Vector3.new(0, EnemyModelUtils.getHealthBarOffset(enemyModel), 0)
 	billboard.Parent = enemyModel
 
 	local background = Instance.new("Frame")
 	background.Name = "Background"
 	background.Size = UDim2.fromScale(1, 1)
-	background.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+	background.BackgroundColor3 = HEALTH_BAR_CONFIG.BackgroundColor
 	background.BackgroundTransparency = 0.25
 	background.BorderSizePixel = 0
 	background.Parent = billboard
@@ -83,7 +51,7 @@ local function createHealthBar(enemyModel: Model, rootPart: BasePart): (Billboar
 	backgroundCorner.Parent = background
 
 	local stroke = Instance.new("UIStroke")
-	stroke.Color = Color3.fromRGB(0, 0, 0)
+	stroke.Color = HEALTH_BAR_CONFIG.StrokeColor
 	stroke.Transparency = 0.35
 	stroke.Thickness = 1
 	stroke.Parent = background
@@ -92,7 +60,7 @@ local function createHealthBar(enemyModel: Model, rootPart: BasePart): (Billboar
 	fill.Name = "Fill"
 	fill.Size = UDim2.fromScale(1, 1)
 	fill.BorderSizePixel = 0
-	fill.BackgroundColor3 = HIGH_HP_COLOR
+	fill.BackgroundColor3 = HEALTH_BAR_COLORS.High
 	fill.Parent = background
 
 	local fillCorner = Instance.new("UICorner")
@@ -140,7 +108,7 @@ local function trackEnemy(enemyModel: Model)
 			return
 		end
 
-		local rootPart = resolveRootPart(enemyModel)
+		local rootPart = EnemyModelUtils.resolveRootPart(enemyModel)
 		if not rootPart then
 			return
 		end
