@@ -1,13 +1,9 @@
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
-local sharedFolder = ReplicatedStorage:WaitForChild("Shared")
-local Config = require(sharedFolder:WaitForChild("GameConfig"))
+local SettingsRemotesUtil = require(script.Parent:WaitForChild("SettingsRemotesUtil"))
 
 local MUSIC_CHANNEL = "Music"
 local SFX_CHANNEL = "Sfx"
-local REMOTE_WAIT_TIMEOUT_SECONDS = 15
-
 type SettingsState = {
 	musicVolume: number,
 	musicMuted: boolean,
@@ -62,24 +58,6 @@ type Controller = {
 	musicSlider: SliderController?,
 	sfxSlider: SliderController?,
 }
-
-local function resolveRemote(remotesFolder: Instance?, remoteName: string, className: string)
-	if not remotesFolder then
-		return nil
-	end
-
-	local candidate = remotesFolder:FindFirstChild(remoteName)
-	if candidate and candidate:IsA(className) then
-		return candidate
-	end
-
-	candidate = remotesFolder:WaitForChild(remoteName, REMOTE_WAIT_TIMEOUT_SECONDS)
-	if candidate and candidate:IsA(className) then
-		return candidate
-	end
-
-	return nil
-end
 
 local function createSliderController(
 	controller: Controller,
@@ -370,19 +348,13 @@ local function ensureDefaults(settingsState: SettingsState)
 end
 
 function SettingsAudioController.new(init: InitOptions): Controller
-	local remotesFolder = ReplicatedStorage:WaitForChild(Config.Remotes.Folder, REMOTE_WAIT_TIMEOUT_SECONDS)
-	local settingsSaveRemote = nil
-	if remotesFolder then
-		settingsSaveRemote = resolveRemote(remotesFolder, Config.Remotes.SettingsSave, "RemoteEvent")
-	end
-
 	local self: Controller = setmetatable({
 		settingsState = init.settingsState,
 		view = init.view,
 		connections = {},
 		trackedSounds = {},
 		settingsSaveToken = 0,
-		settingsSaveRemote = settingsSaveRemote,
+		settingsSaveRemote = SettingsRemotesUtil.resolveSettingsSaveRemote(),
 		musicSlider = nil,
 		sfxSlider = nil,
 	}, SettingsAudioController)

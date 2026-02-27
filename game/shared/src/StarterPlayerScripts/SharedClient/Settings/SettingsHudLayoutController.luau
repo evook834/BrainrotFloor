@@ -1,27 +1,18 @@
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
+
+local SettingsRemotesUtil = require(script.Parent:WaitForChild("SettingsRemotesUtil"))
+local HudLayoutConfig = require(script.Parent:WaitForChild("SettingsHudLayoutConfig"))
+local HudLayoutService = require(script.Parent:WaitForChild("SettingsHudLayoutService"))
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local REMOTE_WAIT_TIMEOUT_SECONDS = 15
-local REMOTES_FOLDER_NAME = "Remotes"
-local SETTINGS_SAVE_REMOTE_NAME = "SettingsSave"
-
-local HUD_SCREEN_GUI_NAMES = {
-	BrainrotHud = true,
-	ClassXpBarHud = true,
-	SprintStaminaHud = true,
-	CombatCrosshairUi = true,
-	AmmoHud = true,
-}
-
-local NON_DRAGGABLE_HUD_ROOTS = {
-	["CombatCrosshairUi/CrosshairRoot"] = true,
-	["BrainrotHud/RespawnTimer"] = true,
-	["BrainrotHud/GameOverOverlay"] = true,
-}
+local HUD_SCALE_MIN = 0.6
+local HUD_SCALE_MAX = 1.45
+local HUD_SCALE_STEP = 0.05
+local HUD_MOVABLE_ATTRIBUTE = "HudMovable"
+local TOUCH_LONG_PRESS_DELAY = 0.25
 
 type SettingsState = {
 	musicVolume: number,
@@ -29,7 +20,7 @@ type SettingsState = {
 	sfxVolume: number,
 	sfxMuted: boolean,
 	hudScale: number,
-	hudPositions: { [string]: any },
+	hudPositions: { [string]: UDim2 },
 }
 
 type RunOptions = {
@@ -71,6 +62,10 @@ type DragState = {
 	startRawPosition: UDim2,
 }
 
+type PendingTouch = {
+	input: InputObject,
+}
+
 type InitOptions = {
 	view: View,
 	options: RunOptions?,
@@ -89,57 +84,21 @@ type Controller = {
 	selectedHudRoot: GuiObject?,
 	activeDrag: DragState?,
 	hudMoveModeAttribute: string?,
-	[string]: any,
+	highlightStroke: UIStroke?,
+	pendingTouch: PendingTouch?,
 }
-
-local function resolveRemote(remotesFolder: Instance?, remoteName: string, className: string)
-	if not remotesFolder then
-		return nil
-	end
-
-	local candidate = remotesFolder:FindFirstChild(remoteName)
-	if candidate and candidate:IsA(className) then
-		return candidate
-	end
-
-	candidate = remotesFolder:WaitForChild(remoteName, REMOTE_WAIT_TIMEOUT_SECONDS)
-	if candidate and candidate:IsA(className) then
-		return candidate
-	end
-
-	return nil
-end
 
 local SettingsHudLayoutController = {}
 SettingsHudLayoutController.__index = SettingsHudLayoutController
 
-function SettingsHudLayoutController:serializePosition(position: UDim2)
-	if typeof(position) ~= "UDim2" then
-		return nil
-	end
+local HIGHLIGHT_STROKE_NAME = "HudMoveHighlightStroke"
 
-	return {
-		xScale = position.X.Scale,
-		xOffset = math.floor(position.X.Offset + 0.5),
-		yScale = position.Y.Scale,
-		yOffset = math.floor(position.Y.Offset + 0.5),
-	}
+function SettingsHudLayoutController:serializePosition(position: UDim2)
+	return HudLayoutService.serializePosition(position)
 end
 
 function SettingsHudLayoutController:deserializePosition(rawPosition: any): UDim2?
-	if type(rawPosition) ~= "table" then
-		return nil
-	end
-
-	local xScale = tonumber(rawPosition.xScale)
-	local xOffset = tonumber(rawPosition.xOffset)
-	local yScale = tonumber(rawPosition.yScale)
-	local yOffset = tonumber(rawPosition.yOffset)
-	if xScale == nil or xOffset == nil or yScale == nil or yOffset == nil then
-		return nil
-	end
-
-	return UDim2.new(xScale, math.floor(xOffset + 0.5), yScale, math.floor(yOffset + 0.5))
+	return HudLayoutService.deserializePosition(rawPosition)
 end
 
 function SettingsHudLayoutController:queueSettingsSave()
@@ -154,6 +113,13 @@ function SettingsHudLayoutController:queueSettingsSave()
 			return
 		end
 
+		local serializedPositions = {}
+		for key, position in pairs(self.settingsState.hudPositions) do
+			if typeof(position) == "UDim2" then
+				serializedPositions[key] = self:serializePosition(position)
+			end
+		end
+
 		self.settingsSaveRemote:FireServer({
 			audio = {
 				musicVolume = self.settingsState.musicVolume,
@@ -163,36 +129,86 @@ function SettingsHudLayoutController:queueSettingsSave()
 			},
 			hud = {
 				scale = self.settingsState.hudScale,
-				positions = self.settingsState.hudPositions,
+				positions = serializedPositions,
 			},
 		})
 	end)
 end
 
-function SettingsHudLayoutController:applyHudRootTransform(root: GuiObject, rootState: RootState)
-	local rawPosition = rootState.rawPosition
-	if typeof(rawPosition) ~= "UDim2" then
-		rawPosition = root.Position
+function SettingsHudLayoutController:setHighlightedRoot(root: GuiObject?)
+	if not root then
+		if self.highlightStroke then
+			self.highlightStroke:Destroy()
+			self.highlightStroke = nil
+		end
+		return
 	end
 
-	rootState.applying = true
-	root.Position = rawPosition
-	if rootState.useAttributeScale then
-		root:SetAttribute("HudScaleMultiplier", self.settingsState.hudScale)
-	elseif rootState.scaleObject then
-		rootState.scaleObject.Scale = self.settingsState.hudScale
+	local stroke = self.highlightStroke
+	if stroke and stroke.Parent ~= root then
+		stroke.Parent = root
+		return
 	end
-	rootState.applying = false
+
+	if not stroke then
+		stroke = Instance.new("UIStroke")
+		stroke.Name = HIGHLIGHT_STROKE_NAME
+		stroke.Color = Color3.fromRGB(255, 255, 255)
+		stroke.Thickness = 2
+		stroke.Transparency = 0.2
+		stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		self.highlightStroke = stroke
+	end
+
+	stroke.Parent = root
+end
+
+function SettingsHudLayoutController:applyHudRootTransform(root: GuiObject, rootState: RootState)
+	HudLayoutService.applyHudRootTransform(root, rootState, self.settingsState)
 end
 
 function SettingsHudLayoutController:applyHudTransforms()
-	for root, rootState in pairs(self.trackedHudRoots) do
-		if root.Parent then
-			self:applyHudRootTransform(root, rootState)
-		else
-			self.trackedHudRoots[root] = nil
-		end
+	HudLayoutService.applyHudTransforms(self.trackedHudRoots, self.settingsState)
+end
+
+function SettingsHudLayoutController:setRootPosition(root: GuiObject, rootState: RootState, rawPosition: UDim2, shouldPersist: boolean?)
+	local clamped = HudLayoutService.clampRootPosition(rawPosition, root)
+	rootState.rawPosition = clamped
+	if shouldPersist ~= false then
+		self.settingsState.hudPositions[rootState.persistKey] = clamped
 	end
+	self:applyHudRootTransform(root, rootState)
+end
+
+function SettingsHudLayoutController:resetRootToDefault(root: GuiObject, rootState: RootState)
+	rootState.rawPosition = rootState.defaultPosition
+	self.settingsState.hudPositions[rootState.persistKey] = nil
+	self:applyHudRootTransform(root, rootState)
+end
+
+function SettingsHudLayoutController:destroyHudRoot(root: GuiObject, rootState: RootState)
+	if self.selectedHudRoot == root then
+		self.selectedHudRoot = nil
+	end
+	if self.activeDrag and self.activeDrag.root == root then
+		self.activeDrag = nil
+	end
+	if self.highlightStroke and self.highlightStroke.Parent == root then
+		self.highlightStroke.Parent = nil
+	end
+
+	for _, connection in ipairs(rootState.connections) do
+		connection:Disconnect()
+	end
+	self.trackedHudRoots[root] = nil
+	self:updateGameplayLabels()
+end
+
+function SettingsHudLayoutController:destroyScreenGui(screenGui: ScreenGui, screenState: ScreenGuiState)
+	for _, connection in ipairs(screenState.connections) do
+		connection:Disconnect()
+	end
+	self.trackedScreenGuis[screenGui] = nil
 end
 
 function SettingsHudLayoutController:trackHudRoot(root: GuiObject)
@@ -232,13 +248,13 @@ function SettingsHudLayoutController:trackHudRoot(root: GuiObject)
 		rootState.screenGuiName = screenGui.Name
 	end
 	rootState.persistKey = string.format("%s/%s", rootState.screenGuiName, root.Name)
-	if NON_DRAGGABLE_HUD_ROOTS[rootState.persistKey] then
+	if HudLayoutConfig.NON_DRAGGABLE_HUD_ROOTS[rootState.persistKey] or root:GetAttribute(HUD_MOVABLE_ATTRIBUTE) == false then
 		rootState.canDrag = false
 	end
 
-	local savedPosition = self:deserializePosition(self.settingsState.hudPositions[rootState.persistKey])
-	if savedPosition then
-		rootState.rawPosition = savedPosition
+	local savedPosition = self.settingsState.hudPositions[rootState.persistKey]
+	if typeof(savedPosition) == "UDim2" then
+		self:setRootPosition(root, rootState, savedPosition)
 	end
 
 	self.trackedHudRoots[root] = rootState
@@ -247,29 +263,14 @@ function SettingsHudLayoutController:trackHudRoot(root: GuiObject)
 		if rootState.applying then
 			return
 		end
-
-		rootState.rawPosition = root.Position
-		self.settingsState.hudPositions[rootState.persistKey] = self:serializePosition(rootState.rawPosition)
-		self:applyHudRootTransform(root, rootState)
+		self:setRootPosition(root, rootState, root.Position)
 	end))
 
 	table.insert(rootState.connections, root.AncestryChanged:Connect(function(_, parent)
 		if parent and root:IsDescendantOf(playerGui) then
 			return
 		end
-
-		if self.selectedHudRoot == root then
-			self.selectedHudRoot = nil
-		end
-		if self.activeDrag and self.activeDrag.root == root then
-			self.activeDrag = nil
-		end
-
-		for _, connection in ipairs(rootState.connections) do
-			connection:Disconnect()
-		end
-		self.trackedHudRoots[root] = nil
-		self:updateGameplayLabels()
+		self:destroyHudRoot(root, rootState)
 	end))
 
 	self:applyHudRootTransform(root, rootState)
@@ -302,22 +303,8 @@ function SettingsHudLayoutController:trackScreenGui(screenGui: ScreenGui)
 			return
 		end
 
-		for _, connection in ipairs(screenState.connections) do
-			connection:Disconnect()
-		end
-		self.trackedScreenGuis[screenGui] = nil
+		self:destroyScreenGui(screenGui, screenState)
 	end))
-end
-
-local function getRootHitBox(root: GuiObject): (number, number, number, number)
-	local size = root.AbsoluteSize
-	local position = root.AbsolutePosition
-	if size.X >= 20 and size.Y >= 20 then
-		return position.X, position.Y, size.X, size.Y
-	end
-
-	local fallbackSize = Vector2.new(28, 28)
-	return position.X - (fallbackSize.X * 0.5), position.Y - (fallbackSize.Y * 0.5), fallbackSize.X, fallbackSize.Y
 end
 
 local function isPointInPanel(view: View, screenPos: Vector2): boolean
@@ -334,41 +321,7 @@ local function isPointInPanel(view: View, screenPos: Vector2): boolean
 end
 
 function SettingsHudLayoutController:getTopHudRootAtPosition(screenPos: Vector2): GuiObject?
-	local bestRoot = nil
-	local bestScore = -math.huge
-
-	for root, rootState in pairs(self.trackedHudRoots) do
-		if not rootState.canDrag then
-			continue
-		end
-		if not root.Parent or not root.Visible then
-			continue
-		end
-
-		local screenGui = root:FindFirstAncestorWhichIsA("ScreenGui")
-		if not screenGui or not screenGui.Enabled then
-			continue
-		end
-
-		local x, y, width, height = getRootHitBox(root)
-		local isInside = screenPos.X >= x and screenPos.X <= (x + width) and screenPos.Y >= y and screenPos.Y <= (y + height)
-		if not isInside then
-			continue
-		end
-
-		local score = (screenGui.DisplayOrder * 1000) + root.ZIndex
-		if score > bestScore then
-			bestScore = score
-			bestRoot = root
-		end
-	end
-
-	if bestRoot then
-		self.selectedHudRoot = bestRoot
-		self:updateGameplayLabels()
-	end
-
-	return bestRoot
+	return HudLayoutService.getTopHudRootAtPosition(self.trackedHudRoots, screenPos)
 end
 
 function SettingsHudLayoutController:updateDrag(screenPos: Vector2)
@@ -384,21 +337,36 @@ function SettingsHudLayoutController:updateDrag(screenPos: Vector2)
 	end
 
 	local startRawPosition = self.activeDrag.startRawPosition
-	if typeof(startRawPosition) ~= "UDim2" then
-		startRawPosition = rootState.rawPosition
-	end
-
 	local delta = screenPos - self.activeDrag.startMouse
-	rootState.rawPosition = UDim2.new(
+	local newRawPosition = UDim2.new(
 		startRawPosition.X.Scale,
 		startRawPosition.X.Offset + math.floor(delta.X + 0.5),
 		startRawPosition.Y.Scale,
 		startRawPosition.Y.Offset + math.floor(delta.Y + 0.5)
 	)
-	self.settingsState.hudPositions[rootState.persistKey] = self:serializePosition(rootState.rawPosition)
-	self:applyHudRootTransform(root, rootState)
+	self:setRootPosition(root, rootState, newRawPosition)
 	self:updateGameplayLabels()
-	self:queueSettingsSave()
+end
+
+function SettingsHudLayoutController:startDragAtPosition(screenPos: Vector2)
+	local root = self:getTopHudRootAtPosition(screenPos)
+	if not root then
+		return
+	end
+
+	local rootState = self.trackedHudRoots[root]
+	if not rootState or not rootState.canDrag then
+		return
+	end
+
+	self.activeDrag = {
+		root = root,
+		startMouse = Vector2.new(screenPos.X, screenPos.Y),
+		startRawPosition = rootState.rawPosition,
+	}
+	self.selectedHudRoot = root
+	self:updateGameplayLabels()
+	self:setHighlightedRoot(root)
 end
 
 local function getRootLabel(controller: Controller, root: GuiObject?): string
@@ -430,6 +398,12 @@ function SettingsHudLayoutController:updateGameplayLabels()
 	self.view.resetPositionButton.Active = self.moveModeEnabled and self.selectedHudRoot ~= nil
 	self.view.resetPositionButton.AutoButtonColor = self.view.resetPositionButton.Active
 	self.view.resetPositionButton.BackgroundTransparency = if self.view.resetPositionButton.Active then 0 else 0.35
+
+	if self.moveModeEnabled then
+		self.view.moveModeButton.BackgroundColor3 = Color3.fromRGB(52, 108, 86)
+	else
+		self.view.moveModeButton.BackgroundColor3 = Color3.fromRGB(52, 86, 120)
+	end
 end
 
 function SettingsHudLayoutController:setMoveModeEnabled(enabled: boolean)
@@ -439,14 +413,9 @@ function SettingsHudLayoutController:setMoveModeEnabled(enabled: boolean)
 	end
 	if not self.moveModeEnabled then
 		self.activeDrag = nil
+		self.pendingTouch = nil
+		self:setHighlightedRoot(nil)
 	end
-
-	if self.moveModeEnabled then
-		self.view.moveModeButton.BackgroundColor3 = Color3.fromRGB(52, 108, 86)
-	else
-		self.view.moveModeButton.BackgroundColor3 = Color3.fromRGB(52, 86, 120)
-	end
-
 	self:updateGameplayLabels()
 end
 
@@ -455,7 +424,7 @@ function SettingsHudLayoutController:applyLoadedHudSettings(loadedHud: any)
 		return
 	end
 
-	self.settingsState.hudScale = math.clamp(tonumber(loadedHud.scale) or self.settingsState.hudScale, 0.6, 1.45)
+	self.settingsState.hudScale = math.clamp(tonumber(loadedHud.scale) or self.settingsState.hudScale, HUD_SCALE_MIN, HUD_SCALE_MAX)
 	self.settingsState.hudPositions = {}
 
 	if type(loadedHud.positions) == "table" then
@@ -463,16 +432,16 @@ function SettingsHudLayoutController:applyLoadedHudSettings(loadedHud: any)
 			if type(key) == "string" then
 				local parsedPosition = self:deserializePosition(rawPosition)
 				if parsedPosition then
-					self.settingsState.hudPositions[key] = self:serializePosition(parsedPosition)
+					self.settingsState.hudPositions[key] = parsedPosition
 				end
 			end
 		end
 	end
 
 	for _, rootState in pairs(self.trackedHudRoots) do
-		local savedPosition = self:deserializePosition(self.settingsState.hudPositions[rootState.persistKey])
-		if savedPosition then
-			rootState.rawPosition = savedPosition
+		local savedPosition = self.settingsState.hudPositions[rootState.persistKey]
+		if typeof(savedPosition) == "UDim2" then
+			self:setRootPosition((rootState :: any), rootState, savedPosition)
 		end
 	end
 
@@ -487,49 +456,32 @@ function SettingsHudLayoutController:destroy()
 	self.connections = {}
 
 	for screenGui, screenState in pairs(self.trackedScreenGuis) do
-		for _, screenConnection in ipairs(screenState.connections) do
-			screenConnection:Disconnect()
-		end
-		self.trackedScreenGuis[screenGui] = nil
+		self:destroyScreenGui(screenGui, screenState)
 	end
 
 	for root, rootState in pairs(self.trackedHudRoots) do
-		for _, rootConnection in ipairs(rootState.connections) do
-			rootConnection:Disconnect()
-		end
-		self.trackedHudRoots[root] = nil
+		self:destroyHudRoot(root, rootState)
 	end
 
 	if self.hudMoveModeAttribute then
 		playerGui:SetAttribute(self.hudMoveModeAttribute, false)
 	end
-end
 
+	if self.highlightStroke then
+		self.highlightStroke:Destroy()
+		self.highlightStroke = nil
+	end
+end
 local function isHudScreenGui(viewGui: ScreenGui, instance: Instance): boolean
-	if not instance:IsA("ScreenGui") then
-		return false
-	end
-	if instance == viewGui then
-		return false
-	end
-	return HUD_SCREEN_GUI_NAMES[instance.Name] == true
+	return HudLayoutConfig.isHudScreenGui(viewGui, instance)
 end
 
 local function ensureDefaults(settingsState: SettingsState)
-	settingsState.hudScale = math.clamp(tonumber(settingsState.hudScale) or 1, 0.6, 1.45)
-	if type(settingsState.hudPositions) ~= "table" then
-		settingsState.hudPositions = {}
-	end
+	HudLayoutService.ensureDefaults(settingsState, HUD_SCALE_MIN, HUD_SCALE_MAX)
 end
 
 function SettingsHudLayoutController.new(init: InitOptions): Controller
 	local options = init.options or {}
-
-	local remotesFolder = ReplicatedStorage:WaitForChild(REMOTES_FOLDER_NAME, REMOTE_WAIT_TIMEOUT_SECONDS)
-	local settingsSaveRemote = nil
-	if remotesFolder then
-		settingsSaveRemote = resolveRemote(remotesFolder, SETTINGS_SAVE_REMOTE_NAME, "RemoteEvent")
-	end
 
 	local self = (setmetatable({
 		view = init.view,
@@ -537,12 +489,14 @@ function SettingsHudLayoutController.new(init: InitOptions): Controller
 		connections = {},
 		trackedScreenGuis = {},
 		trackedHudRoots = {},
-		settingsSaveRemote = settingsSaveRemote,
+		settingsSaveRemote = SettingsRemotesUtil.resolveSettingsSaveRemote(),
 		settingsSaveToken = 0,
 		moveModeEnabled = false,
 		selectedHudRoot = nil,
 		activeDrag = nil,
 		hudMoveModeAttribute = options.hudMoveModeAttribute,
+		highlightStroke = nil,
+		pendingTouch = nil,
 	}, SettingsHudLayoutController) :: any) :: Controller
 
 	ensureDefaults(self.settingsState)
@@ -578,22 +532,20 @@ function SettingsHudLayoutController.new(init: InitOptions): Controller
 			return
 		end
 
-		rootState.rawPosition = rootState.defaultPosition
-		self.settingsState.hudPositions[rootState.persistKey] = nil
-		self:applyHudRootTransform(self.selectedHudRoot, rootState)
+		self:resetRootToDefault(self.selectedHudRoot, rootState)
 		self:updateGameplayLabels()
 		self:queueSettingsSave()
 	end))
 
 	table.insert(self.connections, self.view.hudScaleDownButton.Activated:Connect(function()
-		self.settingsState.hudScale = math.clamp(self.settingsState.hudScale - 0.05, 0.6, 1.45)
+		self.settingsState.hudScale = math.clamp(self.settingsState.hudScale - HUD_SCALE_STEP, HUD_SCALE_MIN, HUD_SCALE_MAX)
 		self:applyHudTransforms()
 		self:updateGameplayLabels()
 		self:queueSettingsSave()
 	end))
 
 	table.insert(self.connections, self.view.hudScaleUpButton.Activated:Connect(function()
-		self.settingsState.hudScale = math.clamp(self.settingsState.hudScale + 0.05, 0.6, 1.45)
+		self.settingsState.hudScale = math.clamp(self.settingsState.hudScale + HUD_SCALE_STEP, HUD_SCALE_MIN, HUD_SCALE_MAX)
 		self:applyHudTransforms()
 		self:updateGameplayLabels()
 		self:queueSettingsSave()
@@ -619,39 +571,74 @@ function SettingsHudLayoutController.new(init: InitOptions): Controller
 			return
 		end
 
-		local root = self:getTopHudRootAtPosition(screenPos)
-		if not root then
+		if inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
+			self:startDragAtPosition(screenPos)
 			return
 		end
 
-		local rootState = self.trackedHudRoots[root]
-		if not rootState or not rootState.canDrag then
-			return
-		end
+		if inputObject.UserInputType == Enum.UserInputType.Touch then
+			self.pendingTouch = {
+				input = inputObject,
+			}
 
-		self.activeDrag = {
-			root = root,
-			startMouse = Vector2.new(screenPos.X, screenPos.Y),
-			startRawPosition = rootState.rawPosition,
-		}
-		self.selectedHudRoot = root
-		self:updateGameplayLabels()
+			local pendingTouch = self.pendingTouch
+			task.delay(TOUCH_LONG_PRESS_DELAY, function()
+				if self.pendingTouch ~= pendingTouch then
+					return
+				end
+				if not self.moveModeEnabled then
+					return
+				end
+
+				local currentInput = pendingTouch.input
+				local currentPos = Vector2.new(currentInput.Position.X, currentInput.Position.Y)
+				if isPointInPanel(self.view, currentPos) then
+					return
+				end
+
+				self.pendingTouch = nil
+				self:startDragAtPosition(currentPos)
+			end)
+		end
 	end))
 
 	table.insert(self.connections, UserInputService.InputChanged:Connect(function(inputObject)
-		if not self.moveModeEnabled or not self.activeDrag then
+		if not self.moveModeEnabled then
 			return
 		end
 		if inputObject.UserInputType ~= Enum.UserInputType.MouseMovement and inputObject.UserInputType ~= Enum.UserInputType.Touch then
 			return
 		end
 
-		self:updateDrag(Vector2.new(inputObject.Position.X, inputObject.Position.Y))
+		local screenPos = Vector2.new(inputObject.Position.X, inputObject.Position.Y)
+
+		if self.activeDrag then
+			self:updateDrag(screenPos)
+			return
+		end
+
+		if isPointInPanel(self.view, screenPos) then
+			self:setHighlightedRoot(self.selectedHudRoot)
+			return
+		end
+
+		local hoverRoot = self:getTopHudRootAtPosition(screenPos)
+		if hoverRoot then
+			self:setHighlightedRoot(hoverRoot)
+		else
+			self:setHighlightedRoot(self.selectedHudRoot)
+		end
 	end))
 
 	table.insert(self.connections, UserInputService.InputEnded:Connect(function(inputObject)
 		if inputObject.UserInputType ~= Enum.UserInputType.MouseButton1 and inputObject.UserInputType ~= Enum.UserInputType.Touch then
 			return
+		end
+		if self.pendingTouch and self.pendingTouch.input == inputObject then
+			self.pendingTouch = nil
+		end
+		if self.activeDrag then
+			self:queueSettingsSave()
 		end
 		self.activeDrag = nil
 	end))

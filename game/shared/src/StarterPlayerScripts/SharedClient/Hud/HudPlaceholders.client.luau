@@ -2,15 +2,16 @@ local Players = game:GetService("Players")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
+
 local HUD_MOVE_MODE_ATTRIBUTE = "LobbyHudMoveModeEnabled"
 
-local function applyRoundedCorners(instance, radius)
+local function applyRoundedCorners(instance: GuiObject, radius: number)
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0, radius)
 	corner.Parent = instance
 end
 
-local function createOrReplaceGui(guiName, displayOrder)
+local function createOrReplaceGui(guiName: string, displayOrder: number): ScreenGui
 	local existing = playerGui:FindFirstChild(guiName)
 	if existing then
 		existing:Destroy()
@@ -25,7 +26,6 @@ local function createOrReplaceGui(guiName, displayOrder)
 end
 
 local classXpGui = createOrReplaceGui("ClassXpBarHud", 25)
-
 local brainrotHudGui = createOrReplaceGui("BrainrotHud", 20)
 
 local nextWaveTimer = Instance.new("TextLabel")
@@ -94,7 +94,7 @@ xpTitle.Name = "Title"
 xpTitle.Size = UDim2.new(1, -18, 0, 24)
 xpTitle.Position = UDim2.fromOffset(10, 10)
 xpTitle.BackgroundTransparency = 1
-xpTitle.Text = "LV 1  |  LOBBY PREVIEW"
+xpTitle.Text = "LV 1  |  HUD PREVIEW"
 xpTitle.TextXAlignment = Enum.TextXAlignment.Left
 xpTitle.TextColor3 = Color3.fromRGB(240, 246, 255)
 xpTitle.Font = Enum.Font.GothamBold
@@ -186,10 +186,11 @@ ammoDetails.Font = Enum.Font.Gotham
 ammoDetails.TextSize = 13
 ammoDetails.Parent = ammoContainer
 
-local function setPreviewVisible(isVisible)
-	nextWaveTimer.Visible = isVisible == true
-	xpContainer.Visible = isVisible == true
-	ammoContainer.Visible = isVisible == true
+local function setPreviewVisible(isVisible: boolean?)
+	local visible = isVisible == true
+	nextWaveTimer.Visible = visible
+	xpContainer.Visible = visible
+	ammoContainer.Visible = visible
 end
 
 local function refreshPreviewVisibility()
@@ -198,3 +199,4 @@ end
 
 playerGui:GetAttributeChangedSignal(HUD_MOVE_MODE_ATTRIBUTE):Connect(refreshPreviewVisibility)
 refreshPreviewVisibility()
+

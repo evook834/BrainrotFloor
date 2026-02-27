@@ -518,7 +518,7 @@ local function build(): View
 	gameplayHint.Size = UDim2.new(1, -20, 0, 32)
 	gameplayHint.Position = UDim2.fromOffset(10, 252)
 	gameplayHint.BackgroundTransparency = 1
-	gameplayHint.Text = "Move mode: left-click one HUD element and drag it. Only that UI moves."
+	gameplayHint.Text = "Move mode: left-click one HUD element and drag it (or long-press on touch). Only that UI moves."
 	gameplayHint.TextWrapped = true
 	gameplayHint.TextXAlignment = Enum.TextXAlignment.Left
 	gameplayHint.TextYAlignment = Enum.TextYAlignment.Top
