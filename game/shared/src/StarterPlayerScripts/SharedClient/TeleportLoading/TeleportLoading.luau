@@ -1,7 +1,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 
-local TeleportLoadingView = require(script.TeleportLoadingView)
+local TeleportLoadingView = require(script.Parent:WaitForChild("TeleportLoadingView"))
 
 local TeleportLoading = {}
 
@@ -44,3 +44,4 @@ function TeleportLoading.init()
 end
 
 return TeleportLoading
+
