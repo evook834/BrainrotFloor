@@ -1,6 +1,8 @@
 local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local SettingsRemotesUtil = require(script.Parent:WaitForChild("SettingsRemotesUtil"))
+local SettingsConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Settings"):WaitForChild("SettingsConfig"))
 
 local MUSIC_CHANNEL = "Music"
 local SFX_CHANNEL = "Sfx"
@@ -311,9 +313,9 @@ function SettingsAudioController:applyLoadedAudioSettings(loadedAudio: any)
 		return
 	end
 
-	self.settingsState.musicVolume = math.clamp(tonumber(loadedAudio.musicVolume) or self.settingsState.musicVolume, 0, 1)
+	self.settingsState.musicVolume = math.clamp(tonumber(loadedAudio.musicVolume) or self.settingsState.musicVolume, SettingsConfig.Audio.MusicVolume.Min, SettingsConfig.Audio.MusicVolume.Max)
 	self.settingsState.musicMuted = loadedAudio.musicMuted == true
-	self.settingsState.sfxVolume = math.clamp(tonumber(loadedAudio.sfxVolume) or self.settingsState.sfxVolume, 0, 1)
+	self.settingsState.sfxVolume = math.clamp(tonumber(loadedAudio.sfxVolume) or self.settingsState.sfxVolume, SettingsConfig.Audio.SfxVolume.Min, SettingsConfig.Audio.SfxVolume.Max)
 	self.settingsState.sfxMuted = loadedAudio.sfxMuted == true
 
 	if self.musicSlider then
@@ -341,9 +343,9 @@ function SettingsAudioController:destroy()
 end
 
 local function ensureDefaults(settingsState: SettingsState)
-	settingsState.musicVolume = math.clamp(tonumber(settingsState.musicVolume) or 1, 0, 1)
+	settingsState.musicVolume = math.clamp(tonumber(settingsState.musicVolume) or SettingsConfig.Audio.MusicVolume.Default, SettingsConfig.Audio.MusicVolume.Min, SettingsConfig.Audio.MusicVolume.Max)
 	settingsState.musicMuted = settingsState.musicMuted == true
-	settingsState.sfxVolume = math.clamp(tonumber(settingsState.sfxVolume) or 1, 0, 1)
+	settingsState.sfxVolume = math.clamp(tonumber(settingsState.sfxVolume) or SettingsConfig.Audio.SfxVolume.Default, SettingsConfig.Audio.SfxVolume.Min, SettingsConfig.Audio.SfxVolume.Max)
 	settingsState.sfxMuted = settingsState.sfxMuted == true
 end
 

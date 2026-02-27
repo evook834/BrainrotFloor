@@ -31,12 +31,13 @@ Replicated to client and server. Config and catalogs only; may only `require` wi
 | **`GameConfig.luau`** | Top-level config; wires subsystems (waves director, enemies, classes, shop, player, remotes). |
 | **`Classes/`** | Class definitions and system config. |
 | **`Enemy/`** | Enemy config, definitions, profiles, presentation data. |
-| **`Player/`** | Player config (money, respawn, movement). |
+| **`Player/`** | Player config (money, respawn, movement). Includes `PlayerDataTemplate` for default player data. |
 | **`Remotes/`** | Remote names and Remotes folder name. |
 | **`Shop/`** | Shop config and weapon catalog. |
 | **`Waves/`** | Wave config (intermission, scaling, spawn). |
 | **`Pickups/`** | Ammo pickup config. |
 | **`MapVote/`** | Placeholder for map-vote shared data. |
+| **`Settings/`** | Settings config files (`SettingsConfig`, `HudLayoutConfig`). |
 
 ### `game/shared/src/ServerScriptService/Shared/`
 
@@ -47,7 +48,7 @@ Server-only shared (e.g. matchmaking, place role). Used by both lobby and match.
 | **`Classes/`** | ClassProgression (XP, bonuses), ClassDataPayload (build class list + selection from PlayerData; used by Lobby). |
 | **`Matchmaking/`** | Matchmaking config and place-role detection. |
 | **`PlayerData/`** | PlayerDataService: wraps DataService (leifstout/dataService) for persistent, replicated player data (settings, classes, money). |
-| **`Settings/`** | Shared SettingsService: binds SettingsGet/SettingsSave remotes, reads/writes via PlayerDataService. |
+| **`Settings/`** | Shared SettingsService: binds SettingsGet/SettingsSave remotes, reads/writes via PlayerDataService. Also config (`SettingsConfig`, `HudLayoutConfig`). |
 
 ### `game/shared/src/StarterPlayerScripts/SharedClient/`
 
@@ -57,6 +58,7 @@ Client-only shared. Runs in both lobby and match.
 |---------------|--------|
 | **`Movement/`** | Sprint, stamina, movement behavior. |
 | **`ReturnToLobby/`** | Placeholder for return-to-lobby client. |
+| **`Settings/`** | Settings client UI and controllers. |
 
 ---
 
@@ -155,6 +157,31 @@ Legacy or alternate copy of place-specific code. Prefer **`game/lobby`** and **`
 | Kind of code | Prefer location |
 |--------------|-----------------|
 | Config/catalog (client + server) | **`game/shared/src/ReplicatedStorage/Shared/`** |
+| Server-only shared | **`game/shared/src/ServerScriptService/Shared/`** |
+| Client-only shared | **`game/shared/src/StarterPlayerScripts/SharedClient/`** |
+| Lobby server | **`game/lobby/src/ServerScriptService/Lobby/`** |
+| Lobby client | **`game/lobby/.../LobbyClient/`** |
+| Match server | **`game/match/src/ServerScriptService/Match/`** — use subfolder by concern (Core, Waves, Enemies, Combat, Shop, Weapons, Classes, etc.). |
+| Match client UI/HUD | **`game/match/.../MatchClient/`** — use subfolder by concern. |
+
+---
+
+## Settings System Files
+
+| File | Location | Purpose |
+|------|----------|---------|
+| SettingsService | `ServerScriptService/Shared/Settings/` | Server-side; binds remotes, sanitizes data, persists via PlayerDataService |
+| SettingsConfig | `ReplicatedStorage/Shared/Settings/` | Shared config (ranges, limits, HUD definitions) |
+| HudLayoutConfig | `ReplicatedStorage/Shared/Settings/` | HUD layout config (draggable roots, ScreenGui names) |
+| SettingsMenuController | `StarterPlayerScripts/SharedClient/Settings/` | Main client controller |
+| SettingsMenuUi | `StarterPlayerScripts/SharedClient/Settings/` | UI builder |
+| SettingsAudioController | `StarterPlayerScripts/SharedClient/Settings/` | Audio controls |
+| SettingsHudLayoutController | `StarterPlayerScripts/SharedClient/Settings/` | HUD layout controls |
+| SettingsHudLayoutService | `StarterPlayerScripts/SharedClient/Settings/` | Position helpers |
+| SettingsVisibilityController | `StarterPlayerScripts/SharedClient/Settings/` | F10 UI toggle |
+| SettingsReturnToLobbyController | `StarterPlayerScripts/SharedClient/Settings/` | Return to lobby (match only) |
+| SettingsRemotesUtil | `StarterPlayerScripts/SharedClient/Settings/` | Remote resolution utilities |
+| SettingsUi | `StarterPlayerScripts/SharedClient/Settings/` | Entry point |
 | Server-only shared | **`game/shared/src/ServerScriptService/Shared/`** |
 | Client-only shared | **`game/shared/src/StarterPlayerScripts/SharedClient/`** |
 | Lobby server | **`game/lobby/src/ServerScriptService/Lobby/`** |

@@ -6,6 +6,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
+local SettingsConfig = require(ReplicatedStorage.Shared.Settings.SettingsConfig)
 local PlayerDataService = require(script.Parent.Parent.PlayerData.PlayerDataService)
 
 local SettingsService = {}
@@ -60,6 +61,35 @@ local function sanitizePosition(rawPosition)
 	}
 end
 
+local function migrateSettings(rawSettings)
+	-- Migration logic for future schema versions
+	-- Returns: migratedSettings, wasMigrated
+
+	if type(rawSettings) ~= "table" then
+		return nil, false
+	end
+
+	local schemaVersion = tonumber(rawSettings.schemaVersion)
+	if schemaVersion == nil then
+		-- No schema version means pre-schema data
+		-- Return default with migration flag
+		return nil, false
+	end
+
+	if schemaVersion == SETTINGS_SCHEMA_VERSION then
+		return rawSettings, false
+	end
+
+	-- Future migrations can be added here based on schemaVersion
+	-- Example:
+	-- if schemaVersion == 0 then
+	--     rawSettings = migrateFromV0(rawSettings)
+	--     rawSettings.schemaVersion = 1
+	-- end
+
+	return rawSettings, schemaVersion ~= SETTINGS_SCHEMA_VERSION
+end
+
 local function sanitizeSettings(rawSettings)
 	local sanitized = {
 		schemaVersion = SETTINGS_SCHEMA_VERSION,
@@ -77,6 +107,10 @@ local function sanitizeSettings(rawSettings)
 	if type(rawSettings) ~= "table" then
 		return sanitized
 	end
+
+	-- Apply migration first
+	rawSettings = migrateSettings(rawSettings) or rawSettings
+
 	local rawAudio = rawSettings.audio
 	if type(rawAudio) == "table" then
 		sanitized.audio.musicVolume = clampNumber(rawAudio.musicVolume, 1, 0, 1)
@@ -86,12 +120,12 @@ local function sanitizeSettings(rawSettings)
 	end
 	local rawHud = rawSettings.hud
 	if type(rawHud) == "table" then
-		sanitized.hud.scale = clampNumber(rawHud.scale, 1, 0.6, 1.45)
+		sanitized.hud.scale = clampNumber(rawHud.scale, 1, SettingsConfig.Hud.Scale.Min, SettingsConfig.Hud.Scale.Max)
 		local rawPositions = rawHud.positions
 		if type(rawPositions) == "table" then
 			local storedCount = 0
 			for key, rawPosition in pairs(rawPositions) do
-				if storedCount >= 120 then
+				if storedCount >= SettingsConfig.Hud.MaxPositionEntries then
 					break
 				end
 				if type(key) == "string" and key ~= "" and #key <= 180 then
@@ -150,6 +184,18 @@ function SettingsService.start()
 		end
 		PlayerDataService.set(player, { "settings" }, sanitizeSettings(rawSettings))
 	end)
+end
+
+function SettingsService.stop()
+	if not started then
+		return
+	end
+
+	started = false
+	if remotesFolder then
+		remotesFolder:Destroy()
+		remotesFolder = nil
+	end
 end
 
 return SettingsService

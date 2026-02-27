@@ -3,7 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 
-local REMOTE_WAIT_TIMEOUT_SECONDS = 15
+local SettingsRemotesUtil = require(script.Parent:WaitForChild("SettingsRemotesUtil"))
 
 type SettingsState = {
 	musicVolume: number,
@@ -43,37 +43,6 @@ type Controller = {
 local SettingsReturnToLobbyController = {}
 SettingsReturnToLobbyController.__index = SettingsReturnToLobbyController
 
-local function resolveRemote(remotesFolder: Instance?, remoteName: string, className: string)
-	if not remotesFolder then
-		return nil
-	end
-
-	local candidate = remotesFolder:FindFirstChild(remoteName)
-	if candidate and candidate:IsA(className) then
-		return candidate
-	end
-
-	candidate = remotesFolder:WaitForChild(remoteName, REMOTE_WAIT_TIMEOUT_SECONDS)
-	if candidate and candidate:IsA(className) then
-		return candidate
-	end
-
-	return nil
-end
-
-local function resolveOptionalRemote(remotesFolder: Instance?, remoteName: string, className: string)
-	if not remotesFolder then
-		return nil
-	end
-
-	local candidate = remotesFolder:FindFirstChild(remoteName)
-	if candidate and candidate:IsA(className) then
-		return candidate
-	end
-
-	return nil
-end
-
 function SettingsReturnToLobbyController:updateReturnToLobbyControls()
 	local buttonEnabled = self.canReturnToLobby and self.returnToLobbyRemote ~= nil and not self.returnToLobbyRequestInFlight
 	self.view.returnToLobbyButton.Active = buttonEnabled
@@ -108,21 +77,37 @@ function SettingsReturnToLobbyController:updateReturnToLobbyControls()
 	end
 end
 
-function SettingsReturnToLobbyController:resolveReturnToLobbyRemoteAsync(remotesFolder: Instance?, remoteName: string, className: string)
+function SettingsReturnToLobbyController:resolveReturnToLobbyRemoteAsync()
 	if not self.canReturnToLobby then
 		self.returnToLobbyRemote = nil
 		self:updateReturnToLobbyControls()
 		return
 	end
 
-	self.returnToLobbyRemote = resolveOptionalRemote(remotesFolder, remoteName, className)
-	if self.returnToLobbyRemote then
+	local remotesFolder = SettingsRemotesUtil.getSharedRemotesFolder()
+	if not remotesFolder then
 		self:updateReturnToLobbyControls()
 		return
 	end
 
+	local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
+	local returnToLobbyName = Config.Remotes.ReturnToLobby
+	if not returnToLobbyName then
+		self:updateReturnToLobbyControls()
+		return
+	end
+
+	-- Try to find the remote immediately (non-blocking)
+	local candidate = remotesFolder:FindFirstChild(returnToLobbyName)
+	if candidate and candidate:IsA("RemoteEvent") then
+		self.returnToLobbyRemote = candidate :: RemoteEvent
+		self:updateReturnToLobbyControls()
+		return
+	end
+
+	-- If not found, wait asynchronously
 	task.spawn(function()
-		local remote = resolveRemote(remotesFolder, remoteName, className)
+		local remote = SettingsRemotesUtil.resolveRemote(remotesFolder, returnToLobbyName, "RemoteEvent")
 		if not self.canReturnToLobby then
 			return
 		end
@@ -145,21 +130,6 @@ function SettingsReturnToLobbyController.new(init: InitOptions): Controller
 	local options = init.options or {}
 	local canReturnToLobby = options.canReturnToLobby == true
 
-	local sharedFolder = ReplicatedStorage:FindFirstChild("Shared")
-	local remotesFolder: Instance? = nil
-	local returnToLobbyName: string? = nil
-
-	if sharedFolder and sharedFolder:IsA("Folder") then
-		local gameConfigModule = sharedFolder:FindFirstChild("GameConfig")
-		if gameConfigModule and gameConfigModule:IsA("ModuleScript") then
-			local okConfig, Config = pcall(require, gameConfigModule)
-			if okConfig and type(Config) == "table" and Config.Remotes then
-				remotesFolder = ReplicatedStorage:FindFirstChild(Config.Remotes.Folder)
-				returnToLobbyName = Config.Remotes.ReturnToLobby
-			end
-		end
-	end
-
 	local self = setmetatable({
 		view = init.view,
 		settingsState = init.settingsState,
@@ -169,11 +139,8 @@ function SettingsReturnToLobbyController.new(init: InitOptions): Controller
 		returnToLobbyRequestInFlight = false,
 	}, SettingsReturnToLobbyController) :: Controller
 
-	if remotesFolder and returnToLobbyName then
-		self:resolveReturnToLobbyRemoteAsync(remotesFolder, returnToLobbyName, "RemoteEvent")
-	else
-		self:updateReturnToLobbyControls()
-	end
+	-- Resolve remote asynchronously
+	self:resolveReturnToLobbyRemoteAsync()
 
 	table.insert(self.connections, self.view.returnToLobbyButton.Activated:Connect(function()
 		if not self.canReturnToLobby or not self.returnToLobbyRemote or self.returnToLobbyRequestInFlight then
@@ -201,4 +168,3 @@ function SettingsReturnToLobbyController.new(init: InitOptions): Controller
 end
 
 return SettingsReturnToLobbyController
-

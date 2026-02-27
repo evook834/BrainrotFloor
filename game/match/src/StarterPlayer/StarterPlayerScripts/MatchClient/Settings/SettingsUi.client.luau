@@ -1,8 +1,9 @@
-local SharedClient = script.Parent.Parent.Parent:WaitForChild("SharedClient")
-local SettingsHudLayoutConfig = require(SharedClient:WaitForChild("Settings"):WaitForChild("SettingsHudLayoutConfig"))
-local SettingsMenuController = require(SharedClient:WaitForChild("Settings"):WaitForChild("SettingsMenuController"))
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local SettingsConfig = require(ReplicatedStorage.Shared.Settings.SettingsConfig)
+local SettingsMenuController = require(script.Parent.Parent.Parent:WaitForChild("SharedClient"):WaitForChild("Settings"):WaitForChild("SettingsMenuController"))
 
 SettingsMenuController.run({
-	hudMoveModeAttribute = SettingsHudLayoutConfig.HUD_MOVE_MODE_ATTRIBUTE,
+	hudMoveModeAttribute = SettingsConfig.HudMoveMode.Attribute,
 	canReturnToLobby = true,
 })

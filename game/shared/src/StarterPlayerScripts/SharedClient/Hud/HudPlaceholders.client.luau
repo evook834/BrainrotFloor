@@ -1,12 +1,12 @@
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local SharedClient = script.Parent.Parent
-local SettingsHudLayoutConfig = require(SharedClient:WaitForChild("Settings"):WaitForChild("SettingsHudLayoutConfig"))
+local HudLayoutConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Settings"):WaitForChild("HudLayoutConfig"))
 
-local HUD_MOVE_MODE_ATTRIBUTE = SettingsHudLayoutConfig.HUD_MOVE_MODE_ATTRIBUTE
+local HUD_MOVE_MODE_ATTRIBUTE = HudLayoutConfig.HUD_MOVE_MODE_ATTRIBUTE
 
 local function applyRoundedCorners(instance: GuiObject, radius: number)
 	local corner = Instance.new("UICorner")

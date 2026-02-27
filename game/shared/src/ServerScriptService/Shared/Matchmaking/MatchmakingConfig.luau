@@ -12,6 +12,7 @@ Config.LOBBY_PLACE_ID = 105950482922657
 -- the lobby creates a reserved server on a random place from this list.
 Config.MATCH_PLACE_IDS = {
 	124937386174828,
+	133374266851323,
 	--93216049725715,
 	--85990388071078,
 	--117569264354652

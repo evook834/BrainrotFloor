@@ -1,8 +1,8 @@
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local player = Players.LocalPlayer
 local SettingsMenuUi = require(script.Parent:WaitForChild("SettingsMenuUi"))
+local SettingsRemotesUtil = require(script.Parent:WaitForChild("SettingsRemotesUtil"))
+local SettingsConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Settings"):WaitForChild("SettingsConfig"))
 
 type View = any
 
@@ -91,11 +91,11 @@ end
 
 local function constructSubcontrollers(view: View, options: RunOptions): (SettingsState, { [string]: Subcontroller })
 	local settingsState: SettingsState = {
-		musicVolume = 1,
+		musicVolume = SettingsConfig.Audio.MusicVolume.Default,
 		musicMuted = false,
-		sfxVolume = 1,
+		sfxVolume = SettingsConfig.Audio.SfxVolume.Default,
 		sfxMuted = false,
-		hudScale = 1,
+		hudScale = SettingsConfig.Hud.Scale.Default,
 		hudPositions = {},
 	}
 
@@ -107,46 +107,8 @@ local function constructSubcontrollers(view: View, options: RunOptions): (Settin
 	}
 end
 
-local function resolveRemote(remotesFolder: Instance?, remoteName: string, className: string)
-	if not remotesFolder then
-		return nil
-	end
-
-	local candidate = remotesFolder:FindFirstChild(remoteName)
-	if candidate and candidate:IsA(className) then
-		return candidate
-	end
-
-	candidate = remotesFolder:WaitForChild(remoteName, 15)
-	if candidate and candidate:IsA(className) then
-		return candidate
-	end
-
-	return nil
-end
-
 local function loadSettingsFromServer(session: Session)
-	local remotesFolder = ReplicatedStorage:FindFirstChild("Shared")
-	if not remotesFolder or not remotesFolder:IsA("Folder") then
-		return
-	end
-
-	local gameConfigModule = remotesFolder:FindFirstChild("GameConfig")
-	if not gameConfigModule or not gameConfigModule:IsA("ModuleScript") then
-		return
-	end
-
-	local okConfig, Config = pcall(require, gameConfigModule)
-	if not okConfig or type(Config) ~= "table" or not Config.Remotes then
-		return
-	end
-
-	local sharedRemotesFolder = ReplicatedStorage:FindFirstChild(Config.Remotes.Folder)
-	if not sharedRemotesFolder or not sharedRemotesFolder:IsA("Folder") then
-		return
-	end
-
-	local settingsGetFunction = resolveRemote(sharedRemotesFolder, Config.Remotes.SettingsGet, "RemoteFunction")
+	local settingsGetFunction = SettingsRemotesUtil.resolveSettingsGetFunction()
 	if not settingsGetFunction then
 		return
 	end
@@ -171,9 +133,9 @@ local function loadSettingsFromServer(session: Session)
 		if audioController and type((audioController :: any).applyLoadedAudioSettings) == "function" then
 			(audioController :: any).applyLoadedAudioSettings(loadedAudio)
 		else
-			session.settingsState.musicVolume = math.clamp(tonumber(loadedAudio.musicVolume) or session.settingsState.musicVolume, 0, 1)
+			session.settingsState.musicVolume = math.clamp(tonumber(loadedAudio.musicVolume) or session.settingsState.musicVolume, SettingsConfig.Audio.MusicVolume.Min, SettingsConfig.Audio.MusicVolume.Max)
 			session.settingsState.musicMuted = loadedAudio.musicMuted == true
-			session.settingsState.sfxVolume = math.clamp(tonumber(loadedAudio.sfxVolume) or session.settingsState.sfxVolume, 0, 1)
+			session.settingsState.sfxVolume = math.clamp(tonumber(loadedAudio.sfxVolume) or session.settingsState.sfxVolume, SettingsConfig.Audio.SfxVolume.Min, SettingsConfig.Audio.SfxVolume.Max)
 			session.settingsState.sfxMuted = loadedAudio.sfxMuted == true
 		end
 	end
@@ -183,7 +145,7 @@ local function loadSettingsFromServer(session: Session)
 		if hudController and type((hudController :: any).applyLoadedHudSettings) == "function" then
 			(hudController :: any).applyLoadedHudSettings(loadedHud)
 		else
-			session.settingsState.hudScale = math.clamp(tonumber(loadedHud.scale) or session.settingsState.hudScale, 0.6, 1.45)
+			session.settingsState.hudScale = math.clamp(tonumber(loadedHud.scale) or session.settingsState.hudScale, SettingsConfig.Hud.Scale.Min, SettingsConfig.Hud.Scale.Max)
 			if type(loadedHud.positions) == "table" then
 				session.settingsState.hudPositions = loadedHud.positions
 			end

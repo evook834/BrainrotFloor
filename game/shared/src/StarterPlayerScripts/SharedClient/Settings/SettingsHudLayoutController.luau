@@ -1,16 +1,15 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local SettingsRemotesUtil = require(script.Parent:WaitForChild("SettingsRemotesUtil"))
-local HudLayoutConfig = require(script.Parent:WaitForChild("SettingsHudLayoutConfig"))
+local SettingsConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Settings"):WaitForChild("SettingsConfig"))
+local HudLayoutConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Settings"):WaitForChild("HudLayoutConfig"))
 local HudLayoutService = require(script.Parent:WaitForChild("SettingsHudLayoutService"))
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local HUD_SCALE_MIN = 0.6
-local HUD_SCALE_MAX = 1.45
-local HUD_SCALE_STEP = 0.05
 local HUD_MOVABLE_ATTRIBUTE = "HudMovable"
 local TOUCH_LONG_PRESS_DELAY = 0.4
 
@@ -109,7 +108,7 @@ function SettingsHudLayoutController:queueSettingsSave()
 
 	self.settingsSaveToken += 1
 	local activeToken = self.settingsSaveToken
-	task.delay(0.8, function()
+	task.delay(SettingsConfig.SaveDebounceDelay, function()
 		if activeToken ~= self.settingsSaveToken then
 			return
 		end
@@ -234,7 +233,9 @@ function SettingsHudLayoutController:trackHudRoot(root: GuiObject)
 	end
 
 	local screenGui = root:FindFirstAncestorWhichIsA("ScreenGui")
-	local useAttributeScale = screenGui ~= nil and screenGui.Name == "ClassXpBarHud" and root.Name == "XpContainer"
+	local rootKey = string.format("%s/%s", screenGui and screenGui.Name or "", root.Name)
+	local specialConfig = SettingsConfig.SpecialHudRoots[rootKey]
+	local useAttributeScale = specialConfig and specialConfig.UseAttributeScale == true
 
 	local existingScale = root:FindFirstChild("GlobalHudScale")
 	local scaleObject = nil
@@ -265,7 +266,7 @@ function SettingsHudLayoutController:trackHudRoot(root: GuiObject)
 		rootState.screenGuiName = screenGui.Name
 	end
 	rootState.persistKey = string.format("%s/%s", rootState.screenGuiName, root.Name)
-	if HudLayoutConfig.NON_DRAGGABLE_HUD_ROOTS[rootState.persistKey] or root:GetAttribute(HUD_MOVABLE_ATTRIBUTE) == false then
+	if SettingsConfig.NonDraggableHudRoots[rootState.persistKey] or root:GetAttribute(HUD_MOVABLE_ATTRIBUTE) == false then
 		rootState.canDrag = false
 	end
 
@@ -544,7 +545,9 @@ function SettingsHudLayoutController:applyLoadedHudSettings(loadedHud: any)
 		return
 	end
 
-	self.settingsState.hudScale = math.clamp(tonumber(loadedHud.scale) or self.settingsState.hudScale, HUD_SCALE_MIN, HUD_SCALE_MAX)
+	local scaleMin = SettingsConfig.Hud.Scale.Min
+	local scaleMax = SettingsConfig.Hud.Scale.Max
+	self.settingsState.hudScale = math.clamp(tonumber(loadedHud.scale) or self.settingsState.hudScale, scaleMin, scaleMax)
 	self.settingsState.hudPositions = {}
 
 	if type(loadedHud.positions) == "table" then
@@ -608,12 +611,13 @@ function SettingsHudLayoutController:setStatusOverride(text: string?, durationSe
 		end)
 	end
 end
+
 local function isHudScreenGui(viewGui: ScreenGui, instance: Instance): boolean
 	return HudLayoutConfig.isHudScreenGui(viewGui, instance)
 end
 
 local function ensureDefaults(settingsState: SettingsState)
-	HudLayoutService.ensureDefaults(settingsState, HUD_SCALE_MIN, HUD_SCALE_MAX)
+	HudLayoutService.ensureDefaults(settingsState, SettingsConfig.Hud.Scale.Min, SettingsConfig.Hud.Scale.Max)
 end
 
 function SettingsHudLayoutController.new(init: InitOptions): Controller
@@ -674,26 +678,26 @@ function SettingsHudLayoutController.new(init: InitOptions): Controller
 	end))
 
 	table.insert(self.connections, self.view.hudScaleDownButton.Activated:Connect(function()
-		self.settingsState.hudScale = math.clamp(self.settingsState.hudScale - HUD_SCALE_STEP, HUD_SCALE_MIN, HUD_SCALE_MAX)
+		self.settingsState.hudScale = math.clamp(self.settingsState.hudScale - SettingsConfig.Hud.Scale.Step, SettingsConfig.Hud.Scale.Min, SettingsConfig.Hud.Scale.Max)
 		self:applyHudTransforms()
 		self:updateGameplayLabels()
 		self:queueSettingsSave()
 	end))
 
 	table.insert(self.connections, self.view.hudScaleUpButton.Activated:Connect(function()
-		self.settingsState.hudScale = math.clamp(self.settingsState.hudScale + HUD_SCALE_STEP, HUD_SCALE_MIN, HUD_SCALE_MAX)
+		self.settingsState.hudScale = math.clamp(self.settingsState.hudScale + SettingsConfig.Hud.Scale.Step, SettingsConfig.Hud.Scale.Min, SettingsConfig.Hud.Scale.Max)
 		self:applyHudTransforms()
 		self:updateGameplayLabels()
 		self:queueSettingsSave()
 	end))
 
 	table.insert(self.connections, self.view.resetScaleButton.Activated:Connect(function()
-		self.settingsState.hudScale = 1
+		self.settingsState.hudScale = SettingsConfig.Hud.Scale.Default
 		self:applyHudTransforms()
 		self:updateGameplayLabels()
 		self:queueSettingsSave()
 	end))
-	
+
 	bindMoveModeInput(self)
 
 	if self.hudMoveModeAttribute then
