@@ -6,6 +6,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
+local HudLayoutConfig = require(ReplicatedStorage.Shared.Settings.HudLayoutConfig)
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -33,6 +34,13 @@ gui.Name = "SprintStaminaHud"
 gui.ResetOnSpawn = false
 gui.DisplayOrder = 26
 gui.Parent = playerGui
+
+local function updateSpectatorVisibility()
+	local inSpectator = playerGui:GetAttribute(HudLayoutConfig.SPECTATOR_MODE_ATTRIBUTE) == true
+	gui.Enabled = not inSpectator
+end
+playerGui:GetAttributeChangedSignal(HudLayoutConfig.SPECTATOR_MODE_ATTRIBUTE):Connect(updateSpectatorVisibility)
+updateSpectatorVisibility()
 
 local container = Instance.new("Frame")
 container.Name = "VitalsContainer"

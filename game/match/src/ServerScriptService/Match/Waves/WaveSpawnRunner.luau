@@ -13,22 +13,31 @@ local Match = script.Parent.Parent
 local EnemyRegistry = require(Match.Enemies.EnemyRegistry)
 local EnemyService = require(Match.Enemies.EnemyService)
 
-local TIER_TO_ROLE = {
+type Role = WaveSpawnLogic.Role
+type RoleCounts = WaveSpawnLogic.RoleCounts
+
+export type SpawnOptions = {
+	playerCount: number?,
+	isRunning: (() -> boolean)?,
+	onEnemyDied: (() -> ())?,
+}
+
+local TIER_TO_ROLE: { [string]: Role } = {
 	Easy = "trash",
 	Medium = "medium",
 	Hard = "heavy",
 	Elite = "special",
 }
 
-local function getAliveCount()
+local function getAliveCount(): number
 	return EnemyRegistry.getAliveCount()
 end
 
-local function getAliveByRole()
+local function getAliveByRole(): RoleCounts
 	return EnemyRegistry.getAliveByRole()
 end
 
-local function isRunning(options)
+local function isRunning(options: SpawnOptions?): boolean
 	if type(options) ~= "table" then
 		return true
 	end
@@ -39,10 +48,10 @@ local function isRunning(options)
 	return fn() == true
 end
 
-function run(waveNumber, playerCount, options)
+	function run(waveNumber: number, playerCount: number, options: SpawnOptions?)
 	waveNumber = math.max(1, tonumber(waveNumber) or 1)
 	playerCount = math.max(1, tonumber(playerCount) or 1)
-	options = type(options) == "table" and options or {}
+	options = (type(options) == "table" and options or {}) :: SpawnOptions
 
 	local maxMonstersPerWave = Config.Wave.MaxMonstersPerWave or 1500
 	local composition = WaveSpawnLogic.getWaveComposition(waveNumber, playerCount, maxMonstersPerWave)
@@ -55,7 +64,7 @@ function run(waveNumber, playerCount, options)
 	end
 
 	local spawnedSoFar = 0
-	local totalSpawnedByRole = { trash = 0, medium = 0, heavy = 0, special = 0 }
+	local totalSpawnedByRole: RoleCounts = { trash = 0, medium = 0, heavy = 0, special = 0 }
 	local hardCap = math.min(1500, maxMonstersPerWave)
 
 	while spawnedSoFar < totalCap and spawnedSoFar < hardCap do
@@ -95,7 +104,7 @@ function run(waveNumber, playerCount, options)
 					}
 					EnemyService.spawnSingle(pick.templateName, waveNumber, spawnOpts)
 					spawnedSoFar += 1
-					local role = TIER_TO_ROLE[pick.tier] or "trash"
+					local role: Role = TIER_TO_ROLE[pick.tier] or "trash"
 					if totalSpawnedByRole[role] ~= nil then
 						totalSpawnedByRole[role] += 1
 					end

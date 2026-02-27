@@ -11,7 +11,29 @@ local Config = require(ReplicatedStorage.Shared.GameConfig)
 local RECHECK_DELAY_WHEN_FULL = 0.75
 local DIRECTOR_TICK = 0.25
 
-local function getSpawnCadence()
+export type SpawnCadencePlayerScaling = {
+	Enabled: boolean,
+	BasePlayers: number,
+	BurstSizeBase: number,
+	BurstSizePerExtraPlayer: number,
+	MaxBurstSize: number,
+	IntervalMultiplierPerExtraPlayer: number,
+	MinIntervalMultiplier: number,
+	GroupPauseMultiplierPerExtraPlayer: number,
+	MinGroupPauseMultiplier: number,
+}
+
+export type SpawnCadence = {
+	BaseIntervalSeconds: number,
+	MinIntervalSeconds: number,
+	WaveAccelerationPerWave: number,
+	IntraWaveAcceleration: number,
+	GroupSize: number,
+	GroupPauseSeconds: number,
+	PlayerScaling: SpawnCadencePlayerScaling,
+}
+
+local function getSpawnCadence(): SpawnCadence
 	local configuredCadence = Config.Wave.SpawnCadence or {}
 	local playerScaling = configuredCadence.PlayerScaling or {}
 	return {
@@ -35,7 +57,7 @@ local function getSpawnCadence()
 	}
 end
 
-local function getPlayerSpawnModifiers(playerCount, cadence)
+local function getPlayerSpawnModifiers(playerCount: number, cadence: SpawnCadence): (number, number, number)
 	local scaling = cadence.PlayerScaling
 	if not scaling.Enabled then
 		return 1, 1, 1
@@ -57,7 +79,14 @@ local function getPlayerSpawnModifiers(playerCount, cadence)
 	return burstSize, intervalMultiplier, groupPauseMultiplier
 end
 
-local function getDelayUntilNextBurst(spawnedThisWave, totalCap, waveNumber, cadence, intervalMultiplier, groupPauseMultiplier)
+local function getDelayUntilNextBurst(
+	spawnedThisWave: number,
+	totalCap: number,
+	waveNumber: number,
+	cadence: SpawnCadence,
+	intervalMultiplier: number,
+	groupPauseMultiplier: number
+): number
 	if totalCap <= 0 or spawnedThisWave >= totalCap then
 		return 0
 	end
@@ -80,7 +109,7 @@ local function getDelayUntilNextBurst(spawnedThisWave, totalCap, waveNumber, cad
 	return interval
 end
 
-local function getTargetAlive(aliveCount, playerCount, spawnedThisWave, totalCap)
+local function getTargetAlive(aliveCount: number, playerCount: number, spawnedThisWave: number, totalCap: number): number
 	local traj = Config.Wave.Trajectory or {}
 	local base = tonumber(traj.TargetAliveBase) or 8
 	local perPlayer = tonumber(traj.TargetAlivePerPlayer) or 4
@@ -93,7 +122,7 @@ local function getTargetAlive(aliveCount, playerCount, spawnedThisWave, totalCap
 end
 
 -- Director pressure-based cooldown: lerp(CooldownMin, CooldownMax, Alive/AliveCap).
-local function getDirectorCooldown(aliveCount, aliveCap)
+local function getDirectorCooldown(aliveCount: number, aliveCap: number): number
 	aliveCap = math.max(1, tonumber(aliveCap) or 1)
 	local ratio = math.clamp((tonumber(aliveCount) or 0) / aliveCap, 0, 1)
 	local dir = Config.Wave.Director
@@ -102,7 +131,14 @@ local function getDirectorCooldown(aliveCount, aliveCap)
 	return cMin + (cMax - cMin) * ratio
 end
 
-function getNextSpawn(aliveCount, spawnedThisWave, totalCap, playerCount, waveNumber, aliveCap)
+function getNextSpawn(
+	aliveCount: number,
+	spawnedThisWave: number,
+	totalCap: number,
+	playerCount: number,
+	waveNumber: number,
+	aliveCap: number?
+): (number, number)
 	aliveCount = math.max(0, tonumber(aliveCount) or 0)
 	spawnedThisWave = math.max(0, tonumber(spawnedThisWave) or 0)
 	totalCap = math.max(0, tonumber(totalCap) or 0)

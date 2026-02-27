@@ -42,6 +42,7 @@ return {
 	HUD_SCREEN_GUI_NAMES = SettingsConfig.HudScreenGuiNames,
 	NON_DRAGGABLE_HUD_ROOTS = SettingsConfig.NonDraggableHudRoots,
 	HUD_MOVE_MODE_ATTRIBUTE = SettingsConfig.HudMoveMode.Attribute,
+	SPECTATOR_MODE_ATTRIBUTE = SettingsConfig.SpectatorMode.Attribute,
 	HUD_ROOTS = SettingsConfig.SpecialHudRoots,
 	isHudScreenGui = isHudScreenGui,
 	isHudRoot = isHudRoot,

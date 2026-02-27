@@ -1,21 +1,34 @@
+--[[
+	WaveService — Orchestrates the wave loop: Preparing → InProgress → Cleared (or GameOver/Won).
+	Uses WaveSpawnLogic for composition and WaveSpawnRunner for spawning. Broadcasts state via WaveState remote.
+]]
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
-local Match = script.Parent.Parent
 local WaveSpawnLogic = require(script.Parent.WaveSpawnLogic)
 local WaveSpawnRunner = require(script.Parent.WaveSpawnRunner)
 
-local WaveService = {}
+export type WaveTerminalState = "GameOver" | "Won" | nil
+
+export type WaveServiceModule = {
+	start: () -> (),
+	stop: () -> (),
+	gameOver: (reason: string?) -> (),
+	win: (reason: string?) -> (),
+	setOnWinCallback: ((() -> ())?) -> (),
+}
+
+local WaveService: WaveServiceModule = {} :: any
 
 local running = false
 local waveNumber = 0
-local waveStateRemote = nil
-local terminalState = nil
-local onWinCallback = nil
+local waveStateRemote: RemoteEvent? = nil
+local terminalState: WaveTerminalState = nil
+local onWinCallback: (() -> ())? = nil
 
-local function resolveWaveStateRemote()
+local function resolveWaveStateRemote(): RemoteEvent?
 	local remotesFolder = ReplicatedStorage:FindFirstChild(Config.Remotes.Folder)
 	if not remotesFolder then
 		return nil
@@ -29,14 +42,14 @@ local function resolveWaveStateRemote()
 	return nil
 end
 
-local function getRemotesFolder()
+local function getRemotesFolder(): Instance?
 	if not waveStateRemote then
 		return nil
 	end
 	return waveStateRemote.Parent
 end
 
-local function setWaveEnemiesRemaining(value)
+local function setWaveEnemiesRemaining(value: number)
 	local remotesFolder = getRemotesFolder()
 	if not remotesFolder then
 		return
@@ -47,7 +60,7 @@ local function setWaveEnemiesRemaining(value)
 	end
 end
 
-local function broadcastState(stateName, payload)
+local function broadcastState(stateName: string, payload: { [string]: any }?)
 	if not waveStateRemote then
 		return
 	end
@@ -66,7 +79,7 @@ local function broadcastState(stateName, payload)
 	waveStateRemote:FireAllClients(payload)
 end
 
-local function waitForWaveClear(timeoutSeconds)
+local function waitForWaveClear(timeoutSeconds: number?)
 	local startedAt = os.clock()
 	local enemyContainer = Workspace:FindFirstChild(Config.Enemy.ContainerName)
 
@@ -87,31 +100,6 @@ local function waitForWaveClear(timeoutSeconds)
 
 		task.wait(0.5)
 	end
-end
-
-local function getWaveScalingConfig()
-	local scaling = Config.Wave.WaveScaling or {}
-
-	return {
-		enabled = scaling.Enabled ~= false,
-		basePlayers = math.max(1, math.floor((tonumber(scaling.BasePlayers) or 1) + 0.5)),
-		enemiesPerExtraPlayer = math.max(0, tonumber(scaling.EnemiesPerExtraPlayer) or 1),
-		maxEnemyCountMultiplier = math.max(1, tonumber(scaling.MaxEnemyCountMultiplier) or 2),
-	}
-end
-
-local function getScaledWaveEnemyCount(baseEnemyCount, playerCount, scalingConfig)
-	local safeBaseEnemyCount = math.max(1, math.floor((tonumber(baseEnemyCount) or 1) + 0.5))
-	if not scalingConfig.enabled then
-		return safeBaseEnemyCount
-	end
-
-	local safePlayerCount = math.max(1, math.floor((tonumber(playerCount) or 1) + 0.5))
-	local extraPlayers = math.max(0, safePlayerCount - scalingConfig.basePlayers)
-	local scaledEnemyCount = safeBaseEnemyCount + (extraPlayers * scalingConfig.enemiesPerExtraPlayer)
-	scaledEnemyCount = math.min(scaledEnemyCount, safeBaseEnemyCount * scalingConfig.maxEnemyCountMultiplier)
-
-	return math.max(1, math.floor(scaledEnemyCount + 0.5))
 end
 
 function WaveService.start()

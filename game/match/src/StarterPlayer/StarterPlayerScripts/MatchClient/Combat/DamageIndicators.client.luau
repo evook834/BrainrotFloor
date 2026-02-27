@@ -4,6 +4,7 @@ local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
+local EnemyModelUtils = require(script.Parent.Parent.Enemies.EnemyModelUtils)
 
 local remotesFolder = ReplicatedStorage:WaitForChild(Config.Remotes.Folder)
 local damageIndicatorRemote = remotesFolder:WaitForChild(Config.Remotes.DamageIndicator)
@@ -29,36 +30,6 @@ local function getIndicatorFolder()
 	indicatorFolder.Name = "DamageIndicators"
 	indicatorFolder.Parent = Workspace
 	return indicatorFolder
-end
-
-local function resolveEnemyRoot(enemyModel)
-	if enemyModel.PrimaryPart and enemyModel.PrimaryPart:IsA("BasePart") then
-		return enemyModel.PrimaryPart
-	end
-
-	local humanoidRootPart = enemyModel:FindFirstChild("HumanoidRootPart", true)
-	if humanoidRootPart and humanoidRootPart:IsA("BasePart") then
-		return humanoidRootPart
-	end
-
-	local anyPart = enemyModel:FindFirstChildWhichIsA("BasePart", true)
-	if anyPart then
-		return anyPart
-	end
-
-	return nil
-end
-
-local function getEnemyHeightOffset(enemyModel)
-	local height = 4
-	local ok, size = pcall(function()
-		return enemyModel:GetExtentsSize()
-	end)
-	if ok and size then
-		height = size.Y
-	end
-
-	return math.clamp((height * 0.45) + 0.8, 1.6, 7.5)
 end
 
 local function resolveColorForDamage(damage)
@@ -292,13 +263,16 @@ damageIndicatorRemote.OnClientEvent:Connect(function(enemyModel, damageAmount, w
 	end
 
 	if enemyModel and enemyModel:IsA("Model") then
-		local enemyRoot = resolveEnemyRoot(enemyModel)
+		local enemyRoot = EnemyModelUtils.resolveRootPart(enemyModel)
 		if enemyRoot then
 			spawnPosition = enemyRoot.Position
 		end
 
 		if spawnPosition then
-			spawnPosition += Vector3.new(0, getEnemyHeightOffset(enemyModel), 0)
+			local size = EnemyModelUtils.getExtentsSize(enemyModel, Vector3.new(4, 4, 4))
+			local height = size.Y
+			local heightOffset = math.clamp((height * 0.45) + 0.8, 1.6, 7.5)
+			spawnPosition += Vector3.new(0, heightOffset, 0)
 		end
 	end
 

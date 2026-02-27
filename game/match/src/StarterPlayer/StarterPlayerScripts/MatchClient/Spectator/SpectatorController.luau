@@ -11,6 +11,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
+local HudLayoutConfig = require(ReplicatedStorage.Shared.Settings.HudLayoutConfig)
 
 local SpectatorView = require(script.SpectatorView)
 
@@ -179,6 +180,9 @@ local function startSpectating()
 	-- Build UI
 	SpectatorView.build()
 
+	-- Signal to other HUDs (heal/stamina, class/XP, etc.) to hide
+	playerGui:SetAttribute(HudLayoutConfig.SPECTATOR_MODE_ATTRIBUTE, true)
+
 	-- Start updates
 	renderConnection = RunService.RenderStepped:Connect(updateSpectatorState)
 	startCountdown()
@@ -205,6 +209,9 @@ local function stopSpectating()
 	else
 		camera.CameraType = Enum.CameraType.Custom
 	end
+
+	-- Allow other HUDs to show again
+	playerGui:SetAttribute(HudLayoutConfig.SPECTATOR_MODE_ATTRIBUTE, false)
 
 	-- Cleanup UI
 	SpectatorView.cleanup()

@@ -3,7 +3,7 @@
 --
 -- Usage:
 --   1. Call SpectatorView.build() to create the UI
---   2. Call SpectatorView.update(targetName, respawnTime) to update display
+--   2. Call SpectatorView.update(targetName, respawnTime?) to update display
 --   3. Call SpectatorView.destroy() to clean up
 
 local Players = game:GetService("Players")
@@ -74,31 +74,11 @@ end
 -- UI Updates ---------------------------------------------------------------------------------
 --============================================================================================--
 
-local function formatRespawnTime(respawnTime)
-	if respawnTime == nil or respawnTime <= 0 then
-		return ""
-	end
-	local timeLeft = math.ceil(respawnTime - workspace:GetServerTimeNow())
-	if timeLeft <= 0 then
-		return ""
-	end
-	return string.format(" | Respawn: %d", timeLeft)
-end
-
-local function formatTargetName(targetPlayer)
-	if not targetPlayer then
-		return "---"
-	end
-	return targetPlayer.Name
-end
-
-local function updateLabel(targetName, respawnTime)
+local function updateLabel(targetName)
 	if not spectatorLabel then
 		return
 	end
-
-	local respawnLabel = formatRespawnTime(respawnTime)
-	spectatorLabel.Text = string.format("Spectating: %s  |  Q/E switch, T toggle%s", targetName, respawnLabel)
+	spectatorLabel.Text = string.format("Spectating: %s  |  Q/E switch, T toggle", targetName)
 end
 
 --============================================================================================--
@@ -114,12 +94,12 @@ function SpectatorView.build()
 	enabled = true
 end
 
--- Update the spectator label with current target and respawn time
-function SpectatorView.update(targetName, respawnTime)
+-- Update the spectator label with current target
+function SpectatorView.update(targetName, _respawnTime)
 	if not enabled then
 		return
 	end
-	updateLabel(targetName, respawnTime)
+	updateLabel(targetName)
 end
 
 -- Update the camera offset

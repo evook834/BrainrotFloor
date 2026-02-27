@@ -9,10 +9,28 @@ local Config = require(ReplicatedStorage.Shared.GameConfig)
 local Match = script.Parent.Parent
 local DifficultyService = require(Match.Difficulty.DifficultyService)
 
+export type Role = "trash" | "medium" | "heavy" | "special"
+
+export type RoleCounts = {
+	trash: number,
+	medium: number,
+	heavy: number,
+	special: number,
+}
+
+export type WaveComposition = {
+	isBossWave: boolean,
+	totalCap: number,
+	aliveCap: number,
+	roleCaps: RoleCounts,
+	targetCountByRole: RoleCounts,
+	pickTemplate: (RoleCounts?, RoleCounts?) -> { templateName: string, tier: string }?,
+}
+
 local DEFAULT_TIER = "Easy"
 
 -- Catalog tier (Easy/Medium/Hard/Elite) maps to director role (trash/medium/heavy/special).
-local TIER_TO_ROLE = {
+local TIER_TO_ROLE: { [string]: Role } = {
 	Easy = "trash",
 	Medium = "medium",
 	Hard = "heavy",
@@ -27,7 +45,7 @@ local function getTier(entry)
 	return DEFAULT_TIER
 end
 
-local function getRole(entry)
+local function getRole(entry): Role
 	return TIER_TO_ROLE[getTier(entry)] or "trash"
 end
 
@@ -80,7 +98,7 @@ local function weightedRandomPick(entriesWithWeights)
 end
 
 -- Director scaling: CountMult(p) = 1 + K * (p-1)^exp
-local function countMult(playerCount)
+local function countMult(playerCount: number): number
 	local dir = Config.Wave.Director
 	if not dir then
 		return 1
@@ -92,7 +110,7 @@ local function countMult(playerCount)
 end
 
 -- AliveMult(p) = 1 + K * (p-1)^exp
-local function aliveMult(playerCount)
+local function aliveMult(playerCount: number): number
 	local dir = Config.Wave.Director
 	if not dir then
 		return 1
@@ -103,13 +121,13 @@ local function aliveMult(playerCount)
 	return 1 + k * ((p - 1) ^ exp)
 end
 
-local function getDiffMultipliers(difficulty)
+local function getDiffMultipliers(difficulty: string): (number, number)
 	local settings = DifficultyService.getSettings(difficulty)
 	return tonumber(settings.DiffTotal) or 1, tonumber(settings.DiffAlive) or 1
 end
 
 -- Role caps: TrashCap/MediumCap from fractions of AliveCap; SpecialCap/HeavyCap from formulas.
-local function computeRoleCaps(aliveCap, waveNumber, playerCount, difficulty)
+local function computeRoleCaps(aliveCap: number, waveNumber: number, playerCount: number, difficulty: string): RoleCounts
 	local w = math.max(1, math.floor((tonumber(waveNumber) or 1) + 0.5))
 	local p = math.max(1, math.floor((tonumber(playerCount) or 1) + 0.5))
 	local dir = Config.Wave.Director or {}
@@ -135,7 +153,7 @@ local function computeRoleCaps(aliveCap, waveNumber, playerCount, difficulty)
 end
 
 -- Target spawn counts by role from composition % and wave total.
-local function computeTargetCountByRole(waveTotalPlanned, waveNumber)
+local function computeTargetCountByRole(waveTotalPlanned: number, waveNumber: number): RoleCounts
 	local comp = Config.Wave.CompositionPercentByWave
 	if type(comp) ~= "table" then
 		return { trash = waveTotalPlanned, medium = 0, heavy = 0, special = 0 }
@@ -151,7 +169,7 @@ local function computeTargetCountByRole(waveTotalPlanned, waveNumber)
 end
 
 -- Legacy: total cap when Director is not used (e.g. no Director table).
-local function getScaledWaveCapLegacy(waveNumber, playerCount, maxMonstersPerWave)
+local function getScaledWaveCapLegacy(waveNumber: number, playerCount: number, maxMonstersPerWave: number): number
 	local wave = math.max(1, math.floor((tonumber(waveNumber) or 1) + 0.5))
 	local players = math.max(1, math.floor((tonumber(playerCount) or 1) + 0.5))
 	local cap = math.max(1, tonumber(maxMonstersPerWave) or 1500)
@@ -176,7 +194,7 @@ local function getScaledWaveCapLegacy(waveNumber, playerCount, maxMonstersPerWav
 	return math.min(total, cap)
 end
 
-function getWaveComposition(waveNumber, playerCount, maxMonstersPerWave)
+function getWaveComposition(waveNumber: number, playerCount: number, maxMonstersPerWave: number): WaveComposition
 	local catalog = Config.Enemy.Catalog
 	if type(catalog) ~= "table" or #catalog == 0 then
 		return {
@@ -184,7 +202,7 @@ function getWaveComposition(waveNumber, playerCount, maxMonstersPerWave)
 			totalCap = 0,
 			aliveCap = 0,
 			roleCaps = { trash = 0, medium = 0, heavy = 0, special = 0 },
-			targetCountByRole = { trash = 0, medium = 0, heavy = 0, special = 0 },
+			targetCountByRole = { trash = 0, medium = 0, heavy = 0, special = 0 } :: RoleCounts,
 			pickTemplate = function()
 				return nil
 			end,
@@ -217,8 +235,8 @@ function getWaveComposition(waveNumber, playerCount, maxMonstersPerWave)
 			isBossWave = true,
 			totalCap = totalCap,
 			aliveCap = totalCap,
-			roleCaps = { trash = 0, medium = 0, heavy = 0, special = 0 },
-			targetCountByRole = { trash = 0, medium = 0, heavy = 0, special = 0 },
+			roleCaps = { trash = 0, medium = 0, heavy = 0, special = 0 } :: RoleCounts,
+			targetCountByRole = { trash = 0, medium = 0, heavy = 0, special = 0 } :: RoleCounts,
 			pickTemplate = pickTemplate,
 		}
 	end
@@ -235,8 +253,8 @@ function getWaveComposition(waveNumber, playerCount, maxMonstersPerWave)
 			isBossWave = false,
 			totalCap = totalCap,
 			aliveCap = totalCap,
-			roleCaps = { trash = totalCap, medium = 0, heavy = 0, special = 0 },
-			targetCountByRole = { trash = totalCap, medium = 0, heavy = 0, special = 0 },
+			roleCaps = { trash = totalCap, medium = 0, heavy = 0, special = 0 } :: RoleCounts,
+			targetCountByRole = { trash = totalCap, medium = 0, heavy = 0, special = 0 } :: RoleCounts,
 			pickTemplate = pickTemplate,
 		}
 	end
@@ -268,7 +286,7 @@ function getWaveComposition(waveNumber, playerCount, maxMonstersPerWave)
 	}
 end
 
-function buildPool(catalog, waveNumber)
+function buildPool(catalog, waveNumber: number)
 	local pool = {}
 	for _, entry in catalog do
 		if entry.IsBoss then
@@ -300,7 +318,13 @@ function buildPool(catalog, waveNumber)
 end
 
 -- roleAlive/totalSpawnedByRole: { trash, medium, heavy, special } (use tier names for keys if needed; we use role).
-function pickFromPool(pool, roleAlive, roleCaps, totalSpawnedByRole, waveTotalPlanned)
+function pickFromPool(
+	pool,
+	roleAlive: RoleCounts?,
+	roleCaps: RoleCounts?,
+	totalSpawnedByRole: RoleCounts?,
+	waveTotalPlanned: number?
+)
 	if #pool == 0 then
 		return nil
 	end
@@ -329,7 +353,19 @@ function pickFromPool(pool, roleAlive, roleCaps, totalSpawnedByRole, waveTotalPl
 	return { templateName = chosen.TemplateName, tier = getTier(chosen) }
 end
 
-local WaveSpawnLogic = {
+type WaveSpawnLogicModule = {
+	getWaveComposition: (number, number, number) -> WaveComposition,
+	buildPool: (catalog: { [number]: any }, number) -> { any },
+	pickFromPool: (any, RoleCounts?, RoleCounts?, RoleCounts?, number?) -> { templateName: string, tier: string }?,
+	countMult: (number) -> number,
+	aliveMult: (number) -> number,
+	computeRoleCaps: (number, number, number, string) -> RoleCounts,
+	computeTargetCountByRole: (number, number) -> RoleCounts,
+	getRole: (any) -> Role,
+	getTier: (any) -> string,
+}
+
+local WaveSpawnLogic: WaveSpawnLogicModule = {
 	getWaveComposition = getWaveComposition,
 	buildPool = buildPool,
 	pickFromPool = pickFromPool,

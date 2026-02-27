@@ -121,7 +121,7 @@ Match client UI and HUD. Match folder names to responsibility.
 
 | Folder / file | Purpose |
 |---------------|--------|
-| **`Waves/`** | Wave state HUD. |
+| **`Waves/`** | Wave HUD: WaveHud (entry), WaveHudController (logic), WaveHudView (UI). |
 | **`Enemies/`** | Enemy health bars, death VFX. |
 | **`Shop/`** | Shop UI (catalog, buy). |
 | **`Classes/`** | Class UI, XP bar. |

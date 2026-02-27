@@ -35,6 +35,11 @@ return {
 		Attribute = "LobbyHudMoveModeEnabled",
 	},
 
+	-- Spectator mode (HUDs that hide when spectating listen to this)
+	SpectatorMode = {
+		Attribute = "SpectatorModeActive",
+	},
+
 	-- HUD roots that cannot be dragged by the user
 	NonDraggableHudRoots = {
 		["CombatCrosshairUi/CrosshairRoot"] = true,

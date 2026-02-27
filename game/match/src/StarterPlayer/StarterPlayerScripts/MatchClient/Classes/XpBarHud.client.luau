@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
+local HudLayoutConfig = require(ReplicatedStorage.Shared.Settings.HudLayoutConfig)
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -84,6 +85,13 @@ gui.Name = "ClassXpBarHud"
 gui.ResetOnSpawn = false
 gui.DisplayOrder = 25
 gui.Parent = playerGui
+
+local function updateSpectatorVisibility()
+	local inSpectator = playerGui:GetAttribute(HudLayoutConfig.SPECTATOR_MODE_ATTRIBUTE) == true
+	gui.Enabled = not inSpectator
+end
+playerGui:GetAttributeChangedSignal(HudLayoutConfig.SPECTATOR_MODE_ATTRIBUTE):Connect(updateSpectatorVisibility)
+updateSpectatorVisibility()
 
 local container = Instance.new("Frame")
 container.Name = "XpContainer"

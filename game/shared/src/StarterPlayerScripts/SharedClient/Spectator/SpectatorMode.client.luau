@@ -132,16 +132,7 @@ local function updateSpectatorLabel()
 	local name = character and Players:GetPlayerFromCharacter(character)
 	name = name and name.Name or "---"
 
-	-- Calculate respawn time
-	local timeLabel = ""
-	if respawnTime > 0 then
-		local timeLeft = math.ceil(respawnTime - workspace:GetServerTimeNow())
-		if timeLeft > 0 then
-			timeLabel = string.format(" | Respawn: %d", timeLeft)
-		end
-	end
-
-	spectatorLabel.Text = string.format("Spectating: %s  |  Q/E switch, T toggle%s", name, timeLabel)
+	spectatorLabel.Text = string.format("Spectating: %s  |  Q/E switch, T toggle", name)
 end
 
 local function ensureSpectatorGui()
