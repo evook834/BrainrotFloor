@@ -9,7 +9,7 @@ local WaveConfig = {
 	MaxMonstersPerWave = 1500,
 	WaveTotalPlannedMax = 1400, -- internal clamp so we rarely hit 1500 brake
 	MaxPlayers = 20,
-	IntermissionSeconds = 10,
+	IntermissionSeconds = 15,
 
 	-- Director: Solo Normal baselines (waves 1–10). Scaled by player count and difficulty.
 	Director = {

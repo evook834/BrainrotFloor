@@ -15,6 +15,8 @@ local HudLayoutConfig = require(ReplicatedStorage.Shared.Settings.HudLayoutConfi
 
 local SpectatorView = require(script.SpectatorView)
 
+local SpectatorController = {}
+
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local camera = workspace.CurrentCamera

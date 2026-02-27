@@ -13,7 +13,8 @@ local Config = require(ReplicatedStorage.Shared.GameConfig)
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
-local camera = workspace.CurrentCamera
+
+local SpectatorView = {}
 
 local spectateOffset = Config.Spectator.CameraOffset
 local spectateSmoothness = Config.Spectator.Smoothness

@@ -14,6 +14,7 @@ local PlayerDataService = require(ServerScriptService.Shared.PlayerData.PlayerDa
 local Match = script.Parent.Parent
 local ClassService = require(Match.Classes.ClassService)
 local EnemyVfxService = require(Match.Enemies.EnemyVfxService)
+local EnemyRegistry = require(Match.Enemies.EnemyRegistry)
 local ModelRootResolver = require(Match.Enemies.ModelRootResolver)
 local ShopConstants = require(Match.Shop.ShopConstants)
 
@@ -23,6 +24,7 @@ local damageIndicatorRemote = nil
 local enemyDamageBlinkState = setmetatable({}, { __mode = "k" })
 local enemyBurnState = setmetatable({}, { __mode = "k" })
 local randomGenerator = Random.new()
+local tryApplyBurnOnHit -- forward declaration; defined after applyDamageToEnemy (mutual recursion)
 
 function init(options)
 	if type(options) == "table" and options.damageIndicatorRemote ~= nil then
@@ -31,7 +33,7 @@ function init(options)
 end
 
 local function getEnemyContainer()
-	return Workspace:FindFirstChild(Config.Enemy.ContainerName)
+	return EnemyRegistry.getEnemyContainer()
 end
 
 local function getMoneyValue(player)
@@ -245,7 +247,83 @@ local function isEnemyAliveForBurn(enemyModel)
 	return health > 0
 end
 
-local tryApplyBurnOnHit -- forward declaration; defined after applyDamageToEnemy (mutual recursion)
+local function applyDamageToHumanoidEnemy(
+	player: Player?,
+	enemyModel: Model,
+	humanoid: Humanoid,
+	appliedDamage: number,
+	weaponDef,
+	indicatorStyleTag: string?,
+	allowBurnOnHit: boolean,
+	classMultiplier: number
+)
+	local previousHealth = humanoid.Health
+	if previousHealth <= 0 then
+		return
+	end
+
+	humanoid:TakeDamage(appliedDamage)
+	local currentHealth = humanoid.Health
+	local dealtDamage = math.max(0, previousHealth - currentHealth)
+	if dealtDamage > 0 then
+		blinkEnemyDamage(enemyModel)
+		if player and player:IsA("Player") then
+			ClassService.recordDamage(player, dealtDamage, weaponDef)
+			emitDamageIndicator(player, enemyModel, dealtDamage, indicatorStyleTag)
+		end
+		if allowBurnOnHit and currentHealth > 0 then
+			tryApplyBurnOnHit(player, enemyModel, weaponDef, classMultiplier)
+		end
+	end
+
+	if previousHealth > 0 and currentHealth <= 0 then
+		EnemyVfxService.playDeathCloud(enemyModel)
+		rewardEnemyKill(player, enemyModel)
+	end
+end
+
+local function applyDamageToAttributeEnemy(
+	player: Player?,
+	enemyModel: Model,
+	appliedDamage: number,
+	weaponDef,
+	indicatorStyleTag: string?,
+	allowBurnOnHit: boolean,
+	classMultiplier: number
+)
+	local maxHealth = enemyModel:GetAttribute("EnemyMaxHealth")
+	if type(maxHealth) ~= "number" then
+		maxHealth = Config.Enemy.NonHumanoidMaxHealth or 120
+	end
+
+	local health = enemyModel:GetAttribute("EnemyHealth")
+	if type(health) ~= "number" then
+		health = maxHealth
+	end
+
+	local previousHealth = health
+	health -= appliedDamage
+	enemyModel:SetAttribute("EnemyMaxHealth", maxHealth)
+	enemyModel:SetAttribute("EnemyHealth", health)
+
+	local dealtDamage = math.max(0, previousHealth - health)
+	if dealtDamage > 0 then
+		blinkEnemyDamage(enemyModel)
+		if player and player:IsA("Player") then
+			ClassService.recordDamage(player, dealtDamage, weaponDef)
+			emitDamageIndicator(player, enemyModel, dealtDamage, indicatorStyleTag)
+		end
+		if allowBurnOnHit and health > 0 then
+			tryApplyBurnOnHit(player, enemyModel, weaponDef, classMultiplier)
+		end
+	end
+
+	if health <= 0 then
+		rewardEnemyKill(player, enemyModel)
+		EnemyVfxService.playDeathCloud(enemyModel)
+		enemyModel:Destroy()
+	end
+end
 
 local function applyDamageToEnemy(player, enemyModel, damage, weaponDef, damageContext)
 	if not enemyModel or not enemyModel.Parent then
@@ -287,62 +365,28 @@ local function applyDamageToEnemy(player, enemyModel, damage, weaponDef, damageC
 
 	local humanoid = enemyModel:FindFirstChildOfClass("Humanoid")
 	if humanoid then
-		local previousHealth = humanoid.Health
-		if previousHealth <= 0 then
-			return
-		end
-
-		humanoid:TakeDamage(appliedDamage)
-		local currentHealth = humanoid.Health
-		local dealtDamage = math.max(0, previousHealth - currentHealth)
-		if dealtDamage > 0 then
-			blinkEnemyDamage(enemyModel)
-			if player and player:IsA("Player") then
-				ClassService.recordDamage(player, dealtDamage, weaponDef)
-				emitDamageIndicator(player, enemyModel, dealtDamage, indicatorStyleTag)
-			end
-			if allowBurnOnHit and currentHealth > 0 then
-				tryApplyBurnOnHit(player, enemyModel, weaponDef, classMultiplier)
-			end
-		end
-		if previousHealth > 0 and currentHealth <= 0 then
-			EnemyVfxService.playDeathCloud(enemyModel)
-			rewardEnemyKill(player, enemyModel)
-		end
+		applyDamageToHumanoidEnemy(
+			player,
+			enemyModel,
+			humanoid,
+			appliedDamage,
+			weaponDef,
+			indicatorStyleTag,
+			allowBurnOnHit,
+			classMultiplier
+		)
 		return
 	end
 
-	local maxHealth = enemyModel:GetAttribute("EnemyMaxHealth")
-	if type(maxHealth) ~= "number" then
-		maxHealth = Config.Enemy.NonHumanoidMaxHealth or 120
-	end
-
-	local health = enemyModel:GetAttribute("EnemyHealth")
-	if type(health) ~= "number" then
-		health = maxHealth
-	end
-
-	local previousHealth = health
-	health -= appliedDamage
-	enemyModel:SetAttribute("EnemyMaxHealth", maxHealth)
-	enemyModel:SetAttribute("EnemyHealth", health)
-	local dealtDamage = math.max(0, previousHealth - health)
-	if dealtDamage > 0 then
-		blinkEnemyDamage(enemyModel)
-		if player and player:IsA("Player") then
-			ClassService.recordDamage(player, dealtDamage, weaponDef)
-			emitDamageIndicator(player, enemyModel, dealtDamage, indicatorStyleTag)
-		end
-		if allowBurnOnHit and health > 0 then
-			tryApplyBurnOnHit(player, enemyModel, weaponDef, classMultiplier)
-		end
-	end
-
-	if health <= 0 then
-		rewardEnemyKill(player, enemyModel)
-		EnemyVfxService.playDeathCloud(enemyModel)
-		enemyModel:Destroy()
-	end
+	applyDamageToAttributeEnemy(
+		player,
+		enemyModel,
+		appliedDamage,
+		weaponDef,
+		indicatorStyleTag,
+		allowBurnOnHit,
+		classMultiplier
+	)
 end
 
 tryApplyBurnOnHit = function(player, enemyModel, weaponDef, classMultiplier)
