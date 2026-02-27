@@ -6,25 +6,17 @@ local SettingsRemotesUtil = require(script.Parent:WaitForChild("SettingsRemotesU
 local SettingsConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Settings"):WaitForChild("SettingsConfig"))
 local HudLayoutConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Settings"):WaitForChild("HudLayoutConfig"))
 local HudLayoutService = require(script.Parent:WaitForChild("SettingsHudLayoutService"))
+local HudMoveModeInput = require(script.Parent:WaitForChild("HudMoveModeInput"))
+local SettingsPayloadBuilder = require(script.Parent:WaitForChild("SettingsPayloadBuilder"))
+local SettingsTypes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Settings"):WaitForChild("SettingsTypes"))
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 local HUD_MOVABLE_ATTRIBUTE = "HudMovable"
-local TOUCH_LONG_PRESS_DELAY = 0.4
 
-type SettingsState = {
-	musicVolume: number,
-	musicMuted: boolean,
-	sfxVolume: number,
-	sfxMuted: boolean,
-	hudScale: number,
-	hudPositions: { [string]: UDim2 },
-}
-
-type RunOptions = {
-	hudMoveModeAttribute: string?,
-}
+type SettingsState = SettingsTypes.SettingsState
+type RunOptions = SettingsTypes.RunOptions
 
 type View = {
 	gui: ScreenGui,
@@ -121,25 +113,13 @@ function SettingsHudLayoutController:queueSettingsSave()
 			end
 		end
 
-		local serializedPositions = {}
+		local serializedPositions: { [string]: SettingsPayloadBuilder.SerializedPosition } = {}
 		for key, position in pairs(self.settingsState.hudPositions) do
 			if typeof(position) == "UDim2" then
 				serializedPositions[key] = self:serializePosition(position)
 			end
 		end
-
-		self.settingsSaveRemote:FireServer({
-			audio = {
-				musicVolume = self.settingsState.musicVolume,
-				musicMuted = self.settingsState.musicMuted,
-				sfxVolume = self.settingsState.sfxVolume,
-				sfxMuted = self.settingsState.sfxMuted,
-			},
-			hud = {
-				scale = self.settingsState.hudScale,
-				positions = serializedPositions,
-			},
-		})
+		self.settingsSaveRemote:FireServer(SettingsPayloadBuilder.buildSavePayload(self.settingsState, serializedPositions))
 	end)
 end
 
@@ -322,115 +302,6 @@ function SettingsHudLayoutController:trackScreenGui(screenGui: ScreenGui)
 		end
 
 		self:destroyScreenGui(screenGui, screenState)
-	end))
-end
-
-local function isPointInPanel(view: View, screenPos: Vector2): boolean
-	if not view.panel.Visible then
-		return false
-	end
-
-	local panelPos = view.panel.AbsolutePosition
-	local panelSize = view.panel.AbsoluteSize
-	return screenPos.X >= panelPos.X
-		and screenPos.X <= panelPos.X + panelSize.X
-		and screenPos.Y >= panelPos.Y
-		and screenPos.Y <= panelPos.Y + panelSize.Y
-end
-
-local function bindMoveModeInput(controller: Controller)
-	table.insert(controller.connections, UserInputService.InputBegan:Connect(function(inputObject, _gameProcessed)
-		if not controller.moveModeEnabled then
-			return
-		end
-		if
-			inputObject.UserInputType ~= Enum.UserInputType.MouseButton1
-			and inputObject.UserInputType ~= Enum.UserInputType.Touch
-		then
-			return
-		end
-
-		local screenPos = Vector2.new(inputObject.Position.X, inputObject.Position.Y)
-		if isPointInPanel(controller.view, screenPos) then
-			return
-		end
-
-		if inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
-			controller:startDragAtPosition(screenPos)
-			return
-		end
-
-		if inputObject.UserInputType == Enum.UserInputType.Touch then
-			controller.pendingTouch = {
-				input = inputObject,
-			}
-
-			local pendingTouch = controller.pendingTouch
-			task.delay(TOUCH_LONG_PRESS_DELAY, function()
-				if controller.pendingTouch ~= pendingTouch then
-					return
-				end
-				if not controller.moveModeEnabled then
-					return
-				end
-
-				local currentInput = pendingTouch.input
-				local currentPos = Vector2.new(currentInput.Position.X, currentInput.Position.Y)
-				if isPointInPanel(controller.view, currentPos) then
-					return
-				end
-
-				controller.pendingTouch = nil
-				controller:startDragAtPosition(currentPos)
-			end)
-		end
-	end))
-
-	table.insert(controller.connections, UserInputService.InputChanged:Connect(function(inputObject)
-		if not controller.moveModeEnabled then
-			return
-		end
-		if
-			inputObject.UserInputType ~= Enum.UserInputType.MouseMovement
-			and inputObject.UserInputType ~= Enum.UserInputType.Touch
-		then
-			return
-		end
-
-		local screenPos = Vector2.new(inputObject.Position.X, inputObject.Position.Y)
-
-		if controller.activeDrag then
-			controller:updateDrag(screenPos)
-			return
-		end
-
-		if isPointInPanel(controller.view, screenPos) then
-			controller:setHighlightedRoot(controller.selectedHudRoot)
-			return
-		end
-
-		local hoverRoot = controller:getTopHudRootAtPosition(screenPos)
-		if hoverRoot then
-			controller:setHighlightedRoot(hoverRoot)
-		else
-			controller:setHighlightedRoot(controller.selectedHudRoot)
-		end
-	end))
-
-	table.insert(controller.connections, UserInputService.InputEnded:Connect(function(inputObject)
-		if
-			inputObject.UserInputType ~= Enum.UserInputType.MouseButton1
-			and inputObject.UserInputType ~= Enum.UserInputType.Touch
-		then
-			return
-		end
-		if controller.pendingTouch and controller.pendingTouch.input == inputObject then
-			controller.pendingTouch = nil
-		end
-		if controller.activeDrag then
-			controller:queueSettingsSave()
-		end
-		controller.activeDrag = nil
 	end))
 end
 
@@ -698,7 +569,7 @@ function SettingsHudLayoutController.new(init: InitOptions): Controller
 		self:queueSettingsSave()
 	end))
 
-	bindMoveModeInput(self)
+	HudMoveModeInput.bindMoveModeInput(self, self.connections)
 
 	if self.hudMoveModeAttribute then
 		playerGui:SetAttribute(self.hudMoveModeAttribute, false)

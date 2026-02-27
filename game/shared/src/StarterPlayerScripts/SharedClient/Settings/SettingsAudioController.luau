@@ -3,17 +3,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local SettingsRemotesUtil = require(script.Parent:WaitForChild("SettingsRemotesUtil"))
 local SettingsConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Settings"):WaitForChild("SettingsConfig"))
+local SettingsPayloadBuilder = require(script.Parent:WaitForChild("SettingsPayloadBuilder"))
+local SettingsTypes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Settings"):WaitForChild("SettingsTypes"))
 
 local MUSIC_CHANNEL = "Music"
 local SFX_CHANNEL = "Sfx"
-type SettingsState = {
-	musicVolume: number,
-	musicMuted: boolean,
-	sfxVolume: number,
-	sfxMuted: boolean,
-	hudScale: number,
-	hudPositions: { [string]: any },
-}
+type SettingsState = SettingsTypes.SettingsState
 
 type View = {
 	musicSliderBackground: Frame,
@@ -288,23 +283,11 @@ function SettingsAudioController:queueSettingsSave()
 
 	self.settingsSaveToken += 1
 	local activeToken = self.settingsSaveToken
-	task.delay(0.8, function()
+	task.delay(SettingsConfig.SaveDebounceDelay, function()
 		if activeToken ~= self.settingsSaveToken then
 			return
 		end
-
-		self.settingsSaveRemote:FireServer({
-			audio = {
-				musicVolume = self.settingsState.musicVolume,
-				musicMuted = self.settingsState.musicMuted,
-				sfxVolume = self.settingsState.sfxVolume,
-				sfxMuted = self.settingsState.sfxMuted,
-			},
-			hud = {
-				scale = self.settingsState.hudScale,
-				positions = self.settingsState.hudPositions,
-			},
-		})
+		self.settingsSaveRemote:FireServer(SettingsPayloadBuilder.buildSavePayload(self.settingsState))
 	end)
 end
 

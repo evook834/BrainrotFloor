@@ -3,6 +3,9 @@
 	Builds BillboardGui with fill + ammo label; used by SentryTurretController.
 ]]
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SentryConstants = require(ReplicatedStorage.Shared.SentryConstants)
+
 local SentryHealthBar = {}
 
 -- Health ratio thresholds for color (low / medium / high)
@@ -12,8 +15,9 @@ local COLOR_LOW = Color3.fromRGB(220, 65, 60)
 local COLOR_MED = Color3.fromRGB(230, 165, 60)
 local COLOR_HIGH = Color3.fromRGB(70, 220, 105)
 
--- Billboard layout
-local BILLBOARD_NAME = "TurretHealthBar"
+-- Billboard layout (names from shared so Runtime can find elements)
+local BILLBOARD_NAME = SentryConstants.TURRET_BILLBOARD_NAME
+local AMMO_LABEL_NAME = SentryConstants.TURRET_AMMO_LABEL_NAME
 local BILLBOARD_MAX_DISTANCE = 220
 local BILLBOARD_SIZE_X = 96
 local BILLBOARD_SIZE_Y = 26
@@ -73,7 +77,7 @@ function SentryHealthBar.attachTurretHealthBar(model, rootPart)
 	fillCorner.Parent = fill
 
 	local ammoText = Instance.new("TextLabel")
-	ammoText.Name = "AmmoText"
+	ammoText.Name = AMMO_LABEL_NAME
 	ammoText.BackgroundTransparency = 1
 	ammoText.Size = UDim2.new(1, 0, 0, AMMO_LABEL_HEIGHT_PX)
 	ammoText.Position = UDim2.fromOffset(0, AMMO_LABEL_OFFSET_Y)

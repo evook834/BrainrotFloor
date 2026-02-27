@@ -14,6 +14,7 @@ local ModelRootResolver = require(script.Parent.ModelRootResolver)
 
 local EnemyAIService = {}
 local SENTRY_TURRET_FOLDER_NAME = SentryConstants.SENTRY_TURRET_FOLDER_NAME
+local SENTRY_ATTR_IS_TURRET = SentryConstants.ATTR_IS_SENTRY_TURRET
 
 local function normalizeAnimationId(rawId)
 	if type(rawId) ~= "string" or rawId == "" then
@@ -125,7 +126,7 @@ local function getNearestTarget(originPosition, acquireRange)
 	local sentryFolder = Workspace:FindFirstChild(SENTRY_TURRET_FOLDER_NAME)
 	if sentryFolder then
 		for _, child in ipairs(sentryFolder:GetChildren()) do
-			if child:IsA("Model") and child:GetAttribute("IsSentryTurret") == true then
+			if child:IsA("Model") and child:GetAttribute(SENTRY_ATTR_IS_TURRET) == true then
 				local humanoid = child:FindFirstChildOfClass("Humanoid")
 				local rootPart = ModelRootResolver.resolveRootPart(child)
 				if humanoid and rootPart and humanoid.Health > 0 then

@@ -107,9 +107,11 @@ local function sanitizeSettings(rawSettings)
 	if type(rawSettings) ~= "table" then
 		return sanitized
 	end
-
-	-- Apply migration first
+	-- Apply migration; preserve rawSettings if migration returns nil
 	rawSettings = migrateSettings(rawSettings) or rawSettings
+	if type(rawSettings) ~= "table" then
+		return sanitized
+	end
 
 	local rawAudio = rawSettings.audio
 	if type(rawAudio) == "table" then

@@ -63,13 +63,6 @@ return {
 		},
 	},
 
-	-- Remote names (from GameConfig.Remotes)
-	-- These should match the remote names in game/shared/src/ReplicatedStorage/Shared/Remotes/RemoteNames.luau
-	Remotes = {
-		SettingsGet = "SettingsGet",
-		SettingsSave = "SettingsSave",
-	},
-
 	-- Save debounce delay (seconds) - time to wait after last change before saving
 	SaveDebounceDelay = 0.8,
 }

@@ -4,24 +4,15 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 
 local SettingsRemotesUtil = require(script.Parent:WaitForChild("SettingsRemotesUtil"))
+local SettingsTypes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Settings"):WaitForChild("SettingsTypes"))
 
-type SettingsState = {
-	musicVolume: number,
-	musicMuted: boolean,
-	sfxVolume: number,
-	sfxMuted: boolean,
-	hudScale: number,
-	hudPositions: { [string]: any },
-}
+type SettingsState = SettingsTypes.SettingsState
+type RunOptions = SettingsTypes.RunOptions
 
 type View = {
 	panel: Frame,
 	returnToLobbyButton: TextButton,
 	returnToLobbyStatusLabel: TextLabel,
-}
-
-type RunOptions = {
-	canReturnToLobby: boolean?,
 }
 
 type InitOptions = {

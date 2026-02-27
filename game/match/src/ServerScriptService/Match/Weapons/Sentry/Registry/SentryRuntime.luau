@@ -4,7 +4,9 @@
 ]]
 
 local Workspace = game:GetService("Workspace")
-local SentryStatResolver = require(script.Parent.SentryStatResolver)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SentryConstants = require(ReplicatedStorage.Shared.SentryConstants)
+local SentryStatResolver = require(script.Parent.Parent.Stats.SentryStatResolver)
 
 local SentryRuntime = {}
 
@@ -272,16 +274,16 @@ function SentryRuntime.new(options)
 
 		local model = record.model
 		if model and model:IsA("Model") then
-			model:SetAttribute("TurretMaxAmmo", maxAmmo)
-			model:SetAttribute("TurretAmmo", ammo)
-			model:SetAttribute("TurretOutOfAmmo", ammo <= 0)
+			model:SetAttribute(SentryConstants.ATTR_TURRET_MAX_AMMO, maxAmmo)
+			model:SetAttribute(SentryConstants.ATTR_TURRET_AMMO, ammo)
+			model:SetAttribute(SentryConstants.ATTR_TURRET_OUT_OF_AMMO, ammo <= 0)
 		end
 
 		local ammoLabel = record.ammoLabel
 		if not (ammoLabel and ammoLabel.Parent) then
-			local billboard = model and model:FindFirstChild("TurretHealthBar")
+			local billboard = model and model:FindFirstChild(SentryConstants.TURRET_BILLBOARD_NAME)
 			if billboard and billboard:IsA("BillboardGui") then
-				local resolvedLabel = billboard:FindFirstChild("AmmoText")
+				local resolvedLabel = billboard:FindFirstChild(SentryConstants.TURRET_AMMO_LABEL_NAME)
 				if resolvedLabel and resolvedLabel:IsA("TextLabel") then
 					ammoLabel = resolvedLabel
 					record.ammoLabel = ammoLabel
@@ -363,8 +365,8 @@ function SentryRuntime.new(options)
 		for _, record in ipairs(sentryRecords) do
 			if record and record.model and record.model.Parent and record.humanoid and record.humanoid.Health > 0 then
 				local ammoBefore, turretMaxAmmo = SentryStatResolver.resolveAmmoStateFromCandidates(
-					{ record.maxAmmo, record.model:GetAttribute("TurretMaxAmmo"), fallbackMaxAmmo },
-					{ record.ammo, record.model:GetAttribute("TurretAmmo") },
+					{ record.maxAmmo, record.model:GetAttribute(SentryConstants.ATTR_TURRET_MAX_AMMO), fallbackMaxAmmo },
+					{ record.ammo, record.model:GetAttribute(SentryConstants.ATTR_TURRET_AMMO) },
 					fallbackMaxAmmo
 				)
 				record.maxAmmo = turretMaxAmmo
@@ -388,8 +390,8 @@ function SentryRuntime.new(options)
 		for _, record in ipairs(sentryRecords) do
 			if type(record) == "table" and record.humanoid and record.humanoid.Health > 0 then
 				local model = record.model
-				local modelMaxAmmo = if model and model:IsA("Model") then model:GetAttribute("TurretMaxAmmo") else nil
-				local modelAmmo = if model and model:IsA("Model") then model:GetAttribute("TurretAmmo") else nil
+				local modelMaxAmmo = if model and model:IsA("Model") then model:GetAttribute(SentryConstants.ATTR_TURRET_MAX_AMMO) else nil
+				local modelAmmo = if model and model:IsA("Model") then model:GetAttribute(SentryConstants.ATTR_TURRET_AMMO) else nil
 				local turretAmmo, turretMaxAmmo = SentryStatResolver.resolveAmmoStateFromCandidates(
 					{ record.maxAmmo, modelMaxAmmo, fallbackMaxAmmo },
 					{ record.ammo, modelAmmo },

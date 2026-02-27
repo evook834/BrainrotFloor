@@ -39,7 +39,7 @@ Replicated to client and server. Config and catalogs only; may only `require` wi
 | **`Waves/`** | Wave config (intermission, scaling, spawn). |
 | **`Pickups/`** | Ammo pickup config. |
 | **`MapVote/`** | Placeholder for map-vote shared data. |
-| **`Settings/`** | Settings config files (`SettingsConfig`, `HudLayoutConfig`). |
+| **`Settings/`** | Settings config and types (`SettingsConfig`, `HudLayoutConfig`, `SettingsTypes`, `SettingsDefaults`). |
 
 ### `game/shared/src/ServerScriptService/Shared/`
 
@@ -101,12 +101,12 @@ Match server logic. Put each script in the folder whose description matches its 
 
 | Folder / file | Purpose |
 |---------------|--------|
-| **`Core/`** | Match startup, remotes setup, service wiring, server registry. |
+| **`Core/`** | Match startup, remotes setup, service wiring. **`Core/Registry/`** — Match server registry: MatchServerRegistry (orchestration), MatchStore (MemoryStore wrapper), RegistryEntry (entry shape + hasAccessCode), RegistryJoinData (JoinData/TeleportData parsing); heartbeat, difficulty from JoinData, unregister on close. |
 | **`Waves/`** | Wave state, KF-style director (WaveTotalTarget, AliveCap, role caps), spawning, intermission. |
 | **`Enemies/`** | Enemy spawn, lifecycle, AI, VFX, model/hitbox resolution, targeting. |
 | **`Combat/`** | Aim validation, damage application, feedback/DOT. |
 | **`Shop/`** | Commerce: catalog, pricing, purchase, inventory. |
-| **`Weapons/`** | Weapon and sentry runtime. Subsystems: **`Weapons/Tools/`** (tool creation, template lookup, ammo, shot origin; WeaponToolSetup, WeaponAmmoRuntime, WeaponShotResolver, WeaponToolFactory), **`Weapons/Combat/`** (fire facade/remotes/VFX; WeaponVfx, WeaponFireHandlers, WeaponRemoteBindings; per-mode handlers in `Weapons/Combat/Handlers/`), **`Weapons/Sentry/`** (deploy, placement, combat loop, repair, targeting, stat/health UI helpers; SentryRuntime, SentryTurretController, SentryStatResolver, SentryPlacement, SentryHealthBar, SentryTargeting). |
+| **`Weapons/`** | Weapon and sentry runtime. Subsystems: **`Weapons/Tools/`** (tool creation, template lookup, ammo, shot origin; WeaponToolSetup, WeaponAmmoRuntime, WeaponShotResolver, WeaponToolFactory), **`Weapons/Combat/`** (fire facade/remotes/VFX; WeaponVfx, WeaponFireHandlers, WeaponRemoteBindings; per-mode handlers in `Weapons/Combat/Handlers/`), **`Weapons/Sentry/`** (orchestrator SentryTurretController; **`Sentry/Registry/`** SentryRuntime; **`Sentry/Placement/`** SentryPlacement; **`Sentry/Targeting/`** SentryTargeting; **`Sentry/Stats/`** SentryStatResolver; **`Sentry/UI/`** SentryHealthBar). |
 | **`Classes/`** | Class selection, XP, levels, persistence, combat rules. |
 | **`Pickups/`** | Ammo zones, pickups, player pickup. |
 | **`Difficulty/`** | Difficulty settings (multipliers, etc.). |
@@ -175,7 +175,10 @@ Legacy or alternate copy of place-specific code. Prefer **`game/lobby`** and **`
 | SettingsService | `ServerScriptService/Shared/Settings/` | Server-side; binds remotes, sanitizes data, persists via PlayerDataService |
 | SettingsConfig | `ReplicatedStorage/Shared/Settings/` | Shared config (ranges, limits, HUD definitions) |
 | HudLayoutConfig | `ReplicatedStorage/Shared/Settings/` | HUD layout config (draggable roots, ScreenGui names) |
+| SettingsTypes | `ReplicatedStorage/Shared/Settings/` | Shared types (SettingsState, RunOptions) |
+| SettingsDefaults | `ReplicatedStorage/Shared/Settings/` | Default settings state from config |
 | SettingsMenuController | `StarterPlayerScripts/SharedClient/Settings/` | Main client controller |
+| SettingsPayloadBuilder | `StarterPlayerScripts/SharedClient/Settings/` | Builds save payload for SettingsSave remote |
 | SettingsMenuUi | `StarterPlayerScripts/SharedClient/Settings/` | UI builder |
 | SettingsAudioController | `StarterPlayerScripts/SharedClient/Settings/` | Audio controls |
 | SettingsHudLayoutController | `StarterPlayerScripts/SharedClient/Settings/` | HUD layout controls |
@@ -184,9 +187,4 @@ Legacy or alternate copy of place-specific code. Prefer **`game/lobby`** and **`
 | SettingsReturnToLobbyController | `StarterPlayerScripts/SharedClient/Settings/` | Return to lobby (match only) |
 | SettingsRemotesUtil | `StarterPlayerScripts/SharedClient/Settings/` | Remote resolution utilities |
 | SettingsUi | `StarterPlayerScripts/SharedClient/Settings/` | Entry point |
-| Server-only shared | **`game/shared/src/ServerScriptService/Shared/`** |
-| Client-only shared | **`game/shared/src/StarterPlayerScripts/SharedClient/`** |
-| Lobby server | **`game/lobby/src/ServerScriptService/Lobby/`** |
-| Lobby client | **`game/lobby/.../LobbyClient/`** |
-| Match server | **`game/match/src/ServerScriptService/Match/`** — use subfolder by concern (Core, Waves, Enemies, Combat, Shop, Weapons, Classes, etc.). |
-| Match client UI/HUD | **`game/match/.../MatchClient/`** — use subfolder by concern. |
+| HudMoveModeInput | `StarterPlayerScripts/SharedClient/Settings/` | HUD move mode input binding (mouse + touch) |

@@ -14,6 +14,7 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
+local SentryConstants = require(ReplicatedStorage.Shared.SentryConstants)
 local Match = script.Parent.Parent.Parent
 local Weapons = script.Parent.Parent
 local ClassService = require(Match.Classes.ClassService)
@@ -23,29 +24,31 @@ local EnemyDamageService = require(Match.Combat.EnemyDamageService)
 local ShopConstants = require(Match.Shop.ShopConstants)
 local WeaponVfx = require(Weapons.Combat.WeaponVfx)
 local WeaponToolSetup = require(Weapons.Tools.WeaponToolSetup)
-local SentryStatResolver = require(script.Parent.SentryStatResolver)
-local SentryPlacement = require(script.Parent.SentryPlacement)
-local SentryHealthBar = require(script.Parent.SentryHealthBar)
-local SentryTargeting = require(script.Parent.SentryTargeting)
+local SentryStatResolver = require(script.Parent.Stats.SentryStatResolver)
+local SentryPlacement = require(script.Parent.Placement.SentryPlacement)
+local SentryHealthBar = require(script.Parent.UI.SentryHealthBar)
+local SentryTargeting = require(script.Parent.Targeting.SentryTargeting)
 
 local MAX_SENTRY_COUNT_PER_PLAYER = ShopConstants.MAX_SENTRY_COUNT_PER_PLAYER
 local SENTRY_REPAIR_INTERRUPT_SECONDS = ShopConstants.SENTRY_REPAIR_INTERRUPT_SECONDS
 local DEFAULT_TURRET_ROCKET_SPREAD_DEGREES = ShopConstants.DEFAULT_TURRET_ROCKET_SPREAD_DEGREES
 local TURRET_ROCKET_BURST_MODE_TOKEN = ShopConstants.TURRET_ROCKET_BURST_MODE_TOKEN
 
+-- Placement and combat tuning (named for scalability)
+local PLACEMENT_ORIGIN_OFFSET_Y = 1.5
+local MIN_FLOOR_NORMAL_Y = 0.55
+local PLACEMENT_BOUNDS_OFFSET_Y = 0.05
+local OVERLAP_PADDING = 0.25
+local MUZZLE_HEIGHT_RATIO = 0.35
+
 local sentryRuntime = nil
 local fireRocket = nil
 
 -- Singleton-style init; call once with sentryRuntime and fireRocket from bootstrap (e.g. ShopService).
 function init(options)
-	if type(options) == "table" then
-		if options.sentryRuntime ~= nil then
-			sentryRuntime = options.sentryRuntime
-		end
-		if options.fireRocket ~= nil then
-			fireRocket = options.fireRocket
-		end
-	end
+	local opts = options or {}
+	sentryRuntime = opts.sentryRuntime
+	fireRocket = opts.fireRocket
 end
 
 local function getEnemyContainer()
@@ -170,8 +173,8 @@ local function startTurretCombatLoop(record)
 				continue
 			end
 
-			local modelMaxAmmo = if record.model and record.model:IsA("Model") then record.model:GetAttribute("TurretMaxAmmo") else nil
-			local modelAmmo = if record.model and record.model:IsA("Model") then record.model:GetAttribute("TurretAmmo") else nil
+			local modelMaxAmmo = if record.model and record.model:IsA("Model") then record.model:GetAttribute(SentryConstants.ATTR_TURRET_MAX_AMMO) else nil
+			local modelAmmo = if record.model and record.model:IsA("Model") then record.model:GetAttribute(SentryConstants.ATTR_TURRET_AMMO) else nil
 			local fallbackMaxAmmo = sentryRuntime.resolveTurretMaxAmmo(record.weaponDef)
 			local ammo, maxAmmo = SentryStatResolver.resolveAmmoStateFromCandidates(
 				{ record.maxAmmo, modelMaxAmmo, fallbackMaxAmmo },
@@ -190,7 +193,7 @@ local function startTurretCombatLoop(record)
 				continue
 			end
 
-			local muzzleOrigin = rootPart.Position + Vector3.new(0, rootPart.Size.Y * 0.35, 0)
+			local muzzleOrigin = rootPart.Position + Vector3.new(0, rootPart.Size.Y * MUZZLE_HEIGHT_RATIO, 0)
 			local enemyModel, enemyRoot = findTurretTarget(record, muzzleOrigin)
 			if not enemyModel or not enemyRoot then
 				continue
@@ -251,7 +254,7 @@ local function startTurretCombatLoop(record)
 end
 
 local function resolveSentryPlacementCFrame(player, character, rootPart, sentryModel, weaponDef, explicitShotOrigin, explicitShotDirection)
-	local fallbackOrigin = rootPart.Position + Vector3.new(0, 1.5, 0)
+	local fallbackOrigin = rootPart.Position + Vector3.new(0, PLACEMENT_ORIGIN_OFFSET_Y, 0)
 	local fallbackDirection = rootPart.CFrame.LookVector
 	local rayDirection = nil
 
@@ -288,7 +291,7 @@ local function resolveSentryPlacementCFrame(player, character, rootPart, sentryM
 		return nil
 	end
 
-	if hitResult.Normal.Y < 0.55 then
+	if hitResult.Normal.Y < MIN_FLOOR_NORMAL_Y then
 		return nil
 	end
 
@@ -307,7 +310,7 @@ local function resolveSentryPlacementCFrame(player, character, rootPart, sentryM
 		lookDirection = Vector3.new(0, 0, -1)
 	end
 
-	local placementPosition = hitResult.Position + Vector3.new(0, (boundsSize.Y * 0.5) + 0.05, 0)
+	local placementPosition = hitResult.Position + Vector3.new(0, (boundsSize.Y * 0.5) + PLACEMENT_BOUNDS_OFFSET_Y, 0)
 	local referencePlacementCFrame = CFrame.lookAt(placementPosition, placementPosition + lookDirection.Unit)
 	referencePlacementCFrame = resolveUprightSentryReferencePlacementCFrame(sentryModel, referencePlacementCFrame, lookDirection)
 	referencePlacementCFrame = applySentryPlacementRotationOffset(referencePlacementCFrame, weaponDef)
@@ -320,7 +323,7 @@ local function resolveSentryPlacementCFrame(player, character, rootPart, sentryM
 	end
 	overlapParams.FilterDescendantsInstances = overlapExclusions
 
-	local padding = Vector3.new(0.25, 0.25, 0.25)
+	local padding = Vector3.new(OVERLAP_PADDING, OVERLAP_PADDING, OVERLAP_PADDING)
 	local overlaps = Workspace:GetPartBoundsInBox(referencePlacementCFrame, boundsSize + padding, overlapParams)
 	for _, part in ipairs(overlaps) do
 		if part and part.Parent and part.CanCollide then
@@ -412,15 +415,15 @@ local function deploySentryTurret(player, character, rootPart, weaponDef, explic
 	humanoid.Health = turretMaxHealth
 
 	sentryModel.Name = string.format("Sentry_%d_%d", player.UserId, math.floor(os.clock() * 1000))
-	sentryModel:SetAttribute("IsSentryTurret", true)
-	sentryModel:SetAttribute("SentryOwnerUserId", player.UserId)
-	sentryModel:SetAttribute("SentryOwnerName", player.Name)
-	sentryModel:SetAttribute("TurretMaxHealth", turretMaxHealth)
-	sentryModel:SetAttribute("TurretHealth", turretMaxHealth)
-	sentryModel:SetAttribute("TurretLastDamagedAt", -1)
-	sentryModel:SetAttribute("TurretMaxAmmo", turretMaxAmmo)
-	sentryModel:SetAttribute("TurretAmmo", turretInitialAmmo)
-	sentryModel:SetAttribute("TurretOutOfAmmo", turretInitialAmmo <= 0)
+	sentryModel:SetAttribute(SentryConstants.ATTR_IS_SENTRY_TURRET, true)
+	sentryModel:SetAttribute(SentryConstants.ATTR_SENTRY_OWNER_USER_ID, player.UserId)
+	sentryModel:SetAttribute(SentryConstants.ATTR_SENTRY_OWNER_NAME, player.Name)
+	sentryModel:SetAttribute(SentryConstants.ATTR_TURRET_MAX_HEALTH, turretMaxHealth)
+	sentryModel:SetAttribute(SentryConstants.ATTR_TURRET_HEALTH, turretMaxHealth)
+	sentryModel:SetAttribute(SentryConstants.ATTR_TURRET_LAST_DAMAGED_AT, -1)
+	sentryModel:SetAttribute(SentryConstants.ATTR_TURRET_MAX_AMMO, turretMaxAmmo)
+	sentryModel:SetAttribute(SentryConstants.ATTR_TURRET_AMMO, turretInitialAmmo)
+	sentryModel:SetAttribute(SentryConstants.ATTR_TURRET_OUT_OF_AMMO, turretInitialAmmo <= 0)
 
 	local turretFolder = getSentryTurretFolder()
 	sentryModel.Parent = turretFolder
@@ -459,10 +462,10 @@ local function deploySentryTurret(player, character, rootPart, weaponDef, explic
 		local resolvedHealth = math.clamp(tonumber(newHealth) or 0, 0, turretMaxHealth)
 		if previousHealth ~= nil and resolvedHealth < previousHealth then
 			record.lastDamagedAt = os.clock()
-			sentryModel:SetAttribute("TurretLastDamagedAt", record.lastDamagedAt)
+			sentryModel:SetAttribute(SentryConstants.ATTR_TURRET_LAST_DAMAGED_AT, record.lastDamagedAt)
 		end
 
-		sentryModel:SetAttribute("TurretHealth", resolvedHealth)
+		sentryModel:SetAttribute(SentryConstants.ATTR_TURRET_HEALTH, resolvedHealth)
 		if record.healthFill then
 			local healthRatio = math.clamp(resolvedHealth / turretMaxHealth, 0, 1)
 			record.healthFill.Size = UDim2.fromScale(healthRatio, 1)

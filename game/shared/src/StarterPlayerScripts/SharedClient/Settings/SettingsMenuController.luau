@@ -3,22 +3,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SettingsMenuUi = require(script.Parent:WaitForChild("SettingsMenuUi"))
 local SettingsRemotesUtil = require(script.Parent:WaitForChild("SettingsRemotesUtil"))
 local SettingsConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Settings"):WaitForChild("SettingsConfig"))
+local SettingsDefaults = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Settings"):WaitForChild("SettingsDefaults"))
+local SettingsTypes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Settings"):WaitForChild("SettingsTypes"))
 
 type View = any
-
-type SettingsState = {
-	musicVolume: number,
-	musicMuted: boolean,
-	sfxVolume: number,
-	sfxMuted: boolean,
-	hudScale: number,
-	hudPositions: { [string]: any },
-}
-
-type RunOptions = {
-	hudMoveModeAttribute: string?,
-	canReturnToLobby: boolean?,
-}
+type SettingsState = SettingsTypes.SettingsState
+type RunOptions = SettingsTypes.RunOptions
 
 type Subcontroller = {
 	destroy: ((self: Subcontroller) -> ())?,
@@ -89,22 +79,20 @@ local function tryCreateSubcontroller(
 	return createdController
 end
 
-local function constructSubcontrollers(view: View, options: RunOptions): (SettingsState, { [string]: Subcontroller })
-	local settingsState: SettingsState = {
-		musicVolume = SettingsConfig.Audio.MusicVolume.Default,
-		musicMuted = false,
-		sfxVolume = SettingsConfig.Audio.SfxVolume.Default,
-		sfxMuted = false,
-		hudScale = SettingsConfig.Hud.Scale.Default,
-		hudPositions = {},
-	}
+local SUBCONTROLLER_SPECS = {
+	{ key = "audio", moduleName = "SettingsAudioController" },
+	{ key = "hudLayout", moduleName = "SettingsHudLayoutController" },
+	{ key = "visibility", moduleName = "SettingsVisibilityController" },
+	{ key = "returnToLobby", moduleName = "SettingsReturnToLobbyController" },
+}
 
-	return settingsState, {
-		audio = tryCreateSubcontroller("SettingsAudioController", view, options, settingsState),
-		hudLayout = tryCreateSubcontroller("SettingsHudLayoutController", view, options, settingsState),
-		visibility = tryCreateSubcontroller("SettingsVisibilityController", view, options, settingsState),
-		returnToLobby = tryCreateSubcontroller("SettingsReturnToLobbyController", view, options, settingsState),
-	}
+local function constructSubcontrollers(view: View, options: RunOptions): (SettingsState, { [string]: Subcontroller })
+	local settingsState = SettingsDefaults.getDefaultSettingsState()
+	local subcontrollers: { [string]: Subcontroller } = {}
+	for _, spec in ipairs(SUBCONTROLLER_SPECS) do
+		subcontrollers[spec.key] = tryCreateSubcontroller(spec.moduleName, view, options, settingsState)
+	end
+	return settingsState, subcontrollers
 end
 
 local function loadSettingsFromServer(session: Session)

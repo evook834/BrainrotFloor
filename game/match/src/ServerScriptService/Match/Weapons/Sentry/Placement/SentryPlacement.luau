@@ -3,7 +3,7 @@
 	Reference part, pivot CFrame, upright orientation, rotation offset from weapon def.
 ]]
 
-local Match = script.Parent.Parent.Parent
+local Match = script.Parent.Parent.Parent.Parent
 local ModelRootResolver = require(Match.Enemies.ModelRootResolver)
 
 local SentryPlacement = {}

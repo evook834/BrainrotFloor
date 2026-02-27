@@ -1,20 +1,16 @@
 local Players = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
 local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
+local SettingsTypes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Settings"):WaitForChild("SettingsTypes"))
+
 local UI_HIDDEN_NOTICE_DELAY_SECONDS = 3
 
-type SettingsState = {
-	musicVolume: number,
-	musicMuted: boolean,
-	sfxVolume: number,
-	sfxMuted: boolean,
-	hudScale: number,
-	hudPositions: { [string]: any },
-}
+type SettingsState = SettingsTypes.SettingsState
 
 type View = {
 	gui: ScreenGui,
