@@ -1,24 +1,18 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local EnemyModelGeometry = require(ReplicatedStorage.Shared.Enemy.EnemyModelGeometry)
+
 local ModelRootResolver = {}
 
-function ModelRootResolver.resolveRootPart(model)
+function ModelRootResolver.resolveRootPart(model: Model?): BasePart?
 	if not model then
 		return nil
 	end
 
-	if model.PrimaryPart and model.PrimaryPart:IsA("BasePart") then
-		return model.PrimaryPart
-	end
-
-	local humanoidRootPart = model:FindFirstChild("HumanoidRootPart", true)
-	if humanoidRootPart and humanoidRootPart:IsA("BasePart") then
-		model.PrimaryPart = humanoidRootPart
-		return humanoidRootPart
-	end
-
-	local anyPart = model:FindFirstChildWhichIsA("BasePart", true)
-	if anyPart then
-		model.PrimaryPart = anyPart
-		return anyPart
+	local rootPart = EnemyModelGeometry.findRootPart(model)
+	if rootPart then
+		model.PrimaryPart = rootPart
+		return rootPart
 	end
 
 	return nil

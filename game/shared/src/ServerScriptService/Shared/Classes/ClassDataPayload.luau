@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local ClassProgression = require(script.Parent.ClassProgression)
 local ClassStateHelpers = require(script.Parent.ClassStateHelpers)
+local ClassPayloadBuilder = require(script.Parent.ClassPayloadBuilder)
 local PlayerDataService = require(script.Parent.Parent.PlayerData.PlayerDataService)
 
 local classById = {}
@@ -44,14 +45,7 @@ local function buildClassRegistry()
 		table.insert(classOrder, classDef)
 	end
 
-	local duplicateIds = {}
-	for classId in pairs(duplicateClassIds) do
-		table.insert(duplicateIds, classId)
-	end
-	table.sort(duplicateIds)
-	for _, classId in ipairs(duplicateIds) do
-		warn(string.format("ClassDataPayload found duplicate class id '%s'; using the last definition.", classId))
-	end
+	ClassStateHelpers.warnDuplicateClassIds("ClassDataPayload", duplicateClassIds)
 end
 
 local function getClassDefinition(classId)
@@ -117,47 +111,23 @@ function buildPayloadForPlayer(player)
 			message = "No classes configured.",
 		}
 	end
-	local currentProgress = getOrCreateClassProgress(state, classDef.Id)
 	local maxLevel = getMaxLevel()
-	local selectedClassBonuses = ClassProgression.getBonusesAtLevel(classDef, currentProgress.level)
-	local selectedPerLevelBonuses = ClassProgression.buildPerLevelBonusesFromConfig(classDef.Bonuses)
-	local currentBonuses = ClassProgression.buildCurrentBonusesWithFallback(
-		selectedClassBonuses,
-		selectedPerLevelBonuses,
-		currentProgress.level
-	)
-	local classes = {}
-	for _, listedClass in ipairs(classOrder) do
-		local progress = getOrCreateClassProgress(state, listedClass.Id)
-		local level = math.clamp(math.floor(tonumber(progress.level) or 1), 1, maxLevel)
-		local xp = math.max(0, tonumber(progress.xp) or 0)
-		local xpToNext = getXpRequiredForNextLevel(listedClass, level)
-		local classBonuses = ClassProgression.getBonusesAtLevel(listedClass, level)
-		local perLevelBonuses = ClassProgression.buildPerLevelBonusesFromConfig(listedClass.Bonuses)
-		local classCurrentBonuses = ClassProgression.buildCurrentBonusesWithFallback(classBonuses, perLevelBonuses, level)
-		table.insert(classes, {
-			id = listedClass.Id,
-			name = listedClass.DisplayName,
-			description = listedClass.Description,
-			weaponTag = listedClass.WeaponTag,
-			level = level,
-			xp = xp,
-			xpToNext = xpToNext,
-			isCurrent = listedClass.Id == state.selectedClassId,
-			currentBonuses = classCurrentBonuses,
-			perLevelBonuses = perLevelBonuses,
-		})
-	end
-	return {
-		success = true,
+
+	return ClassPayloadBuilder.buildPayload({
+		state = state,
+		classDef = classDef,
+		classOrder = classOrder,
 		canSwitch = true,
 		waveState = "Lobby",
 		maxLevel = maxLevel,
-		currentClassId = classDef.Id,
-		currentClassName = classDef.DisplayName,
-		currentBonuses = currentBonuses,
-		classes = classes,
-	}
+		dependencies = {
+			getOrCreateClassProgress = getOrCreateClassProgress,
+			getBonusesAtLevel = ClassProgression.getBonusesAtLevel,
+			getXpRequiredForNextLevel = getXpRequiredForNextLevel,
+			buildPerLevelBonusesFromConfig = ClassProgression.buildPerLevelBonusesFromConfig,
+			buildCurrentBonusesWithFallback = ClassProgression.buildCurrentBonusesWithFallback,
+		},
+	})
 end
 
 function selectClass(player, classId)

@@ -3,9 +3,6 @@
 	Handles weapon and ammo purchases with proper refund handling.
 ]]
 
-local CurrencyService = require(script.Parent.Currency.CurrencyService)
-local ShopConstants = require(script.Parent.ShopConstants)
-
 local PurchaseFlow = {}
 
 local MESSAGE_UNKNOWN_WEAPON = "Unknown weapon."
@@ -36,13 +33,10 @@ local function canPurchaseRightNow(context)
 end
 
 local function getMoneyAmount(player, context)
-	-- Prefer CurrencyService if available
 	if context.getMoneyAmount and type(context.getMoneyAmount) == "function" then
 		return context.getMoneyAmount(player)
 	end
-
-	-- Legacy: use CurrencyService directly
-	return CurrencyService.getMoneyAmount(player)
+	return nil
 end
 
 local function tryCharge(player, amount, context)
@@ -51,13 +45,11 @@ local function tryCharge(player, amount, context)
 		return true
 	end
 
-	-- Prefer CurrencyService if available
 	if context.trySpendMoney and type(context.trySpendMoney) == "function" then
 		return context.trySpendMoney(player, cost) == true
 	end
 
-	-- Use CurrencyService directly
-	return CurrencyService.trySpendMoney(player, cost)
+	return false
 end
 
 local function refundCharge(player, amount, context)
@@ -66,14 +58,10 @@ local function refundCharge(player, amount, context)
 		return
 	end
 
-	-- Prefer CurrencyService if available
 	if context.refundMoney and type(context.refundMoney) == "function" then
 		context.refundMoney(player, refundAmount)
 		return
 	end
-
-	-- Use CurrencyService directly
-	CurrencyService.refundMoney(player, refundAmount)
 end
 
 function PurchaseFlow.grantWeapon(player, weaponDef, context)

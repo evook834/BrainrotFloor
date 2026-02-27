@@ -3,47 +3,15 @@
 	Composed of smaller, focused sub-modules for better maintainability.
 ]]
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
 local PricingEngine = require(script.Parent.Catalog.PricingEngine)
 local CatalogBuilder = require(script.Parent.Catalog.CatalogBuilder)
 local AmmoInventory = require(script.Parent.Catalog.AmmoInventory)
 
 local CatalogAndPricing = {}
 
--- Re-export functions from sub-modules
-local roundWholeNumber = PricingEngine.roundWholeNumber
-
--- Alias PricingEngine functions
 local getAmmoRefillPricingConfig = PricingEngine.getAmmoRefillPricingConfig
 local getWeaponCostForPlayer = PricingEngine.getWeaponCostForPlayer
 local calculateRefillCost = PricingEngine.calculateRefillCost
-
--- Utility functions
-local function isValidWeaponDef(weaponDef)
-	return type(weaponDef) == "table" and type(weaponDef.Id) == "string" and weaponDef.Id ~= ""
-end
-
-local function buildRefillQuoteFromSnapshot(weaponDef, refillKind, ammoSnapshot, refillCost, canRefill, extraFields)
-	local quote = {
-		weaponId = weaponDef.Id,
-		refillKind = refillKind,
-		isRefillable = true,
-		canRefill = canRefill,
-		cost = math.max(0, refillCost),
-		currentTotalAmmo = ammoSnapshot.currentTotalAmmo,
-		maxTotalAmmo = ammoSnapshot.maxTotalAmmo,
-		missingAmmo = ammoSnapshot.missingAmmo,
-	}
-
-	if type(extraFields) == "table" then
-		for key, value in pairs(extraFields) do
-			quote[key] = value
-		end
-	end
-
-	return quote
-end
 
 function CatalogAndPricing.getRequiredOwnedWeaponId(weaponDef, weaponById)
 	if type(weaponDef) ~= "table" then

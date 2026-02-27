@@ -45,7 +45,7 @@ Server-only shared (e.g. matchmaking, place role). Used by both lobby and match.
 
 | Folder / file | Purpose |
 |---------------|--------|
-| **`Classes/`** | ClassProgression (XP, bonuses), ClassDataPayload (build class list + selection from PlayerData; used by Lobby). |
+| **`Classes/`** | Shared class system helpers: progression (XP, bonuses), state helpers, payload builder + lobby payload, optional persistence. |
 | **`Matchmaking/`** | Matchmaking config and place-role detection. |
 | **`PlayerData/`** | PlayerDataService: wraps DataService (leifstout/dataService) for persistent, replicated player data (settings, classes, money). |
 | **`Settings/`** | Shared SettingsService: binds SettingsGet/SettingsSave remotes, reads/writes via PlayerDataService. Also config (`SettingsConfig`, `HudLayoutConfig`). |

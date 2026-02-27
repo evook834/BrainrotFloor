@@ -232,3 +232,4 @@ function ClassPersistence.new(config)
 end
 
 return ClassPersistence
+

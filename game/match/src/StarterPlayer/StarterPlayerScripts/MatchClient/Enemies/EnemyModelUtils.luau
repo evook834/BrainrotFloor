@@ -1,35 +1,18 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local EnemyModelGeometry = require(ReplicatedStorage.Shared.Enemy.EnemyModelGeometry)
+
 local EnemyModelUtils = {}
 
 local DEFAULT_HEALTH_BAR_SIZE = Vector3.new(4, 4, 4)
 local DEFAULT_EFFECT_SIZE = Vector3.new(3, 3, 3)
 
 function EnemyModelUtils.resolveRootPart(enemyModel: Model): BasePart?
-	if enemyModel.PrimaryPart and enemyModel.PrimaryPart:IsA("BasePart") then
-		return enemyModel.PrimaryPart
-	end
-
-	local humanoidRootPart = enemyModel:FindFirstChild("HumanoidRootPart", true)
-	if humanoidRootPart and humanoidRootPart:IsA("BasePart") then
-		return humanoidRootPart
-	end
-
-	local anyPart = enemyModel:FindFirstChildWhichIsA("BasePart", true)
-	if anyPart then
-		return anyPart
-	end
-
-	return nil
+	return EnemyModelGeometry.findRootPart(enemyModel)
 end
 
 function EnemyModelUtils.getExtentsSize(enemyModel: Model, fallbackSize: Vector3?): Vector3
-	local ok, size = pcall(function()
-		return enemyModel:GetExtentsSize()
-	end)
-	if ok and size then
-		return size
-	end
-
-	return fallbackSize or DEFAULT_HEALTH_BAR_SIZE
+	return EnemyModelGeometry.getExtentsSize(enemyModel, fallbackSize or DEFAULT_HEALTH_BAR_SIZE)
 end
 
 function EnemyModelUtils.getHealthBarOffset(enemyModel: Model): number
