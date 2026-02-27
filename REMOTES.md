@@ -25,7 +25,8 @@ All remotes live under `ReplicatedStorage.Remotes` (folder name from `RemoteName
 | **SettingsGet**   | RemoteFunction | C→S       | **Client** invokes (no args). **Server** returns: `{ success: boolean, settings?: table }`. `settings`: `{ schemaVersion, audio: { musicVolume, musicMuted, sfxVolume, sfxMuted }, hud: { scale, positions } }`. |
 | **SettingsSave**  | RemoteEvent    | C→S       | **Client** fires `(rawSettings: table)`. Server sanitizes and persists. Same shape as **SettingsGet** `settings` (audio/hud). |
 | **EditOfflinePlayerData** | RemoteFunction | C→S | **Client** invokes `(userId: number, edits: { { path: string, value: any } })`. Server edits saved player data only when that player is offline. Paths are dot-separated (e.g. `classes.progressByClassId.scentry.level`). Returns `{ success: boolean, message?: string }`. Allowed only in Studio by default. |
-| **SpectatorState** | RemoteEvent | S→C | **Server** fires to **one** client when spectator state changes. Payload: `{ isSpectating: boolean, livingPlayerUserIds: { number }?, respawnsAt: number? }`. When `isSpectating` is true, client enters spectator mode and can cycle camera among players in `livingPlayerUserIds`. `respawnsAt` is server time (seconds) when the spectator will spawn; client shows a countdown. When false, client exits spectator mode (e.g. after respawn). Server updates `livingPlayerUserIds` when the set of living players in the match changes. |
+| **SpectatorState** | RemoteEvent | S→C | **Server** fires to **one** client when spectator state changes. Payload: `{ isSpectating: boolean, livingPlayerUserIds: { number }?, respawnsAt: number? }`. When `isSpectating` is true, client enters spectator mode and can cycle camera among players in `livingPlayerUserIds`. `respawnsAt` is server time (seconds, from `workspace:GetServerTimeNow()`) when the spectator will spawn; client can compute countdown as `respawnsAt - workspace:GetServerTimeNow()`. When false or `respawnsAt` is 0/nill, client exits spectator mode (e.g. after respawn). Server updates `livingPlayerUserIds` when the set of living players in the match changes. |
+| **SpectatorRequest** | RemoteFunction | C→S | **Client** invokes `(request: string)`. **Server** returns: `{ success: boolean, message?: string, isSpectating?: boolean }`. Requests: `"toggleSpectate"` (toggle spectator mode when dead), `"spawnNow"` (attempt immediate spawn), `"exitSpectate"` (exit spectator mode without spawning). Used for late joiners or players who want to control their spectator state. |
 
 ---
 
@@ -50,7 +51,8 @@ All remotes live under `ReplicatedStorage.Remotes` (folder name from `RemoteName
 | SettingsGet     | RemoteFunction | C→S       |
 | SettingsSave    | RemoteEvent    | C→S       |
 | EditOfflinePlayerData | RemoteFunction | C→S       |
-| SpectatorState       | RemoteEvent    | S→C       |
+| SpectatorState        | RemoteEvent    | S→C       |
+| SpectatorRequest      | RemoteFunction | C→S       |
 
 ---
 
@@ -61,6 +63,8 @@ The `Remotes` folder has attributes updated by the server for clients that read 
 - `CurrentWaveState` (string): same as latest **WaveState** payload `state`.
 - `CurrentWaveNumber` (number): current wave index.
 - `IntermissionEndTime` (number): server time when intermission ends (for **WaveState** `"Preparing"`).
+- `SpectatingPlayers` (IntValue): count of players currently in spectator mode. Updated when players enter/exit spectator state.
+- `CurrentSpectatorTarget` (string): name of the player currently being spectated. Updated when cycling targets.
 
 The **Remotes** folder also contains:
 

@@ -1,5 +1,66 @@
 local PurchaseFlow = {}
 
+local function getCurrentMoney(player, context)
+	if type(context.getCurrentMoney) == "function" then
+		return context.getCurrentMoney(player)
+	end
+
+	if type(context.getMoneyValue) == "function" then
+		local moneyValue = context.getMoneyValue(player)
+		if moneyValue then
+			return moneyValue.Value
+		end
+	end
+
+	return nil
+end
+
+local function tryCharge(player, amount, context)
+	local cost = math.max(0, math.floor((tonumber(amount) or 0) + 0.5))
+	if cost <= 0 then
+		return true
+	end
+
+	if type(context.trySpendMoney) == "function" then
+		return context.trySpendMoney(player, cost) == true
+	end
+
+	local moneyValue = if type(context.getMoneyValue) == "function" then context.getMoneyValue(player) else nil
+	if not moneyValue or moneyValue.Value < cost then
+		return false
+	end
+
+	if type(context.deductMoney) == "function" then
+		context.deductMoney(player, cost)
+	else
+		moneyValue.Value -= cost
+	end
+
+	return true
+end
+
+local function refundCharge(player, amount, context)
+	local refundAmount = math.max(0, math.floor((tonumber(amount) or 0) + 0.5))
+	if refundAmount <= 0 then
+		return
+	end
+
+	if type(context.refundMoney) == "function" then
+		context.refundMoney(player, refundAmount)
+		return
+	end
+
+	if type(context.addMoney) == "function" then
+		context.addMoney(player, refundAmount)
+		return
+	end
+
+	local moneyValue = if type(context.getMoneyValue) == "function" then context.getMoneyValue(player) else nil
+	if moneyValue then
+		moneyValue.Value += refundAmount
+	end
+end
+
 function PurchaseFlow.grantWeapon(player, weaponDef, context)
 	if not context.canPlayerUseWeapon(player, weaponDef) then
 		return false, context.getClassRestrictionMessage(player)
@@ -70,8 +131,8 @@ function PurchaseFlow.buyWeapon(player, weaponId, context)
 		}
 	end
 
-	local moneyValue = context.getMoneyValue(player)
-	if not moneyValue then
+	local currentMoney = getCurrentMoney(player, context)
+	if currentMoney == nil then
 		return {
 			success = false,
 			message = "Money data not available.",
@@ -79,25 +140,23 @@ function PurchaseFlow.buyWeapon(player, weaponId, context)
 	end
 
 	local weaponCost = context.getWeaponCostForPlayer(player, weaponDef)
-	if moneyValue.Value < weaponCost then
+	if currentMoney < weaponCost then
 		return {
 			success = false,
 			message = "Not enough money.",
 		}
 	end
 
-	if context.deductMoney then
-		context.deductMoney(player, weaponCost)
-	else
-		moneyValue.Value -= weaponCost
+	if not tryCharge(player, weaponCost, context) then
+		return {
+			success = false,
+			message = "Not enough money.",
+		}
 	end
+
 	local granted, grantError = PurchaseFlow.grantWeapon(player, weaponDef, context)
 	if not granted then
-		if context.addMoney then
-			context.addMoney(player, weaponCost)
-		else
-			moneyValue.Value += weaponCost
-		end
+		refundCharge(player, weaponCost, context)
 		return {
 			success = false,
 			message = grantError or "Could not grant weapon.",
@@ -178,25 +237,27 @@ function PurchaseFlow.buyAmmoForWeapon(player, weaponId, context)
 		}
 	end
 
-	local moneyValue = context.getMoneyValue(player)
-	if not moneyValue then
+	local currentMoney = getCurrentMoney(player, context)
+	if currentMoney == nil then
 		return {
 			success = false,
 			message = "Money data not available.",
 		}
 	end
-	if moneyValue.Value < quote.cost then
+	if currentMoney < quote.cost then
 		return {
 			success = false,
 			message = "Not enough money.",
 		}
 	end
 
-	if context.deductMoney then
-		context.deductMoney(player, quote.cost)
-	else
-		moneyValue.Value -= quote.cost
+	if not tryCharge(player, quote.cost, context) then
+		return {
+			success = false,
+			message = "Not enough money.",
+		}
 	end
+
 	local didRefill = false
 	if isSentryRefill then
 		didRefill = context.refillAmmoForSentryRecords(quote.sentryRecords, weaponDef)
@@ -204,11 +265,7 @@ function PurchaseFlow.buyAmmoForWeapon(player, weaponId, context)
 		didRefill = context.refillAmmoForTool(quote.tool, weaponDef, player, "Full", nil)
 	end
 	if not didRefill then
-		if context.addMoney then
-			context.addMoney(player, quote.cost)
-		else
-			moneyValue.Value += quote.cost
-		end
+		refundCharge(player, quote.cost, context)
 		return {
 			success = false,
 			message = "Ammo is already full.",
@@ -238,25 +295,27 @@ function PurchaseFlow.buyAmmoForAllOwnedWeapons(player, context)
 		}
 	end
 
-	local moneyValue = context.getMoneyValue(player)
-	if not moneyValue then
+	local currentMoney = getCurrentMoney(player, context)
+	if currentMoney == nil then
 		return {
 			success = false,
 			message = "Money data not available.",
 		}
 	end
-	if moneyValue.Value < refillSummary.refillAllCost then
+	if currentMoney < refillSummary.refillAllCost then
 		return {
 			success = false,
 			message = "Not enough money.",
 		}
 	end
 
-	if context.deductMoney then
-		context.deductMoney(player, refillSummary.refillAllCost)
-	else
-		moneyValue.Value -= refillSummary.refillAllCost
+	if not tryCharge(player, refillSummary.refillAllCost, context) then
+		return {
+			success = false,
+			message = "Not enough money.",
+		}
 	end
+
 	local spent = 0
 	local refilledCount = 0
 
@@ -280,11 +339,7 @@ function PurchaseFlow.buyAmmoForAllOwnedWeapons(player, context)
 	end
 
 	if refilledCount <= 0 then
-		if context.addMoney then
-			context.addMoney(player, refillSummary.refillAllCost)
-		else
-			moneyValue.Value += refillSummary.refillAllCost
-		end
+		refundCharge(player, refillSummary.refillAllCost, context)
 		return {
 			success = false,
 			message = "All owned weapon ammo is already full.",
@@ -293,11 +348,7 @@ function PurchaseFlow.buyAmmoForAllOwnedWeapons(player, context)
 
 	local refund = refillSummary.refillAllCost - spent
 	if refund > 0 then
-		if context.addMoney then
-			context.addMoney(player, refund)
-		else
-			moneyValue.Value += refund
-		end
+		refundCharge(player, refund, context)
 	end
 
 	return {

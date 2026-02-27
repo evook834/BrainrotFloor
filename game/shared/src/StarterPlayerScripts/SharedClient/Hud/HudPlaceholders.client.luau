@@ -3,7 +3,10 @@ local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local HUD_MOVE_MODE_ATTRIBUTE = "LobbyHudMoveModeEnabled"
+local SharedClient = script.Parent.Parent
+local SettingsHudLayoutConfig = require(SharedClient:WaitForChild("Settings"):WaitForChild("SettingsHudLayoutConfig"))
+
+local HUD_MOVE_MODE_ATTRIBUTE = SettingsHudLayoutConfig.HUD_MOVE_MODE_ATTRIBUTE
 
 local function applyRoundedCorners(instance: GuiObject, radius: number)
 	local corner = Instance.new("UICorner")

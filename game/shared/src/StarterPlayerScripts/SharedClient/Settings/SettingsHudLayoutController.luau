@@ -12,7 +12,7 @@ local HUD_SCALE_MIN = 0.6
 local HUD_SCALE_MAX = 1.45
 local HUD_SCALE_STEP = 0.05
 local HUD_MOVABLE_ATTRIBUTE = "HudMovable"
-local TOUCH_LONG_PRESS_DELAY = 0.25
+local TOUCH_LONG_PRESS_DELAY = 0.4
 
 type SettingsState = {
 	musicVolume: number,
@@ -86,6 +86,7 @@ type Controller = {
 	hudMoveModeAttribute: string?,
 	highlightStroke: UIStroke?,
 	pendingTouch: PendingTouch?,
+	statusOverrideText: string?,
 }
 
 local SettingsHudLayoutController = {}
@@ -111,6 +112,14 @@ function SettingsHudLayoutController:queueSettingsSave()
 	task.delay(0.8, function()
 		if activeToken ~= self.settingsSaveToken then
 			return
+		end
+
+		for root, rootState in pairs(self.trackedHudRoots) do
+			local currentPosition = self.settingsState.hudPositions[rootState.persistKey]
+			if typeof(currentPosition) == "UDim2" then
+				self.settingsState.hudPositions[rootState.persistKey] =
+					HudLayoutService.clampRootPosition(currentPosition, root)
+			end
 		end
 
 		local serializedPositions = {}
@@ -153,11 +162,19 @@ function SettingsHudLayoutController:setHighlightedRoot(root: GuiObject?)
 	if not stroke then
 		stroke = Instance.new("UIStroke")
 		stroke.Name = HIGHLIGHT_STROKE_NAME
+		stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		self.highlightStroke = stroke
+	end
+
+	local isSelected = root == self.selectedHudRoot
+	if isSelected then
+		stroke.Color = Color3.fromRGB(255, 255, 127)
+		stroke.Thickness = 3
+		stroke.Transparency = 0
+	else
 		stroke.Color = Color3.fromRGB(255, 255, 255)
 		stroke.Thickness = 2
 		stroke.Transparency = 0.2
-		stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-		self.highlightStroke = stroke
 	end
 
 	stroke.Parent = root
@@ -287,13 +304,13 @@ function SettingsHudLayoutController:trackScreenGui(screenGui: ScreenGui)
 	self.trackedScreenGuis[screenGui] = screenState
 
 	for _, child in ipairs(screenGui:GetChildren()) do
-		if child:IsA("GuiObject") then
+		if HudLayoutConfig.isHudRoot(self.view.gui, child) then
 			self:trackHudRoot(child)
 		end
 	end
 
 	table.insert(screenState.connections, screenGui.ChildAdded:Connect(function(child)
-		if child:IsA("GuiObject") then
+		if HudLayoutConfig.isHudRoot(self.view.gui, child) then
 			self:trackHudRoot(child)
 		end
 	end))
@@ -318,6 +335,102 @@ local function isPointInPanel(view: View, screenPos: Vector2): boolean
 		and screenPos.X <= panelPos.X + panelSize.X
 		and screenPos.Y >= panelPos.Y
 		and screenPos.Y <= panelPos.Y + panelSize.Y
+end
+
+local function bindMoveModeInput(controller: Controller)
+	table.insert(controller.connections, UserInputService.InputBegan:Connect(function(inputObject, _gameProcessed)
+		if not controller.moveModeEnabled then
+			return
+		end
+		if
+			inputObject.UserInputType ~= Enum.UserInputType.MouseButton1
+			and inputObject.UserInputType ~= Enum.UserInputType.Touch
+		then
+			return
+		end
+
+		local screenPos = Vector2.new(inputObject.Position.X, inputObject.Position.Y)
+		if isPointInPanel(controller.view, screenPos) then
+			return
+		end
+
+		if inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
+			controller:startDragAtPosition(screenPos)
+			return
+		end
+
+		if inputObject.UserInputType == Enum.UserInputType.Touch then
+			controller.pendingTouch = {
+				input = inputObject,
+			}
+
+			local pendingTouch = controller.pendingTouch
+			task.delay(TOUCH_LONG_PRESS_DELAY, function()
+				if controller.pendingTouch ~= pendingTouch then
+					return
+				end
+				if not controller.moveModeEnabled then
+					return
+				end
+
+				local currentInput = pendingTouch.input
+				local currentPos = Vector2.new(currentInput.Position.X, currentInput.Position.Y)
+				if isPointInPanel(controller.view, currentPos) then
+					return
+				end
+
+				controller.pendingTouch = nil
+				controller:startDragAtPosition(currentPos)
+			end)
+		end
+	end))
+
+	table.insert(controller.connections, UserInputService.InputChanged:Connect(function(inputObject)
+		if not controller.moveModeEnabled then
+			return
+		end
+		if
+			inputObject.UserInputType ~= Enum.UserInputType.MouseMovement
+			and inputObject.UserInputType ~= Enum.UserInputType.Touch
+		then
+			return
+		end
+
+		local screenPos = Vector2.new(inputObject.Position.X, inputObject.Position.Y)
+
+		if controller.activeDrag then
+			controller:updateDrag(screenPos)
+			return
+		end
+
+		if isPointInPanel(controller.view, screenPos) then
+			controller:setHighlightedRoot(controller.selectedHudRoot)
+			return
+		end
+
+		local hoverRoot = controller:getTopHudRootAtPosition(screenPos)
+		if hoverRoot then
+			controller:setHighlightedRoot(hoverRoot)
+		else
+			controller:setHighlightedRoot(controller.selectedHudRoot)
+		end
+	end))
+
+	table.insert(controller.connections, UserInputService.InputEnded:Connect(function(inputObject)
+		if
+			inputObject.UserInputType ~= Enum.UserInputType.MouseButton1
+			and inputObject.UserInputType ~= Enum.UserInputType.Touch
+		then
+			return
+		end
+		if controller.pendingTouch and controller.pendingTouch.input == inputObject then
+			controller.pendingTouch = nil
+		end
+		if controller.activeDrag then
+			controller:queueSettingsSave()
+		end
+		controller.activeDrag = nil
+	end))
 end
 
 function SettingsHudLayoutController:getTopHudRootAtPosition(screenPos: Vector2): GuiObject?
@@ -351,6 +464,9 @@ end
 function SettingsHudLayoutController:startDragAtPosition(screenPos: Vector2)
 	local root = self:getTopHudRootAtPosition(screenPos)
 	if not root then
+		self.selectedHudRoot = nil
+		self:setHighlightedRoot(nil)
+		self:setStatusOverride("No HUD element at this position.", 1)
 		return
 	end
 
@@ -386,10 +502,14 @@ end
 
 function SettingsHudLayoutController:updateGameplayLabels()
 	local scalePercent = math.floor((self.settingsState.hudScale * 100) + 0.5)
-	if self.moveModeEnabled then
-		self.view.moveStatusLabel.Text = "Move Mode ON: left-click and drag one HUD element."
+	if self.statusOverrideText then
+		self.view.moveStatusLabel.Text = self.statusOverrideText
 	else
-		self.view.moveStatusLabel.Text = "Move Mode OFF"
+		if self.moveModeEnabled then
+			self.view.moveStatusLabel.Text = "Move Mode ON: drag HUD elements to reposition."
+		else
+			self.view.moveStatusLabel.Text = "Move Mode OFF"
+		end
 	end
 
 	self.view.selectedHudLabel.Text = "Selected: " .. getRootLabel(self, self.selectedHudRoot)
@@ -438,10 +558,10 @@ function SettingsHudLayoutController:applyLoadedHudSettings(loadedHud: any)
 		end
 	end
 
-	for _, rootState in pairs(self.trackedHudRoots) do
+	for root, rootState in pairs(self.trackedHudRoots) do
 		local savedPosition = self.settingsState.hudPositions[rootState.persistKey]
 		if typeof(savedPosition) == "UDim2" then
-			self:setRootPosition((rootState :: any), rootState, savedPosition)
+			self:setRootPosition(root, rootState, savedPosition)
 		end
 	end
 
@@ -470,6 +590,22 @@ function SettingsHudLayoutController:destroy()
 	if self.highlightStroke then
 		self.highlightStroke:Destroy()
 		self.highlightStroke = nil
+	end
+end
+
+function SettingsHudLayoutController:setStatusOverride(text: string?, durationSeconds: number?)
+	self.statusOverrideText = text
+	self:updateGameplayLabels()
+
+	if text and durationSeconds and durationSeconds > 0 then
+		local expectedText = text
+		task.delay(durationSeconds, function()
+			if self.statusOverrideText ~= expectedText then
+				return
+			end
+			self.statusOverrideText = nil
+			self:updateGameplayLabels()
+		end)
 	end
 end
 local function isHudScreenGui(viewGui: ScreenGui, instance: Instance): boolean
@@ -557,91 +693,8 @@ function SettingsHudLayoutController.new(init: InitOptions): Controller
 		self:updateGameplayLabels()
 		self:queueSettingsSave()
 	end))
-
-	table.insert(self.connections, UserInputService.InputBegan:Connect(function(inputObject, _gameProcessed)
-		if not self.moveModeEnabled then
-			return
-		end
-		if inputObject.UserInputType ~= Enum.UserInputType.MouseButton1 and inputObject.UserInputType ~= Enum.UserInputType.Touch then
-			return
-		end
-
-		local screenPos = Vector2.new(inputObject.Position.X, inputObject.Position.Y)
-		if isPointInPanel(self.view, screenPos) then
-			return
-		end
-
-		if inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
-			self:startDragAtPosition(screenPos)
-			return
-		end
-
-		if inputObject.UserInputType == Enum.UserInputType.Touch then
-			self.pendingTouch = {
-				input = inputObject,
-			}
-
-			local pendingTouch = self.pendingTouch
-			task.delay(TOUCH_LONG_PRESS_DELAY, function()
-				if self.pendingTouch ~= pendingTouch then
-					return
-				end
-				if not self.moveModeEnabled then
-					return
-				end
-
-				local currentInput = pendingTouch.input
-				local currentPos = Vector2.new(currentInput.Position.X, currentInput.Position.Y)
-				if isPointInPanel(self.view, currentPos) then
-					return
-				end
-
-				self.pendingTouch = nil
-				self:startDragAtPosition(currentPos)
-			end)
-		end
-	end))
-
-	table.insert(self.connections, UserInputService.InputChanged:Connect(function(inputObject)
-		if not self.moveModeEnabled then
-			return
-		end
-		if inputObject.UserInputType ~= Enum.UserInputType.MouseMovement and inputObject.UserInputType ~= Enum.UserInputType.Touch then
-			return
-		end
-
-		local screenPos = Vector2.new(inputObject.Position.X, inputObject.Position.Y)
-
-		if self.activeDrag then
-			self:updateDrag(screenPos)
-			return
-		end
-
-		if isPointInPanel(self.view, screenPos) then
-			self:setHighlightedRoot(self.selectedHudRoot)
-			return
-		end
-
-		local hoverRoot = self:getTopHudRootAtPosition(screenPos)
-		if hoverRoot then
-			self:setHighlightedRoot(hoverRoot)
-		else
-			self:setHighlightedRoot(self.selectedHudRoot)
-		end
-	end))
-
-	table.insert(self.connections, UserInputService.InputEnded:Connect(function(inputObject)
-		if inputObject.UserInputType ~= Enum.UserInputType.MouseButton1 and inputObject.UserInputType ~= Enum.UserInputType.Touch then
-			return
-		end
-		if self.pendingTouch and self.pendingTouch.input == inputObject then
-			self.pendingTouch = nil
-		end
-		if self.activeDrag then
-			self:queueSettingsSave()
-		end
-		self.activeDrag = nil
-	end))
+	
+	bindMoveModeInput(self)
 
 	if self.hudMoveModeAttribute then
 		playerGui:SetAttribute(self.hudMoveModeAttribute, false)

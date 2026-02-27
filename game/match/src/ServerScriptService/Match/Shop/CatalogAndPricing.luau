@@ -2,12 +2,12 @@ local CatalogAndPricing = {}
 
 function CatalogAndPricing.canPurchaseNow(remotesFolder, config)
 	if not remotesFolder then
-		return true, "Unknown"
+		return false, "Unknown"
 	end
 
 	local waveState = remotesFolder:GetAttribute("CurrentWaveState")
 	if type(waveState) ~= "string" then
-		return true, "Unknown"
+		return false, "Unknown"
 	end
 
 	local allowedStates = ((config or {}).Shop or {}).PurchaseAllowedStates or {}

@@ -13,6 +13,8 @@ local DEFAULT_CAMERA_TYPE = Enum.CameraType.Custom
 
 local remotesFolder = ReplicatedStorage:WaitForChild(Config.Remotes.Folder, 15)
 local spectatorRemote = remotesFolder and remotesFolder:FindFirstChild(Config.Remotes.SpectatorState)
+local spectatorRequestRemote = remotesFolder and remotesFolder:FindFirstChild(Config.Remotes.SpectatorRequest)
+local waveRemote = remotesFolder and remotesFolder:FindFirstChild(Config.Remotes.WaveState)
 
 local isSpectating = false
 local livingPlayerUserIds = {}
@@ -21,8 +23,11 @@ local renderConnection = nil
 local spectatorGui = nil
 local spectatorLabel = nil
 
-local SPECTATE_OFFSET = Vector3.new(0, 2, 8)
-local SPECTATE_SMOOTHNESS = 0.15
+local SPECTATE_OFFSET = Config.Spectator.CameraOffset
+local SPECTATE_SMOOTHNESS = Config.Spectator.Smoothness
+
+local respawnTime = 0
+local countdownConnection = nil
 
 local function getTargetCharacter()
 	if #livingPlayerUserIds == 0 then
@@ -69,7 +74,48 @@ local function updateSpectatorLabel()
 	local character = getTargetCharacter()
 	local name = character and Players:GetPlayerFromCharacter(character)
 	name = name and name.Name or "—"
-	spectatorLabel.Text = ("Spectating: %s  |  Q / E to switch"):format(name)
+
+	local timeLabel = ""
+	if respawnTime > 0 then
+		local timeLeft = math.ceil(respawnTime - workspace:GetServerTimeNow())
+		if timeLeft > 0 then
+			timeLabel = string.format(" | Respawn: %d", timeLeft)
+		end
+	end
+
+	spectatorLabel.Text = ("Spectating: %s  |  Q/E switch, T toggle%s"):format(name, timeLabel)
+end
+
+local function onRenderStepped()
+	updateSpectatorCamera()
+	updateSpectatorLabel()
+
+	if respawnTime > 0 then
+		local timeLeft = respawnTime - workspace:GetServerTimeNow()
+		if timeLeft <= 0 then
+			respawnTime = 0
+			if countdownConnection then
+				countdownConnection:Disconnect()
+				countdownConnection = nil
+			end
+		end
+	end
+end
+
+local function startCountdown()
+	if countdownConnection then
+		countdownConnection:Disconnect()
+		countdownConnection = nil
+	end
+	countdownConnection = RunService.RenderStepped:Connect(onRenderStepped)
+end
+
+local function stopCountdown()
+	if countdownConnection then
+		countdownConnection:Disconnect()
+		countdownConnection = nil
+	end
+	respawnTime = 0
 end
 
 local function ensureSpectatorGui()
@@ -111,10 +157,7 @@ local function startSpectating()
 		renderConnection = nil
 	end
 	camera.CameraType = Enum.CameraType.Scriptable
-	renderConnection = RunService.RenderStepped:Connect(function()
-		updateSpectatorCamera()
-		updateSpectatorLabel()
-	end)
+	startCountdown()
 	ensureSpectatorGui()
 	spectatorGui.Enabled = true
 	updateSpectatorLabel()
@@ -127,6 +170,7 @@ local function stopSpectating()
 		renderConnection:Disconnect()
 		renderConnection = nil
 	end
+	stopCountdown()
 	camera.CameraType = DEFAULT_CAMERA_TYPE
 	if spectatorGui then
 		spectatorGui.Enabled = false
@@ -145,6 +189,22 @@ local function cycleTarget(direction)
 	end
 end
 
+local function requestSpectatorAction(request)
+	if not spectatorRequestRemote or not spectatorRequestRemote:IsA("RemoteFunction") then
+		return false, "SpectatorRequest remote not available"
+	end
+	local success, response = pcall(function()
+		return spectatorRequestRemote:InvokeServer(request)
+	end)
+	if not success then
+		return false, ("InvokeServer failed: %s"):format(tostring(response))
+	end
+	if type(response) ~= "table" then
+		return false, "Invalid response from server"
+	end
+	return response.success, response.message, response.isSpectating
+end
+
 local function onSpectatorState(payload)
 	if type(payload) ~= "table" then
 		return
@@ -153,6 +213,12 @@ local function onSpectatorState(payload)
 	local newLiving = payload.livingPlayerUserIds
 	if type(newLiving) == "table" then
 		livingPlayerUserIds = newLiving
+	end
+
+	if payload.respawnsAt ~= nil and payload.respawnsAt > 0 then
+		respawnTime = payload.respawnsAt
+	else
+		respawnTime = 0
 	end
 
 	if newSpectating then
@@ -164,6 +230,7 @@ local function onSpectatorState(payload)
 				if targetIndex > #livingPlayerUserIds then
 					targetIndex = math.max(1, #livingPlayerUserIds)
 				end
+				startCountdown()
 			end
 		else
 			stopSpectating()
@@ -178,12 +245,45 @@ if spectatorRemote and spectatorRemote:IsA("RemoteEvent") then
 end
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if not isSpectating or gameProcessed then
+	if gameProcessed then
 		return
 	end
+
 	if input.KeyCode == Enum.KeyCode.Q then
 		cycleTarget(-1)
 	elseif input.KeyCode == Enum.KeyCode.E then
 		cycleTarget(1)
+	elseif input.KeyCode == Enum.KeyCode.T then
+		if isSpectating then
+			local success, message, isSpectatingResp = requestSpectatorAction("exitSpectate")
+			if not success then
+				warn(("Spectator request failed: %s"):format(message or "unknown error"))
+			end
+		else
+			local success, message, isSpectatingResp = requestSpectatorAction("toggleSpectate")
+			if not success then
+				warn(("Spectator request failed: %s"):format(message or "unknown error"))
+			elseif isSpectatingResp == true then
+				startSpectating()
+			end
+		end
 	end
 end)
+
+local function onWaveState(payload)
+	if type(payload) ~= "table" then
+		return
+	end
+	local state = payload.state
+	if state == "GameOver" or state == "Won" then
+		stopSpectating()
+		if spectatorGui then
+			spectatorGui:Destroy()
+			spectatorGui = nil
+		end
+	end
+end
+
+if waveRemote and waveRemote:IsA("RemoteEvent") then
+	waveRemote.OnClientEvent:Connect(onWaveState)
+end

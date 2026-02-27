@@ -42,22 +42,30 @@ local function ensureFolder(parent, name)
 	return folder
 end
 
-local function ensureRemoteEvent(parent, name)
+local function ensureRemote(parent, className, name)
 	local existing = parent:FindFirstChild(name)
 	if existing then
-		if existing:IsA("RemoteEvent") then
+		if existing.ClassName == className then
 			return existing
 		end
 
-		warn(("[GameBootstrap] Expected RemoteEvent at %s/%s, got %s"):
-			format(parent.Name, name, existing.ClassName))
-		return nil
+		warn(("[GameBootstrap] Replacing %s/%s: expected %s, got %s"):
+			format(parent.Name, name, className, existing.ClassName))
+		existing:Destroy()
 	end
 
-	local remote = Instance.new("RemoteEvent")
+	local remote = Instance.new(className)
 	remote.Name = name
 	remote.Parent = parent
 	return remote
+end
+
+local function ensureRemoteEvent(parent, name)
+	return ensureRemote(parent, "RemoteEvent", name)
+end
+
+local function ensureRemoteFunction(parent, name)
+	return ensureRemote(parent, "RemoteFunction", name)
 end
 
 local function toNumber(value, defaultValue)
@@ -360,13 +368,14 @@ end
 local spectatingPlayers = {}
 local spectatorRemote = nil
 
-local function notifySpectator(targetPlayer, isSpectating, livingPlayerUserIds)
+local function notifySpectator(targetPlayer, isSpectating, livingPlayerUserIds, respawnsAt)
 	if not spectatorRemote or targetPlayer.Parent ~= Players then
 		return
 	end
 	spectatorRemote:FireClient(targetPlayer, {
 		isSpectating = isSpectating,
 		livingPlayerUserIds = livingPlayerUserIds or {},
+		respawnsAt = respawnsAt,
 	})
 end
 
@@ -374,7 +383,8 @@ local function notifyAllSpectators()
 	local living = getLivingPlayerUserIds()
 	for spectatingPlayer, _ in pairs(spectatingPlayers) do
 		if spectatingPlayer.Parent == Players then
-			notifySpectator(spectatingPlayer, true, living)
+			local respawnsAt = pendingRespawnByPlayer[spectatingPlayer] and (Workspace:GetServerTimeNow() + respawnDelaySeconds) or nil
+			notifySpectator(spectatingPlayer, true, living, respawnsAt)
 		end
 	end
 end
@@ -962,6 +972,13 @@ end
 
 local respawnDelaySeconds = (Config.Player and Config.Player.RespawnDelaySeconds) or 60
 
+local function getRespawnsAtForPlayer(player)
+	if pendingRespawnByPlayer[player] then
+		return Workspace:GetServerTimeNow() + respawnDelaySeconds
+	end
+	return nil
+end
+
 local function scheduleRespawn(player)
 	if gameOverTriggered then
 		return
@@ -984,6 +1001,8 @@ local function scheduleRespawn(player)
 			return
 		end
 
+		spectatingPlayers[player] = nil
+		notifySpectator(player, false, {}, 0)
 		player:LoadCharacter()
 	end)
 end
@@ -1004,6 +1023,10 @@ local function scheduleLateJoinSpawn(player)
 		if spectatingPlayers[player] ~= true then
 			return
 		end
+		spectatingPlayers[player] = nil
+		pendingRespawnByPlayer[player] = nil
+		notifySpectator(player, false, {}, 0)
+		notifyAllSpectators()
 		player:LoadCharacter()
 	end)
 end
@@ -1016,8 +1039,9 @@ local function bindPlayerSystems(player)
 	local function onCharacter(character)
 		local wasSpectating = spectatingPlayers[player] == true
 		spectatingPlayers[player] = nil
+		pendingRespawnByPlayer[player] = nil
 		if wasSpectating and spectatorRemote then
-			notifySpectator(player, false, {})
+			notifySpectator(player, false, {}, 0)
 			notifyAllSpectators()
 		end
 
@@ -1056,6 +1080,8 @@ local function bindPlayerSystems(player)
 	elseif not gameOverTriggered then
 		if isMatchRunningForLateJoin() then
 			spectatingPlayers[player] = true
+			local respawnsAt = Workspace:GetServerTimeNow() + respawnDelaySeconds
+			notifySpectator(player, true, getLivingPlayerUserIds(), respawnsAt)
 			notifyAllSpectators()
 			scheduleLateJoinSpawn(player)
 		else
@@ -1088,8 +1114,64 @@ if mapVoteRemote then
 	mapVoteRemote.OnServerEvent:Connect(onMapVoteSubmitted)
 end
 
+ensureRemoteEvent(remotesFolder, Config.Remotes.WeaponAim)
+ensureRemoteEvent(remotesFolder, Config.Remotes.WeaponFire)
+ensureRemoteEvent(remotesFolder, Config.Remotes.WeaponReload)
+ensureRemoteEvent(remotesFolder, Config.Remotes.DamageIndicator)
+
 teleportLoadingRemote = ensureRemoteEvent(remotesFolder, Config.Remotes.TeleportLoading)
 spectatorRemote = ensureRemoteEvent(remotesFolder, Config.Remotes.SpectatorState)
+
+local spectatorRequestRemote = ensureRemoteFunction(remotesFolder, Config.Remotes.SpectatorRequest)
+local function onSpectatorRequest(player, request)
+	if player.Parent ~= Players then
+		return { success = false, message = "Player no longer in game" }
+	end
+
+	if request == "toggleSpectate" then
+		local wasSpectating = spectatingPlayers[player] == true
+		if wasSpectating then
+			spectatingPlayers[player] = nil
+			pendingRespawnByPlayer[player] = nil
+			notifySpectator(player, false, {}, 0)
+			notifyAllSpectators()
+			return { success = true, isSpectating = false }
+		else
+			if not hasAnyLivingPlayers() then
+				return { success = false, message = "No living players to spectate" }
+			end
+			spectatingPlayers[player] = true
+			local respawnsAt = Workspace:GetServerTimeNow() + respawnDelaySeconds
+			notifySpectator(player, true, getLivingPlayerUserIds(), respawnsAt)
+			notifyAllSpectators()
+			return { success = true, isSpectating = true }
+		end
+	elseif request == "spawnNow" then
+		if spectatingPlayers[player] ~= true then
+			return { success = false, message = "Not in spectator mode" }
+		end
+		spectatingPlayers[player] = nil
+		pendingRespawnByPlayer[player] = nil
+		player:LoadCharacter()
+		notifySpectator(player, false, {}, 0)
+		notifyAllSpectators()
+		return { success = true, isSpectating = false }
+	elseif request == "exitSpectate" then
+		if spectatingPlayers[player] ~= true then
+			return { success = false, message = "Not in spectator mode" }
+		end
+		spectatingPlayers[player] = nil
+		pendingRespawnByPlayer[player] = nil
+		notifySpectator(player, false, {}, 0)
+		notifyAllSpectators()
+		return { success = true, isSpectating = false }
+	else
+		return { success = false, message = ("Unknown request: %s"):format(tostring(request)) }
+	end
+end
+if spectatorRequestRemote then
+	spectatorRequestRemote.OnServerInvoke = onSpectatorRequest
+end
 
 local templateFolder = ensureFolder(ServerStorage, Config.Enemy.TemplateFolderName)
 local spawnFolder = ensureFolder(Workspace, Config.Enemy.SpawnFolderName)

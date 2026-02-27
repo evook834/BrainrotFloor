@@ -56,6 +56,8 @@ local toolRuntimeState = ammoRuntime.getStateMap()
 local randomGenerator = Random.new()
 local sentryRuntime = nil
 local classChangedCleanupDisconnect = nil
+local traderRootPart = nil
+local traderPrompt = nil
 
 local function ensureRemote(parent, className, name)
 	local instance = parent:FindFirstChild(name)
@@ -185,7 +187,94 @@ local function getClassRestrictionMessage(player)
 	return CatalogAndPricing.getClassRestrictionMessage(player, ClassService)
 end
 
+local function getTraderConfig()
+	return Config.Shop.Trader or {}
+end
+
+local function resolveTraderRootPart()
+	if traderRootPart and traderRootPart.Parent then
+		return traderRootPart
+	end
+
+	local traderConfig = getTraderConfig()
+	local modelName = traderConfig.ModelName or "WeaponTrader"
+	local partName = traderConfig.PartName or "TraderRoot"
+	local traderModel = Workspace:FindFirstChild(modelName)
+	if not (traderModel and traderModel:IsA("Model")) then
+		return nil
+	end
+
+	local rootPart = traderModel:FindFirstChild(partName)
+	if not (rootPart and rootPart:IsA("BasePart")) then
+		rootPart = traderModel:FindFirstChildWhichIsA("BasePart")
+	end
+	if rootPart and rootPart:IsA("BasePart") then
+		traderRootPart = rootPart
+		return rootPart
+	end
+
+	return nil
+end
+
+local function getTraderAccessDistance()
+	if traderPrompt and traderPrompt.Parent then
+		return math.max(0, tonumber(traderPrompt.MaxActivationDistance) or 0)
+	end
+
+	return math.max(0, tonumber(getTraderConfig().MaxActivationDistance) or 12)
+end
+
+local function canPlayerAccessShop(player)
+	if not (player and player:IsA("Player")) then
+		return false
+	end
+
+	local rootPart = resolveTraderRootPart()
+	if not rootPart then
+		return false
+	end
+
+	local character = player.Character
+	if not character then
+		return false
+	end
+
+	local characterRoot = character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart
+	if not (characterRoot and characterRoot:IsA("BasePart")) then
+		characterRoot = character:FindFirstChildWhichIsA("BasePart")
+	end
+	if not (characterRoot and characterRoot:IsA("BasePart")) then
+		return false
+	end
+
+	local allowedDistance = getTraderAccessDistance() + (rootPart.Size.Magnitude * 0.5) + 3
+	return (characterRoot.Position - rootPart.Position).Magnitude <= allowedDistance
+end
+
+local function getShopDeniedResponse()
+	return {
+		success = false,
+		message = "Move closer to the trader.",
+	}
+end
+
 local function getCatalogForPlayer(player)
+	if not canPlayerAccessShop(player) then
+		local _, waveState = canPurchaseNow()
+		return {
+			success = false,
+			message = "Move closer to the trader.",
+			canPurchase = false,
+			waveState = waveState,
+			weapons = {},
+			refillAllCost = 0,
+			canRefillAll = false,
+			ownedWeapons = 0,
+			ownedRefillableWeapons = 0,
+			refillableWeaponsWithMissingAmmo = 0,
+		}
+	end
+
 	return CatalogAndPricing.getCatalogForPlayer(player, {
 		config = Config,
 		classService = ClassService,
@@ -205,25 +294,93 @@ local function getCatalogForPlayer(player)
 	})
 end
 
-local function deductMoney(player, amount)
-	if not PlayerDataService.isReady() then
-		return
-	end
-	PlayerDataService.update(player, { "money" }, function(m)
-		return math.max(0, math.floor((tonumber(m) or 0) - amount + 0.5))
-	end)
+local function normalizeMoneyAmount(value)
+	return math.max(0, math.floor((tonumber(value) or 0) + 0.5))
 end
 
-local function addMoney(player, amount)
-	if not PlayerDataService.isReady() then
+local function canUsePlayerData(player)
+	return player and player:IsA("Player") and PlayerDataService.isReady()
+end
+
+local function getCurrentMoney(player)
+	if not (player and player:IsA("Player")) then
+		return nil
+	end
+
+	if canUsePlayerData(player) then
+		local savedMoney = PlayerDataService.get(player, { "money" })
+		if savedMoney ~= nil then
+			return normalizeMoneyAmount(savedMoney)
+		end
+	end
+
+	local moneyValue = EnemyDamageService.getMoneyValue(player)
+	if moneyValue then
+		return normalizeMoneyAmount(moneyValue.Value)
+	end
+
+	return nil
+end
+
+local function trySpendMoney(player, amount)
+	local spendAmount = normalizeMoneyAmount(amount)
+	if spendAmount <= 0 then
+		return true
+	end
+	if not (player and player:IsA("Player")) then
+		return false
+	end
+
+	if canUsePlayerData(player) then
+		local didSpend = false
+		PlayerDataService.update(player, { "money" }, function(m)
+			local currentMoney = normalizeMoneyAmount(m)
+			if currentMoney < spendAmount then
+				return currentMoney
+			end
+
+			didSpend = true
+			return currentMoney - spendAmount
+		end)
+		return didSpend
+	end
+
+	local moneyValue = EnemyDamageService.getMoneyValue(player)
+	if not moneyValue or moneyValue.Value < spendAmount then
+		return false
+	end
+
+	moneyValue.Value -= spendAmount
+	return true
+end
+
+local function refundMoney(player, amount)
+	local refundAmount = normalizeMoneyAmount(amount)
+	if refundAmount <= 0 then
 		return
 	end
-	PlayerDataService.update(player, { "money" }, function(m)
-		return (tonumber(m) or 0) + math.max(0, math.floor(amount + 0.5))
-	end)
+	if not (player and player:IsA("Player")) then
+		return
+	end
+
+	if canUsePlayerData(player) then
+		PlayerDataService.update(player, { "money" }, function(m)
+			return normalizeMoneyAmount(m) + refundAmount
+		end)
+		return
+	end
+
+	local moneyValue = EnemyDamageService.getMoneyValue(player)
+	if moneyValue then
+		moneyValue.Value += refundAmount
+	end
 end
 
 local function buyWeapon(player, weaponId)
+	if not canPlayerAccessShop(player) then
+		return getShopDeniedResponse()
+	end
+
 	return PurchaseFlow.buyWeapon(player, weaponId, {
 		weaponById = weaponById,
 		canPurchaseNow = canPurchaseNow,
@@ -232,37 +389,45 @@ local function buyWeapon(player, weaponId)
 		getRequiredOwnedWeaponId = getRequiredOwnedWeaponId,
 		playerOwnsWeapon = playerOwnsWeapon,
 		getUpgradeRestrictionMessage = getUpgradeRestrictionMessage,
-		getMoneyValue = EnemyDamageService.getMoneyValue,
-		deductMoney = deductMoney,
-		addMoney = addMoney,
+		getCurrentMoney = getCurrentMoney,
+		trySpendMoney = trySpendMoney,
+		refundMoney = refundMoney,
 		getWeaponCostForPlayer = getWeaponCostForPlayer,
 		createWeaponTool = WeaponToolFactory.createWeaponTool,
 	})
 end
 
 local function buyAmmoForWeapon(player, weaponId)
+	if not canPlayerAccessShop(player) then
+		return getShopDeniedResponse()
+	end
+
 	return PurchaseFlow.buyAmmoForWeapon(player, weaponId, {
 		weaponById = weaponById,
 		canPurchaseNow = canPurchaseNow,
 		canPlayerUseWeapon = canPlayerUseWeapon,
 		getClassRestrictionMessage = getClassRestrictionMessage,
 		collectAmmoRefillQuotesForOwnedWeapons = collectAmmoRefillQuotesForOwnedWeapons,
-		getMoneyValue = EnemyDamageService.getMoneyValue,
-		deductMoney = deductMoney,
-		addMoney = addMoney,
+		getCurrentMoney = getCurrentMoney,
+		trySpendMoney = trySpendMoney,
+		refundMoney = refundMoney,
 		refillAmmoForTool = refillAmmoForTool,
 		refillAmmoForSentryRecords = refillAmmoForSentryRecords,
 	})
 end
 
 local function buyAmmoForAllOwnedWeapons(player)
+	if not canPlayerAccessShop(player) then
+		return getShopDeniedResponse()
+	end
+
 	return PurchaseFlow.buyAmmoForAllOwnedWeapons(player, {
 		weaponById = weaponById,
 		canPurchaseNow = canPurchaseNow,
 		collectAmmoRefillQuotesForOwnedWeapons = collectAmmoRefillQuotesForOwnedWeapons,
-		getMoneyValue = EnemyDamageService.getMoneyValue,
-		deductMoney = deductMoney,
-		addMoney = addMoney,
+		getCurrentMoney = getCurrentMoney,
+		trySpendMoney = trySpendMoney,
+		refundMoney = refundMoney,
 		refillAmmoForTool = refillAmmoForTool,
 		refillAmmoForSentryRecords = refillAmmoForSentryRecords,
 	})
@@ -295,7 +460,7 @@ function ShopService.refillPlayerAmmo(player, options)
 end
 
 local function ensureTraderPrompt()
-	local traderConfig = Config.Shop.Trader or {}
+	local traderConfig = getTraderConfig()
 	local modelName = traderConfig.ModelName or "WeaponTrader"
 	local partName = traderConfig.PartName or "TraderRoot"
 
@@ -323,6 +488,7 @@ local function ensureTraderPrompt()
 	end
 
 	traderModel.PrimaryPart = rootPart
+	traderRootPart = rootPart
 
 	local prompt = rootPart:FindFirstChildOfClass("ProximityPrompt")
 	if not prompt then
@@ -335,6 +501,7 @@ local function ensureTraderPrompt()
 	prompt.MaxActivationDistance = traderConfig.MaxActivationDistance or 12
 	prompt.HoldDuration = traderConfig.HoldDuration or 0.15
 	prompt.RequiresLineOfSight = false
+	traderPrompt = prompt
 
 	prompt.Triggered:Connect(function(player)
 		if shopOpenRemote then
@@ -347,7 +514,6 @@ function ShopService.start()
 	if started then
 		return
 	end
-	started = true
 
 	local turretFolder = getSentryTurretFolder()
 	for _, child in ipairs(turretFolder:GetChildren()) do
@@ -356,6 +522,7 @@ function ShopService.start()
 		end
 	end
 
+	table.clear(weaponById)
 	for _, weaponDef in ipairs(Config.Shop.Weapons or {}) do
 		weaponById[weaponDef.Id] = weaponDef
 	end
@@ -458,6 +625,7 @@ function ShopService.start()
 	end
 
 	ensureTraderPrompt()
+	started = true
 end
 
 return ShopService

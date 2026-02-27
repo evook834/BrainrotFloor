@@ -1,5 +1,6 @@
 local MemoryStoreService = game:GetService("MemoryStoreService")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 local Shared = ServerScriptService:WaitForChild("Shared")
@@ -17,7 +18,9 @@ end
 
 local MATCH_KEY = game.PrivateServerId
 if MATCH_KEY == "" then
-	warn("[MatchServerRegistry] PrivateServerId is empty. This script should run in reserved servers.")
+	if not RunService:IsStudio() then
+		warn("[MatchServerRegistry] PrivateServerId is empty. This script should run in reserved servers.")
+	end
 	return
 end
 

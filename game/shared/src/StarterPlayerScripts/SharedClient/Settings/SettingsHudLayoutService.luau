@@ -45,8 +45,29 @@ local function getRootHitBox(root: GuiObject): (number, number, number, number)
 	return position.X - (fallbackSize.X * 0.5), position.Y - (fallbackSize.Y * 0.5), fallbackSize.X, fallbackSize.Y
 end
 
+local function getScreenSize(): Vector2
+	local camera = workspace.CurrentCamera
+	if camera then
+		local viewportSize = camera.ViewportSize
+		if viewportSize.X > 0 and viewportSize.Y > 0 then
+			return viewportSize
+		end
+	end
+
+	for _, child in ipairs(playerGui:GetChildren()) do
+		if child:IsA("ScreenGui") then
+			local absoluteSize = child.AbsoluteSize
+			if absoluteSize.X > 0 and absoluteSize.Y > 0 then
+				return absoluteSize
+			end
+		end
+	end
+
+	return Vector2.new(1920, 1080)
+end
+
 local function clampRootPositionToScreen(rawPosition: UDim2, root: GuiObject): UDim2
-	local screenSize = playerGui:GetScreenResolution()
+	local screenSize = getScreenSize()
 	local size = root.AbsoluteSize
 
 	local xScale = rawPosition.X.Scale
@@ -57,14 +78,24 @@ local function clampRootPositionToScreen(rawPosition: UDim2, root: GuiObject): U
 	if xScale == 0 then
 		local minX = -size.X + 20
 		local maxX = screenSize.X - 20
-		xOffset = math.clamp(xOffset, minX, maxX)
+		local lowX, highX = math.min(minX, maxX), math.max(minX, maxX)
+		xOffset = math.clamp(xOffset, lowX, highX)
 	end
 
 	if yScale == 0 then
 		local minY = -size.Y + 20
 		local maxY = screenSize.Y - 20
-		yOffset = math.clamp(yOffset, minY, maxY)
+		local lowY, highY = math.min(minY, maxY), math.max(minY, maxY)
+		yOffset = math.clamp(yOffset, lowY, highY)
 	end
+
+	local GRID_SIZE = 8
+	local function snapToGrid(value: number): number
+		return math.floor((value / GRID_SIZE) + 0.5) * GRID_SIZE
+	end
+
+	xOffset = snapToGrid(xOffset)
+	yOffset = snapToGrid(yOffset)
 
 	return UDim2.new(xScale, xOffset, yScale, yOffset)
 end
@@ -153,4 +184,3 @@ function HudLayoutService.ensureDefaults(settingsState: any, hudScaleMin: number
 end
 
 return HudLayoutService
-
