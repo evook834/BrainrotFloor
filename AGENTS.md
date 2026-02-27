@@ -86,3 +86,14 @@ When implementing a change, decide whether to:
 - Keep changes minimal and localized (avoid broad rewrites unless required).
 - If a new file is created, also add/adjust required `require` wiring, exports, and references accordingly.
 - Do not do repo-wide "find files to split" passes unless explicitly requested.
+
+---
+
+## UI: view vs controller (front vs back)
+
+For client UI that builds instances and has non-trivial logic (remotes, state, payload handling), prefer splitting into:
+
+- **View (front)** — One module that only builds the UI tree (`Instance.new` for ScreenGui, frames, buttons, labels, etc.). Expose a single builder (e.g. `build()`) that returns a view table: refs to key instances (panel, buttons, list container, status label, etc.) and optional helpers that only touch instances (e.g. `showPanel()`, `hidePanel()`, `setStatus(text, color)`). No remotes, no game logic, no payload parsing.
+- **Controller (back)** — A module that requires the view, calls the builder to get refs, then handles all behavior: remotes, event wiring, payload handling, rendering list rows, open/close flow. The controller updates the view via the refs and helpers.
+
+Keep a single public entry (e.g. `ClassUi.luau`) that requires the controller and re-exports `run(options)` so existing launchers stay unchanged. When adding or refactoring UI, put instance construction in the view and all logic in the controller.
