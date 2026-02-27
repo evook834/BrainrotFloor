@@ -276,6 +276,25 @@ if not classGetDataFunction then
 	return
 end
 
+local function setHudDisplay(levelText, perkText, activeBonusText, xpText, progress)
+	levelLabel.Text = levelText
+	perkLabel.Text = perkText
+	bonusLabel.Text = activeBonusText
+	xpNumberLabel.Text = xpText
+	barFill.Size = UDim2.fromScale(progress, 1)
+	barPercentLabel.Text = string.format("%d%%", math.floor((progress * 100) + 0.5))
+end
+
+local function formatXpProgressAndPercent(xp, xpToNext)
+	if type(xpToNext) == "number" and xpToNext > 0 then
+		local progress = math.clamp(xp / xpToNext, 0, 1)
+		local text = string.format("XP %s / %s", formatWholeNumber(xp), formatWholeNumber(xpToNext))
+		return text, progress
+	end
+
+	return string.format("XP %s / MAX", formatWholeNumber(xp)), 1
+end
+
 local function playLevelUpPulse()
 	levelUpPulseToken += 1
 	local activeToken = levelUpPulseToken
@@ -339,12 +358,7 @@ end
 
 local function applyClassPayload(payload)
 	if playerGui:GetAttribute(HUD_MOVE_MODE_ATTRIBUTE) == true then
-		levelLabel.Text = "Lv 1"
-		perkLabel.Text = "Perk: Lobby preview"
-		bonusLabel.Text = "Active: No perk bonus yet"
-		xpNumberLabel.Text = "XP 0 / 100"
-		barFill.Size = UDim2.fromScale(0.4, 1)
-		barPercentLabel.Text = "40%"
+		setHudDisplay("Lv 1", "Perk: Lobby preview", "Active: No perk bonus yet", "XP 0 / 100", 0.4)
 		return
 	end
 
@@ -356,12 +370,7 @@ local function applyClassPayload(payload)
 
 	local currentClassData = getCurrentClassData(payload)
 	if not currentClassData then
-		levelLabel.Text = "Lv 1"
-		perkLabel.Text = "Perk: Unknown"
-		bonusLabel.Text = "Active: None"
-		xpNumberLabel.Text = "XP 0 / 100"
-		barFill.Size = UDim2.fromScale(0, 1)
-		barPercentLabel.Text = "0%"
+		setHudDisplay("Lv 1", "Perk: Unknown", "Active: None", "XP 0 / 100", 0)
 		return
 	end
 
@@ -374,15 +383,8 @@ local function applyClassPayload(payload)
 	perkLabel.Text = string.format("Perk: %s", perkName)
 	bonusLabel.Text = getActivePerkText(currentClassData)
 
-	local progress = 1
-	if type(xpToNext) == "number" and xpToNext > 0 then
-		xpNumberLabel.Text = string.format("XP %s / %s", formatWholeNumber(xp), formatWholeNumber(xpToNext))
-		progress = math.clamp(xp / xpToNext, 0, 1)
-	else
-		xpNumberLabel.Text = string.format("XP %s / MAX", formatWholeNumber(xp))
-		progress = 1
-	end
-
+	local xpText, progress = formatXpProgressAndPercent(xp, xpToNext)
+	xpNumberLabel.Text = xpText
 	barFill.Size = UDim2.fromScale(progress, 1)
 	barPercentLabel.Text = string.format("%d%%", math.floor((progress * 100) + 0.5))
 

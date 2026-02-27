@@ -8,7 +8,9 @@ local Match = script.Parent.Parent
 local ClassService = require(Match.Classes.ClassService)
 local ModelRootResolver = require(Match.Enemies.ModelRootResolver)
 local CatalogAndPricing = require(script.Parent.CatalogAndPricing)
+local ShopContextFactory = require(script.Parent.ShopContextFactory)
 local InventoryIndex = require(script.Parent.InventoryIndex)
+local ShopMoney = require(script.Parent.ShopMoney)
 local PurchaseFlow = require(script.Parent.PurchaseFlow)
 local ShopConstants = require(script.Parent.ShopConstants)
 local EnemyDamageService = require(Match.Combat.EnemyDamageService)
@@ -34,6 +36,8 @@ local createExplosionEffect = WeaponVfx.createExplosionEffect
 -- Aliases from WeaponToolSetup (weapon class; tool creation in WeaponToolFactory)
 local resolveWeaponClass = WeaponToolSetup.resolveWeaponClass
 
+local SHOP_DENIED_MESSAGE = "Move closer to the trader."
+
 local ShopService = {}
 
 -- Module state: remotes, weapon catalog, runtimes
@@ -58,6 +62,35 @@ local sentryRuntime = nil
 local classChangedCleanupDisconnect = nil
 local traderRootPart = nil
 local traderPrompt = nil
+local moneyOps = ShopMoney.create({
+	playerDataService = PlayerDataService,
+	enemyDamageService = EnemyDamageService,
+})
+local getCurrentMoney = moneyOps.getCurrentMoney
+local trySpendMoney = moneyOps.trySpendMoney
+local refundMoney = moneyOps.refundMoney
+
+local function isPlayerInstance(player)
+	return player and player:IsA("Player")
+end
+
+local function getTraderNames(traderConfig)
+	local modelName = traderConfig.ModelName or "WeaponTrader"
+	local partName = traderConfig.PartName or "TraderRoot"
+	return modelName, partName
+end
+
+local function findTraderRootPart(traderModel, partName)
+	local rootPart = traderModel:FindFirstChild(partName)
+	if not (rootPart and rootPart:IsA("BasePart")) then
+		rootPart = traderModel:FindFirstChildWhichIsA("BasePart")
+	end
+	if rootPart and rootPart:IsA("BasePart") then
+		return rootPart
+	end
+
+	return nil
+end
 
 local function ensureRemote(parent, className, name)
 	local instance = parent:FindFirstChild(name)
@@ -170,17 +203,20 @@ local function getToolAmmoSnapshot(tool, weaponDef, owner)
 end
 
 local function collectAmmoRefillQuotesForOwnedWeapons(player)
-	return CatalogAndPricing.collectAmmoRefillQuotesForOwnedWeapons(player, {
-		config = Config,
-		weaponById = weaponById,
-		canPlayerUseWeapon = canPlayerUseWeapon,
-		collectOwnedWeaponToolsById = collectOwnedWeaponToolsById,
-		prunePlayerSentries = prunePlayerSentries,
-		collectOwnedSentryRecordsByWeaponId = collectOwnedSentryRecordsByWeaponId,
-		getToolAmmoSnapshot = getToolAmmoSnapshot,
-		getSentryAmmoSnapshot = getSentryAmmoSnapshot,
-		getWeaponCostForPlayer = getWeaponCostForPlayer,
-	})
+	return CatalogAndPricing.collectAmmoRefillQuotesForOwnedWeapons(
+		player,
+		ShopContextFactory.createAmmoQuoteContext({
+			config = Config,
+			weaponById = weaponById,
+			canPlayerUseWeapon = canPlayerUseWeapon,
+			collectOwnedWeaponToolsById = collectOwnedWeaponToolsById,
+			prunePlayerSentries = prunePlayerSentries,
+			collectOwnedSentryRecordsByWeaponId = collectOwnedSentryRecordsByWeaponId,
+			getToolAmmoSnapshot = getToolAmmoSnapshot,
+			getSentryAmmoSnapshot = getSentryAmmoSnapshot,
+			getWeaponCostForPlayer = getWeaponCostForPlayer,
+		})
+	)
 end
 
 local function getClassRestrictionMessage(player)
@@ -197,18 +233,14 @@ local function resolveTraderRootPart()
 	end
 
 	local traderConfig = getTraderConfig()
-	local modelName = traderConfig.ModelName or "WeaponTrader"
-	local partName = traderConfig.PartName or "TraderRoot"
+	local modelName, partName = getTraderNames(traderConfig)
 	local traderModel = Workspace:FindFirstChild(modelName)
 	if not (traderModel and traderModel:IsA("Model")) then
 		return nil
 	end
 
-	local rootPart = traderModel:FindFirstChild(partName)
-	if not (rootPart and rootPart:IsA("BasePart")) then
-		rootPart = traderModel:FindFirstChildWhichIsA("BasePart")
-	end
-	if rootPart and rootPart:IsA("BasePart") then
+	local rootPart = findTraderRootPart(traderModel, partName)
+	if rootPart then
 		traderRootPart = rootPart
 		return rootPart
 	end
@@ -225,7 +257,7 @@ local function getTraderAccessDistance()
 end
 
 local function canPlayerAccessShop(player)
-	if not (player and player:IsA("Player")) then
+	if not isPlayerInstance(player) then
 		return false
 	end
 
@@ -254,187 +286,125 @@ end
 local function getShopDeniedResponse()
 	return {
 		success = false,
-		message = "Move closer to the trader.",
+		message = SHOP_DENIED_MESSAGE,
 	}
+end
+
+local function getDeniedCatalogResponse(waveState)
+	return {
+		success = false,
+		message = SHOP_DENIED_MESSAGE,
+		canPurchase = false,
+		waveState = waveState,
+		weapons = {},
+		refillAllCost = 0,
+		canRefillAll = false,
+		ownedWeapons = 0,
+		ownedRefillableWeapons = 0,
+		refillableWeaponsWithMissingAmmo = 0,
+	}
+end
+
+local function runShopPurchaseIfAccessible(player, callback)
+	if not canPlayerAccessShop(player) then
+		return getShopDeniedResponse()
+	end
+
+	return callback()
 end
 
 local function getCatalogForPlayer(player)
 	if not canPlayerAccessShop(player) then
 		local _, waveState = canPurchaseNow()
-		return {
-			success = false,
-			message = "Move closer to the trader.",
-			canPurchase = false,
-			waveState = waveState,
-			weapons = {},
-			refillAllCost = 0,
-			canRefillAll = false,
-			ownedWeapons = 0,
-			ownedRefillableWeapons = 0,
-			refillableWeaponsWithMissingAmmo = 0,
-		}
+		return getDeniedCatalogResponse(waveState)
 	end
 
-	return CatalogAndPricing.getCatalogForPlayer(player, {
-		config = Config,
-		classService = ClassService,
-		weaponById = weaponById,
-		remotesFolder = remotesFolder,
-		canPlayerUseWeapon = canPlayerUseWeapon,
-		playerOwnsWeapon = playerOwnsWeapon,
-		resolveWeaponClass = resolveWeaponClass,
-		getWeaponCostForPlayer = getWeaponCostForPlayer,
-		getMagazineSize = getMagazineSize,
-		getReloadSeconds = getReloadSeconds,
-		collectOwnedWeaponToolsById = collectOwnedWeaponToolsById,
-		prunePlayerSentries = prunePlayerSentries,
-		collectOwnedSentryRecordsByWeaponId = collectOwnedSentryRecordsByWeaponId,
-		getToolAmmoSnapshot = getToolAmmoSnapshot,
-		getSentryAmmoSnapshot = getSentryAmmoSnapshot,
-	})
-end
-
-local function normalizeMoneyAmount(value)
-	return math.max(0, math.floor((tonumber(value) or 0) + 0.5))
-end
-
-local function canUsePlayerData(player)
-	return player and player:IsA("Player") and PlayerDataService.isReady()
-end
-
-local function getCurrentMoney(player)
-	if not (player and player:IsA("Player")) then
-		return nil
-	end
-
-	if canUsePlayerData(player) then
-		local savedMoney = PlayerDataService.get(player, { "money" })
-		if savedMoney ~= nil then
-			return normalizeMoneyAmount(savedMoney)
-		end
-	end
-
-	local moneyValue = EnemyDamageService.getMoneyValue(player)
-	if moneyValue then
-		return normalizeMoneyAmount(moneyValue.Value)
-	end
-
-	return nil
-end
-
-local function trySpendMoney(player, amount)
-	local spendAmount = normalizeMoneyAmount(amount)
-	if spendAmount <= 0 then
-		return true
-	end
-	if not (player and player:IsA("Player")) then
-		return false
-	end
-
-	if canUsePlayerData(player) then
-		local didSpend = false
-		PlayerDataService.update(player, { "money" }, function(m)
-			local currentMoney = normalizeMoneyAmount(m)
-			if currentMoney < spendAmount then
-				return currentMoney
-			end
-
-			didSpend = true
-			return currentMoney - spendAmount
-		end)
-		return didSpend
-	end
-
-	local moneyValue = EnemyDamageService.getMoneyValue(player)
-	if not moneyValue or moneyValue.Value < spendAmount then
-		return false
-	end
-
-	moneyValue.Value -= spendAmount
-	return true
-end
-
-local function refundMoney(player, amount)
-	local refundAmount = normalizeMoneyAmount(amount)
-	if refundAmount <= 0 then
-		return
-	end
-	if not (player and player:IsA("Player")) then
-		return
-	end
-
-	if canUsePlayerData(player) then
-		PlayerDataService.update(player, { "money" }, function(m)
-			return normalizeMoneyAmount(m) + refundAmount
-		end)
-		return
-	end
-
-	local moneyValue = EnemyDamageService.getMoneyValue(player)
-	if moneyValue then
-		moneyValue.Value += refundAmount
-	end
+	return CatalogAndPricing.getCatalogForPlayer(
+		player,
+		ShopContextFactory.createCatalogContext({
+			config = Config,
+			classService = ClassService,
+			weaponById = weaponById,
+			remotesFolder = remotesFolder,
+			canPlayerUseWeapon = canPlayerUseWeapon,
+			playerOwnsWeapon = playerOwnsWeapon,
+			resolveWeaponClass = resolveWeaponClass,
+			getWeaponCostForPlayer = getWeaponCostForPlayer,
+			getMagazineSize = getMagazineSize,
+			getReloadSeconds = getReloadSeconds,
+			collectOwnedWeaponToolsById = collectOwnedWeaponToolsById,
+			prunePlayerSentries = prunePlayerSentries,
+			collectOwnedSentryRecordsByWeaponId = collectOwnedSentryRecordsByWeaponId,
+			getToolAmmoSnapshot = getToolAmmoSnapshot,
+			getSentryAmmoSnapshot = getSentryAmmoSnapshot,
+		})
+	)
 end
 
 local function buyWeapon(player, weaponId)
-	if not canPlayerAccessShop(player) then
-		return getShopDeniedResponse()
-	end
-
-	return PurchaseFlow.buyWeapon(player, weaponId, {
-		weaponById = weaponById,
-		canPurchaseNow = canPurchaseNow,
-		canPlayerUseWeapon = canPlayerUseWeapon,
-		getClassRestrictionMessage = getClassRestrictionMessage,
-		getRequiredOwnedWeaponId = getRequiredOwnedWeaponId,
-		playerOwnsWeapon = playerOwnsWeapon,
-		getUpgradeRestrictionMessage = getUpgradeRestrictionMessage,
-		getCurrentMoney = getCurrentMoney,
-		trySpendMoney = trySpendMoney,
-		refundMoney = refundMoney,
-		getWeaponCostForPlayer = getWeaponCostForPlayer,
-		createWeaponTool = WeaponToolFactory.createWeaponTool,
-	})
+	return runShopPurchaseIfAccessible(player, function()
+		return PurchaseFlow.buyWeapon(
+			player,
+			weaponId,
+			ShopContextFactory.createWeaponPurchaseContext({
+				weaponById = weaponById,
+				canPurchaseNow = canPurchaseNow,
+				canPlayerUseWeapon = canPlayerUseWeapon,
+				getClassRestrictionMessage = getClassRestrictionMessage,
+				getRequiredOwnedWeaponId = getRequiredOwnedWeaponId,
+				playerOwnsWeapon = playerOwnsWeapon,
+				getUpgradeRestrictionMessage = getUpgradeRestrictionMessage,
+				getCurrentMoney = getCurrentMoney,
+				trySpendMoney = trySpendMoney,
+				refundMoney = refundMoney,
+				getWeaponCostForPlayer = getWeaponCostForPlayer,
+				createWeaponTool = WeaponToolFactory.createWeaponTool,
+			})
+		)
+	end)
 end
 
 local function buyAmmoForWeapon(player, weaponId)
-	if not canPlayerAccessShop(player) then
-		return getShopDeniedResponse()
-	end
-
-	return PurchaseFlow.buyAmmoForWeapon(player, weaponId, {
-		weaponById = weaponById,
-		canPurchaseNow = canPurchaseNow,
-		canPlayerUseWeapon = canPlayerUseWeapon,
-		getClassRestrictionMessage = getClassRestrictionMessage,
-		collectAmmoRefillQuotesForOwnedWeapons = collectAmmoRefillQuotesForOwnedWeapons,
-		getCurrentMoney = getCurrentMoney,
-		trySpendMoney = trySpendMoney,
-		refundMoney = refundMoney,
-		refillAmmoForTool = refillAmmoForTool,
-		refillAmmoForSentryRecords = refillAmmoForSentryRecords,
-	})
+	return runShopPurchaseIfAccessible(player, function()
+		return PurchaseFlow.buyAmmoForWeapon(
+			player,
+			weaponId,
+			ShopContextFactory.createAmmoPurchaseContext({
+				weaponById = weaponById,
+				canPurchaseNow = canPurchaseNow,
+				canPlayerUseWeapon = canPlayerUseWeapon,
+				getClassRestrictionMessage = getClassRestrictionMessage,
+				collectAmmoRefillQuotesForOwnedWeapons = collectAmmoRefillQuotesForOwnedWeapons,
+				getCurrentMoney = getCurrentMoney,
+				trySpendMoney = trySpendMoney,
+				refundMoney = refundMoney,
+				refillAmmoForTool = refillAmmoForTool,
+				refillAmmoForSentryRecords = refillAmmoForSentryRecords,
+			})
+		)
+	end)
 end
 
 local function buyAmmoForAllOwnedWeapons(player)
-	if not canPlayerAccessShop(player) then
-		return getShopDeniedResponse()
-	end
-
-	return PurchaseFlow.buyAmmoForAllOwnedWeapons(player, {
-		weaponById = weaponById,
-		canPurchaseNow = canPurchaseNow,
-		collectAmmoRefillQuotesForOwnedWeapons = collectAmmoRefillQuotesForOwnedWeapons,
-		getCurrentMoney = getCurrentMoney,
-		trySpendMoney = trySpendMoney,
-		refundMoney = refundMoney,
-		refillAmmoForTool = refillAmmoForTool,
-		refillAmmoForSentryRecords = refillAmmoForSentryRecords,
-	})
+	return runShopPurchaseIfAccessible(player, function()
+		return PurchaseFlow.buyAmmoForAllOwnedWeapons(
+			player,
+			ShopContextFactory.createAllAmmoPurchaseContext({
+				weaponById = weaponById,
+				canPurchaseNow = canPurchaseNow,
+				collectAmmoRefillQuotesForOwnedWeapons = collectAmmoRefillQuotesForOwnedWeapons,
+				getCurrentMoney = getCurrentMoney,
+				trySpendMoney = trySpendMoney,
+				refundMoney = refundMoney,
+				refillAmmoForTool = refillAmmoForTool,
+				refillAmmoForSentryRecords = refillAmmoForSentryRecords,
+			})
+		)
+	end)
 end
 
 function ShopService.refillPlayerAmmo(player, options)
-	if not player or not player:IsA("Player") then
+	if not isPlayerInstance(player) then
 		return false
 	end
 
@@ -461,8 +431,7 @@ end
 
 local function ensureTraderPrompt()
 	local traderConfig = getTraderConfig()
-	local modelName = traderConfig.ModelName or "WeaponTrader"
-	local partName = traderConfig.PartName or "TraderRoot"
+	local modelName, partName = getTraderNames(traderConfig)
 
 	local traderModel = Workspace:FindFirstChild(modelName)
 	if not (traderModel and traderModel:IsA("Model")) then
@@ -471,10 +440,7 @@ local function ensureTraderPrompt()
 		traderModel.Parent = Workspace
 	end
 
-	local rootPart = traderModel:FindFirstChild(partName)
-	if not (rootPart and rootPart:IsA("BasePart")) then
-		rootPart = traderModel:FindFirstChildWhichIsA("BasePart")
-	end
+	local rootPart = findTraderRootPart(traderModel, partName)
 
 	if not rootPart then
 		rootPart = Instance.new("Part")
@@ -508,6 +474,13 @@ local function ensureTraderPrompt()
 			shopOpenRemote:FireClient(player)
 		end
 	end)
+end
+
+local function getInvalidRequestResponse(message)
+	return {
+		success = false,
+		message = message,
+	}
 end
 
 function ShopService.start()
@@ -573,7 +546,7 @@ function ShopService.start()
 
 	if not classChangedCleanupDisconnect and type(ClassService.registerClassChangedCallback) == "function" then
 		classChangedCleanupDisconnect = ClassService.registerClassChangedCallback(function(player, previousClassId, selectedClassId)
-			if not player or not player:IsA("Player") then
+			if not isPlayerInstance(player) then
 				return
 			end
 			if previousClassId == selectedClassId then
@@ -588,10 +561,7 @@ function ShopService.start()
 
 	shopBuyWeaponFunction.OnServerInvoke = function(player, weaponId)
 		if type(weaponId) ~= "string" then
-			return {
-				success = false,
-				message = "Invalid purchase request.",
-			}
+			return getInvalidRequestResponse("Invalid purchase request.")
 		end
 
 		return buyWeapon(player, weaponId)
@@ -603,10 +573,7 @@ function ShopService.start()
 		end
 
 		if type(request) ~= "table" then
-			return {
-				success = false,
-				message = "Invalid ammo purchase request.",
-			}
+			return getInvalidRequestResponse("Invalid ammo purchase request.")
 		end
 
 		if request.allOwned == true then
@@ -615,10 +582,7 @@ function ShopService.start()
 
 		local weaponId = request.weaponId
 		if type(weaponId) ~= "string" or weaponId == "" then
-			return {
-				success = false,
-				message = "Invalid weapon ammo request.",
-			}
+			return getInvalidRequestResponse("Invalid weapon ammo request.")
 		end
 
 		return buyAmmoForWeapon(player, weaponId)

@@ -1,4 +1,5 @@
 local ClassStateSync = {}
+local PUSH_THROTTLE_SECONDS = 0.2
 
 function ClassStateSync.new(config)
 	local syncConfig = config or {}
@@ -18,6 +19,29 @@ function ClassStateSync.new(config)
 	local pushThrottleByPlayer = {}
 	local api = {}
 
+	local function buildClassPayloadEntry(state, listedClass, maxLevel)
+		local progress = getOrCreateClassProgress(state, listedClass.Id)
+		local level = math.clamp(math.floor(tonumber(progress.level) or 1), 1, maxLevel)
+		local xp = math.max(0, tonumber(progress.xp) or 0)
+		local xpToNext = getXpRequiredForNextLevel(listedClass, level)
+		local classBonuses = getBonusesAtLevel(listedClass, level)
+		local perLevelBonuses = buildPerLevelBonusesFromConfig(listedClass.Bonuses)
+		local classCurrentBonuses = buildCurrentBonusesWithFallback(classBonuses, perLevelBonuses, level)
+
+		return {
+			id = listedClass.Id,
+			name = listedClass.DisplayName,
+			description = listedClass.Description,
+			weaponTag = listedClass.WeaponTag,
+			level = level,
+			xp = xp,
+			xpToNext = xpToNext,
+			isCurrent = listedClass.Id == state.selectedClassId,
+			currentBonuses = classCurrentBonuses,
+			perLevelBonuses = perLevelBonuses,
+		}
+	end
+
 	function api.buildPayloadForPlayer(player)
 		local state = getOrCreatePlayerState(player)
 		local classDef = getPlayerClassDefinition(player)
@@ -30,6 +54,7 @@ function ClassStateSync.new(config)
 
 		local canSwitch, waveState = canSwitchClassNow()
 		local currentProgress = getOrCreateClassProgress(state, classDef.Id)
+		local maxLevel = getMaxLevel()
 		local selectedClassBonuses = getBonusesAtLevel(classDef, currentProgress.level)
 		local selectedPerLevelBonuses = buildPerLevelBonusesFromConfig(classDef.Bonuses)
 		local currentBonuses = buildCurrentBonusesWithFallback(
@@ -40,33 +65,14 @@ function ClassStateSync.new(config)
 
 		local classes = {}
 		for _, listedClass in ipairs(getClassOrder()) do
-			local progress = getOrCreateClassProgress(state, listedClass.Id)
-			local level = math.clamp(math.floor(tonumber(progress.level) or 1), 1, getMaxLevel())
-			local xp = math.max(0, tonumber(progress.xp) or 0)
-			local xpToNext = getXpRequiredForNextLevel(listedClass, level)
-			local classBonuses = getBonusesAtLevel(listedClass, level)
-			local perLevelBonuses = buildPerLevelBonusesFromConfig(listedClass.Bonuses)
-			local classCurrentBonuses = buildCurrentBonusesWithFallback(classBonuses, perLevelBonuses, level)
-
-			table.insert(classes, {
-				id = listedClass.Id,
-				name = listedClass.DisplayName,
-				description = listedClass.Description,
-				weaponTag = listedClass.WeaponTag,
-				level = level,
-				xp = xp,
-				xpToNext = xpToNext,
-				isCurrent = listedClass.Id == state.selectedClassId,
-				currentBonuses = classCurrentBonuses,
-				perLevelBonuses = perLevelBonuses,
-			})
+			table.insert(classes, buildClassPayloadEntry(state, listedClass, maxLevel))
 		end
 
 		return {
 			success = true,
 			canSwitch = canSwitch,
 			waveState = waveState,
-			maxLevel = getMaxLevel(),
+			maxLevel = maxLevel,
 			currentClassId = classDef.Id,
 			currentClassName = classDef.DisplayName,
 			currentBonuses = currentBonuses,
@@ -87,7 +93,7 @@ function ClassStateSync.new(config)
 				return
 			end
 		end
-		pushThrottleByPlayer[player] = now + 0.2
+		pushThrottleByPlayer[player] = now + PUSH_THROTTLE_SECONDS
 
 		local payload = api.buildPayloadForPlayer(player)
 		payload.reason = reason

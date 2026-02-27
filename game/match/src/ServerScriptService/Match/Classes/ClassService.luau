@@ -5,6 +5,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local ClassCombatRules = require(script.Parent.ClassCombatRules)
 local ClassProgression = require(ServerScriptService.Shared.Classes.ClassProgression)
+local ClassStateHelpers = require(ServerScriptService.Shared.Classes.ClassStateHelpers)
 local ClassRuntimeEffects = require(script.Parent.ClassRuntimeEffects)
 local ClassStateSync = require(script.Parent.ClassStateSync)
 local PlayerDataService = require(ServerScriptService.Shared.PlayerData.PlayerDataService)
@@ -42,13 +43,7 @@ local function ensureRemote(parent, className, name)
 	return instance
 end
 
-local function normalizeToken(value)
-	if type(value) ~= "string" then
-		return ""
-	end
-
-	return string.lower((string.gsub(value, "[^%w]", "")))
-end
+local normalizeToken = ClassStateHelpers.normalizeToken
 
 local function getClassSystemConfig()
 	return Config.ClassSystem or {}
@@ -68,93 +63,25 @@ local function writeClassStateToDataService(player, state)
 	if not PlayerDataService.isReady() or not state then
 		return
 	end
-	local copy = {
-		selectedClassId = state.selectedClassId or "",
-		progressByClassId = {},
-	}
-	for classId, progress in pairs(state.progressByClassId or {}) do
-		copy.progressByClassId[classId] = {
-			level = math.floor(tonumber(progress.level) or 1),
-			xp = math.max(0, tonumber(progress.xp) or 0),
-		}
-	end
-	PlayerDataService.set(player, { "classes" }, copy)
+
+	PlayerDataService.set(player, { "classes" }, ClassStateHelpers.copyStateForPersistence(state))
 end
 
 getDefaultClassId = function()
-	local configured = normalizeToken(getClassSystemConfig().DefaultClassId)
-	if configured ~= "" and classById[configured] then
-		return configured
-	end
-
-	local firstClass = classOrder[1]
-	if firstClass then
-		return firstClass.Id
-	end
-
-	return ""
+	return ClassStateHelpers.getDefaultClassId(getClassSystemConfig(), classById, classOrder)
 end
 
 local function getXpRequiredForNextLevel(classDef, level)
 	return ClassProgression.getXpRequiredForNextLevel(getClassSystemConfig(), classDef, level)
 end
 
-local function isKnownClassId(classId)
-	return classById[classId] ~= nil
-end
-
-local function sanitizeLoadedProgress(classId, rawProgress)
-	if type(rawProgress) ~= "table" then
-		return nil
-	end
-
-	local classDef = classById[classId]
-	if not classDef then
-		return nil
-	end
-
-	local maxLevel = getMaxLevel()
-	local level = math.clamp(math.floor(tonumber(rawProgress.level) or 1), 1, maxLevel)
-	local xp = math.max(0, tonumber(rawProgress.xp) or 0)
-	local xpToNext = getXpRequiredForNextLevel(classDef, level)
-	if xpToNext then
-		xp = math.min(xp, math.max(0, xpToNext - 1))
-	else
-		level = maxLevel
-		xp = 0
-	end
-
-	return {
-		level = level,
-		xp = xp,
-	}
-end
-
 local function applyPersistedStateToPlayerState(state, persistedState)
-	local selectedClassId = normalizeToken(persistedState and persistedState.selectedClassId)
-	if selectedClassId == "" or not classById[selectedClassId] then
-		selectedClassId = getDefaultClassId()
-	end
-
-	state.selectedClassId = selectedClassId
-	table.clear(state.progressByClassId)
-
-	if type(persistedState) == "table" and type(persistedState.progressByClassId) == "table" then
-		for classId, rawProgress in pairs(persistedState.progressByClassId) do
-			local normalizedClassId = normalizeToken(classId)
-			local sanitizedProgress = sanitizeLoadedProgress(normalizedClassId, rawProgress)
-			if sanitizedProgress then
-				state.progressByClassId[normalizedClassId] = sanitizedProgress
-			end
-		end
-	end
-
-	if selectedClassId ~= "" and not state.progressByClassId[selectedClassId] then
-		state.progressByClassId[selectedClassId] = {
-			level = 1,
-			xp = 0,
-		}
-	end
+	ClassStateHelpers.applyPersistedStateToPlayerState(state, persistedState, {
+		classById = classById,
+		defaultClassId = getDefaultClassId(),
+		maxLevel = getMaxLevel(),
+		getXpRequiredForNextLevel = getXpRequiredForNextLevel,
+	})
 end
 
 local function getBonusesAtLevel(classDef, level)
@@ -173,22 +100,23 @@ local function buildClassRegistry()
 	table.clear(classById)
 	table.clear(classOrder)
 
-	for _, rawClass in ipairs(getClassSystemConfig().Classes or {}) do
-		if type(rawClass) == "table" then
-			local id = normalizeToken(rawClass.Id)
-			if id ~= "" then
-				local classDef = {
-					Id = id,
-					DisplayName = tostring(rawClass.DisplayName or rawClass.Id),
-					Description = tostring(rawClass.Description or ""),
-					WeaponTag = tostring(rawClass.WeaponTag or rawClass.Id),
-					Progression = rawClass.Progression or {},
-					Bonuses = rawClass.Bonuses or {},
-				}
-				classById[id] = classDef
-				table.insert(classOrder, classDef)
-			end
-		end
+	local builtClassById, builtClassOrder, duplicateClassIds =
+		ClassStateHelpers.buildClassRegistry(getClassSystemConfig())
+
+	for classId, classDef in pairs(builtClassById) do
+		classById[classId] = classDef
+	end
+	for _, classDef in ipairs(builtClassOrder) do
+		table.insert(classOrder, classDef)
+	end
+
+	local duplicateIds = {}
+	for classId in pairs(duplicateClassIds) do
+		table.insert(duplicateIds, classId)
+	end
+	table.sort(duplicateIds)
+	for _, classId in ipairs(duplicateIds) do
+		warn(string.format("ClassService found duplicate class id '%s'; using the last definition.", classId))
 	end
 end
 
@@ -217,17 +145,7 @@ local function getOrCreatePlayerState(player)
 end
 
 local function getOrCreateClassProgress(state, classId)
-	local progress = state.progressByClassId[classId]
-	if progress then
-		return progress
-	end
-
-	progress = {
-		level = 1,
-		xp = 0,
-	}
-	state.progressByClassId[classId] = progress
-	return progress
+	return ClassStateHelpers.getOrCreateClassProgress(state, classId)
 end
 
 local function resolveWaveState()

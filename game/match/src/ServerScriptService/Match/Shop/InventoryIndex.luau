@@ -1,5 +1,14 @@
 local InventoryIndex = {}
 
+local function normalizeWeaponId(weaponId)
+	local normalizedWeaponId = tostring(weaponId or "")
+	if normalizedWeaponId == "" then
+		return nil
+	end
+
+	return normalizedWeaponId
+end
+
 local function shouldIncludeContainer(container, seen)
 	if not container then
 		return false
@@ -69,8 +78,8 @@ function InventoryIndex.getAllTools(player, options)
 end
 
 function InventoryIndex.getWeaponToolsById(player, weaponId, options)
-	local normalizedWeaponId = tostring(weaponId or "")
-	if normalizedWeaponId == "" then
+	local normalizedWeaponId = normalizeWeaponId(weaponId)
+	if not normalizedWeaponId then
 		return {}
 	end
 
@@ -98,8 +107,8 @@ function InventoryIndex.collectFirstWeaponToolById(player, options)
 end
 
 function InventoryIndex.hasWeaponTool(player, weaponId, options)
-	local normalizedWeaponId = tostring(weaponId or "")
-	if normalizedWeaponId == "" then
+	local normalizedWeaponId = normalizeWeaponId(weaponId)
+	if not normalizedWeaponId then
 		return false
 	end
 
@@ -113,8 +122,8 @@ function InventoryIndex.hasWeaponTool(player, weaponId, options)
 end
 
 function InventoryIndex.destroyWeaponToolsById(player, weaponId, options)
-	local normalizedWeaponId = tostring(weaponId or "")
-	if normalizedWeaponId == "" then
+	local normalizedWeaponId = normalizeWeaponId(weaponId)
+	if not normalizedWeaponId then
 		return false
 	end
 

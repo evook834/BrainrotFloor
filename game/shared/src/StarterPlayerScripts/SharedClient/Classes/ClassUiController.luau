@@ -14,6 +14,7 @@ type ClassPayload = {
 }
 
 local REMOTE_WAIT = 15
+local DEFAULT_MAX_LEVEL = 200
 
 local function formatPercent(value: number?): string
 	return string.format("%.1f%%", tonumber(value) or 0)
@@ -125,6 +126,22 @@ local function buildBonusInfoText(classData: any): string
 	return table.concat(lines, "\n")
 end
 
+local function getPayloadMaxLevel(payload: ClassPayload): number
+	local maxLevel = tonumber(payload and payload.maxLevel)
+	if type(maxLevel) ~= "number" then
+		return DEFAULT_MAX_LEVEL
+	end
+	return math.max(1, math.floor(maxLevel))
+end
+
+local function formatXpProgressText(rawXp: number?, rawXpToNext: number?): string
+	local xpToNext = tonumber(rawXpToNext)
+	if type(xpToNext) == "number" and xpToNext > 0 then
+		return string.format("XP %.0f / %.0f", tonumber(rawXp) or 0, xpToNext)
+	end
+	return "XP MAX"
+end
+
 local function run(options: { isLobby: boolean? }?)
 	options = options or {}
 	local isLobby = options.isLobby == true
@@ -207,6 +224,7 @@ local function run(options: { isLobby: boolean? }?)
 		applySubtitleFromPayload(payload)
 
 		local canSwitch = isLobby or (payload.canSwitch == true)
+		local maxLevel = getPayloadMaxLevel(payload)
 		local currentClassData = nil
 		for _, classData in ipairs(payload.classes or {}) do
 			if classData.isCurrent then
@@ -216,12 +234,8 @@ local function run(options: { isLobby: boolean? }?)
 		end
 
 		if currentClassData then
-			local levelText = string.format("Lv %d/%d", currentClassData.level or 1, payload.maxLevel or 200)
-			local xpToNext = currentClassData.xpToNext
-			local xpText = "XP MAX"
-			if type(xpToNext) == "number" and xpToNext > 0 then
-				xpText = string.format("XP %.0f / %.0f", currentClassData.xp or 0, xpToNext)
-			end
+			local levelText = string.format("Lv %d/%d", currentClassData.level or 1, maxLevel)
+			local xpText = formatXpProgressText(currentClassData.xp, currentClassData.xpToNext)
 			currentInfo.Text = string.format(
 				"Current: %s (%s)\n%s | %s\nUse the i button next to a class to view bonuses.",
 				currentClassData.name or payload.currentClassName or "?",
@@ -258,17 +272,13 @@ local function run(options: { isLobby: boolean? }?)
 			info.TextSize = 14
 			info.TextColor3 = Color3.fromRGB(228, 233, 240)
 
-			local xpToNext = classData.xpToNext
-			local xpLine = "XP MAX"
-			if type(xpToNext) == "number" and xpToNext > 0 then
-				xpLine = string.format("XP %.0f / %.0f", classData.xp or 0, xpToNext)
-			end
+			local xpLine = formatXpProgressText(classData.xp, classData.xpToNext)
 			info.Text = string.format(
 				"%s (%s)\nLv %d/%d  |  %s",
 				classData.name or classData.id or "?",
 				classData.weaponTag or "NoTag",
 				classData.level or 1,
-				payload.maxLevel or 200,
+				maxLevel,
 				xpLine
 			)
 			info.Parent = row

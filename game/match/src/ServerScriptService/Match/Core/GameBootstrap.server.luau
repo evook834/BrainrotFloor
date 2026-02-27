@@ -20,6 +20,7 @@ local ShopService = require(Match.Shop.ShopService)
 local AmmoPickupService = require(Match.Pickups.AmmoPickupService)
 local ClassService = require(Match.Classes.ClassService)
 local DifficultyService = require(Match.Difficulty.DifficultyService)
+local SpectatorService = require(Match.Spectator.SpectatorService)
 local OfflinePlayerDataEditor = require(Match.Admin.OfflinePlayerDataEditor)
 
 local PLACEHOLDER_PLACE_ID = 1234567890
@@ -222,6 +223,7 @@ local function disableHumanoidRegen(humanoid)
 	end)
 end
 
+-- Spectator state (kept in GameBootstrap for coordination with gameOverTriggered)
 local pendingRespawnByPlayer = {}
 local gameOverTriggered = false
 local winTriggered = false
@@ -333,38 +335,7 @@ local function invalidateRespawn(player)
 	pendingRespawnByPlayer[player] = (pendingRespawnByPlayer[player] or 0) + 1
 end
 
-local function hasAnyLivingPlayers()
-	for _, player in Players:GetPlayers() do
-		local character = player.Character
-		if character then
-			local humanoid = character:FindFirstChildOfClass("Humanoid")
-			if humanoid and humanoid.Health > 0 and humanoid:GetState() ~= Enum.HumanoidStateType.Dead then
-				return true
-			end
-		end
-	end
-
-	return false
-end
-
-local function getLivingPlayerUserIds()
-	local userIds = {}
-	for _, player in Players:GetPlayers() do
-		if player.Parent ~= Players then
-			continue
-		end
-		local character = player.Character
-		if not character then
-			continue
-		end
-		local humanoid = character:FindFirstChildOfClass("Humanoid")
-		if humanoid and humanoid.Health > 0 and humanoid:GetState() ~= Enum.HumanoidStateType.Dead then
-			table.insert(userIds, player.UserId)
-		end
-	end
-	return userIds
-end
-
+-- Spectator state and functions (kept for coordination with gameOverTriggered)
 local spectatingPlayers = {}
 local spectatorRemote = nil
 

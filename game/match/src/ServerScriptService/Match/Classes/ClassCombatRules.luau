@@ -8,6 +8,19 @@ function ClassCombatRules.new(config)
 
 	local api = {}
 
+	local function isValidPlayer(player)
+		return player and player:IsA("Player")
+	end
+
+	local function getPlayerBonuses(player)
+		if not isValidPlayer(player) then
+			return nil
+		end
+
+		local _, bonuses = getPlayerSelectedClassBonuses(player)
+		return bonuses
+	end
+
 	function api.isWeaponAllowedForClass(classDef, weaponDef)
 		if not classDef or type(weaponDef) ~= "table" then
 			return false
@@ -33,7 +46,7 @@ function ClassCombatRules.new(config)
 	end
 
 	function api.canPlayerUseWeapon(player, weaponDef)
-		if not player or not player:IsA("Player") then
+		if not isValidPlayer(player) then
 			return false
 		end
 		if type(weaponDef) ~= "table" then
@@ -45,7 +58,7 @@ function ClassCombatRules.new(config)
 	end
 
 	local function getPlayerWeaponBonuses(player, weaponDef)
-		if not player or not player:IsA("Player") then
+		if not isValidPlayer(player) then
 			return nil
 		end
 		if type(weaponDef) ~= "table" then
@@ -61,11 +74,7 @@ function ClassCombatRules.new(config)
 	end
 
 	function api.getWeaponDamageMultiplier(player, weaponDef)
-		if not api.canPlayerUseWeapon(player, weaponDef) then
-			return 0
-		end
-
-		local _, bonuses = getPlayerSelectedClassBonuses(player)
+		local bonuses = getPlayerWeaponBonuses(player, weaponDef)
 		if not bonuses then
 			return 0
 		end
@@ -74,11 +83,7 @@ function ClassCombatRules.new(config)
 	end
 
 	function api.getIncomingDamageMultiplier(player)
-		if not player or not player:IsA("Player") then
-			return 1
-		end
-
-		local _, bonuses = getPlayerSelectedClassBonuses(player)
+		local bonuses = getPlayerBonuses(player)
 		if not bonuses then
 			return 1
 		end
@@ -87,11 +92,7 @@ function ClassCombatRules.new(config)
 	end
 
 	function api.getRepairSpeedMultiplier(player)
-		if not player or not player:IsA("Player") then
-			return 1
-		end
-
-		local _, bonuses = getPlayerSelectedClassBonuses(player)
+		local bonuses = getPlayerBonuses(player)
 		if not bonuses then
 			return 1
 		end
@@ -100,11 +101,7 @@ function ClassCombatRules.new(config)
 	end
 
 	function api.getTurretDamageMultiplier(player)
-		if not player or not player:IsA("Player") then
-			return 1
-		end
-
-		local _, bonuses = getPlayerSelectedClassBonuses(player)
+		local bonuses = getPlayerBonuses(player)
 		if not bonuses then
 			return 1
 		end
@@ -113,14 +110,14 @@ function ClassCombatRules.new(config)
 	end
 
 	function api.getMeleeRangeMultiplier(player, weaponDef)
-		if not player or not player:IsA("Player") then
+		if not isValidPlayer(player) then
 			return 1
 		end
 		if weaponDef and type(weaponDef) == "table" and not api.canPlayerUseWeapon(player, weaponDef) then
 			return 1
 		end
 
-		local _, bonuses = getPlayerSelectedClassBonuses(player)
+		local bonuses = getPlayerBonuses(player)
 		if not bonuses then
 			return 1
 		end
