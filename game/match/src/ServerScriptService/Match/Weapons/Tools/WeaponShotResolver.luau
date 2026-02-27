@@ -1,3 +1,8 @@
+--[[
+	WeaponShotResolver — Resolves weapon muzzle origin and aim direction for firing.
+	Used by WeaponToolFactory and combat handlers (e.g. flamethrower burst).
+]]
+
 local Match = script.Parent.Parent.Parent
 local AimResolver = require(Match.Combat.AimResolver)
 

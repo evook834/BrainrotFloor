@@ -4,6 +4,7 @@
 
 local Workspace = game:GetService("Workspace")
 
+-- Handlers/ -> Combat/ -> Weapons/ -> Match
 local Match = script.Parent.Parent.Parent.Parent
 local AimResolver = require(Match.Combat.AimResolver)
 

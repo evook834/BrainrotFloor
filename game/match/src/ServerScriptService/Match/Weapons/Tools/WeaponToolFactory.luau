@@ -3,6 +3,8 @@
 	Tool setup: createWeaponTool, configureWeaponTool.
 	Player tool lookup: getEquippedWeaponTool, consumeOwnedWeaponInstances.
 	Tool event wiring (Activated/Equipped/Unequipped/Destroying) and internal fireWeapon routing.
+	Requires init() with: ammoRuntime, sentryTurretController, inventoryIndex, weaponFireRemote,
+	fireMeleeAttack, fireBulletShot, getClassFireHandlers (from WeaponFireHandlers).
 ]]
 
 local Players = game:GetService("Players")
@@ -19,9 +21,7 @@ local inventoryIndex = nil
 local weaponFireRemote = nil
 local fireMeleeAttack = nil
 local fireBulletShot = nil
-local fireRocket = nil
-local fireGrenadeLauncher = nil
-local fireFlamethrower = nil
+local getClassFireHandlers = nil
 
 local resolveWeaponClass = WeaponToolSetup.resolveWeaponClass
 local isMeleeWeaponClass = WeaponToolSetup.isMeleeWeaponClass
@@ -83,9 +83,7 @@ function init(options)
 	weaponFireRemote = options.weaponFireRemote
 	fireMeleeAttack = options.fireMeleeAttack
 	fireBulletShot = options.fireBulletShot
-	fireRocket = options.fireRocket
-	fireGrenadeLauncher = options.fireGrenadeLauncher
-	fireFlamethrower = options.fireFlamethrower
+	getClassFireHandlers = options.getClassFireHandlers
 end
 
 local function getMagazineSize(weaponDef, owner)
@@ -207,40 +205,23 @@ local function configureWeaponTool(tool, weaponDef, owner)
 		end
 	end
 
-	local weaponClassFireHandlers = {
-		SentryDeployer = function(ownerPlayer, characterModel, rootPart, _origin, _direction, shotOrigin, shotDirection)
-			local didDeploy = sentryTurretController
-				and sentryTurretController.deploySentryTurret(ownerPlayer, characterModel, rootPart, weaponDef, shotOrigin, shotDirection)
-			if didDeploy then
-				consumeOwnedWeaponInstances(ownerPlayer, weaponDef.Id)
-			end
-			return true
-		end,
-		RepairTool = function(ownerPlayer)
-			if sentryTurretController then
-				sentryTurretController.repairOwnedSentries(ownerPlayer, weaponDef)
-			end
-			return true
-		end,
-		Flamethrower = function(ownerPlayer, characterModel)
-			if fireFlamethrower then
-				fireFlamethrower(ownerPlayer, characterModel, weaponDef, state, handle)
-			end
-			return true
-		end,
-		RPG = function(ownerPlayer, characterModel, _rootPart, origin, direction, shotOrigin, shotDirection)
-			if fireRocket then
-				fireRocket(ownerPlayer, characterModel, origin, direction, weaponDef, shotOrigin, shotDirection)
-			end
-			return true
-		end,
-		GrenadeLauncher = function(ownerPlayer, characterModel, _rootPart, origin, direction, shotOrigin, shotDirection)
-			if fireGrenadeLauncher then
-				fireGrenadeLauncher(ownerPlayer, characterModel, origin, direction, weaponDef, shotOrigin, shotDirection)
-			end
-			return true
-		end,
-	}
+	local fireContext = { weaponDef = weaponDef, state = state, handle = handle }
+	local classFireHandlers = (getClassFireHandlers and getClassFireHandlers()) or {}
+	-- Tool-specific handlers that depend on factory services (sentry, inventory)
+	classFireHandlers.SentryDeployer = function(ownerPlayer, characterModel, rootPart, _origin, _direction, shotOrigin, shotDirection, _ctx)
+		local didDeploy = sentryTurretController
+			and sentryTurretController.deploySentryTurret(ownerPlayer, characterModel, rootPart, weaponDef, shotOrigin, shotDirection)
+		if didDeploy then
+			consumeOwnedWeaponInstances(ownerPlayer, weaponDef.Id)
+		end
+		return true
+	end
+	classFireHandlers.RepairTool = function(ownerPlayer, _character, _rootPart, _origin, _direction, _shotOrigin, _shotDirection, _ctx)
+		if sentryTurretController then
+			sentryTurretController.repairOwnedSentries(ownerPlayer, weaponDef)
+		end
+		return true
+	end
 
 	local function fireWeapon(owner, character, rootPart, explicitShotOrigin, explicitShotDirection)
 		if not ClassService.canPlayerUseWeapon(owner, weaponDef) then
@@ -291,9 +272,9 @@ local function configureWeaponTool(tool, weaponDef, owner)
 			return
 		end
 
-		local classFireHandler = weaponClassFireHandlers[weaponClass]
+		local classFireHandler = classFireHandlers[weaponClass]
 		if classFireHandler then
-			classFireHandler(owner, character, rootPart, origin, direction, shotOrigin, shotDirection)
+			classFireHandler(owner, character, rootPart, origin, direction, shotOrigin, shotDirection, fireContext)
 			return
 		end
 

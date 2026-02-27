@@ -106,7 +106,7 @@ Match server logic. Put each script in the folder whose description matches its 
 | **`Enemies/`** | Enemy spawn, lifecycle, AI, VFX, model/hitbox resolution, targeting. |
 | **`Combat/`** | Aim validation, damage application, feedback/DOT. |
 | **`Shop/`** | Commerce: catalog, pricing, purchase, inventory. |
-| **`Weapons/`** | Weapon and sentry runtime. Subsystems: **`Weapons/Tools/`** (tool creation, template lookup, ammo, shot origin; WeaponToolSetup, WeaponAmmoRuntime, WeaponShotResolver, WeaponToolFactory), **`Weapons/Combat/`** (fire facade/remotes/VFX; WeaponVfx, WeaponFireHandlers, WeaponRemoteBindings; per-mode handlers in `Weapons/Combat/Handlers/`), **`Weapons/Sentry/`** (orchestrator SentryTurretController; **`Sentry/Registry/`** SentryRuntime; **`Sentry/Placement/`** SentryPlacement; **`Sentry/Targeting/`** SentryTargeting; **`Sentry/Stats/`** SentryStatResolver; **`Sentry/UI/`** SentryHealthBar). |
+| **`Weapons/`** | Weapon and sentry runtime. Subsystems: **`Weapons/Tools/`** (tool creation, template lookup, ammo, shot origin; WeaponToolSetup, WeaponAmmoRuntime, WeaponShotResolver, WeaponToolFactory), **`Weapons/Combat/`** (fire facade, handler registry, remotes, VFX; WeaponVfx, WeaponFireHandlers with getClassFireHandlers() for scalable class-based dispatch; WeaponRemoteBindings; per-mode handlers in `Weapons/Combat/Handlers/`), **`Weapons/Sentry/`** (orchestrator SentryTurretController; **`Sentry/Registry/`** SentryRuntime; **`Sentry/Placement/`** SentryPlacement; **`Sentry/Targeting/`** SentryTargeting; **`Sentry/Stats/`** SentryStatResolver; **`Sentry/UI/`** SentryHealthBar). |
 | **`Classes/`** | Class selection, XP, levels, persistence, combat rules. |
 | **`Pickups/`** | Ammo zones, pickups, player pickup. |
 | **`Difficulty/`** | Difficulty settings (multipliers, etc.). |
@@ -123,7 +123,7 @@ Match client UI and HUD. Match folder names to responsibility.
 
 | Folder / file | Purpose |
 |---------------|--------|
-| **`Waves/`** | Wave HUD: WaveHud (entry), WaveHudController (logic), WaveHudView (UI). |
+| **`Waves/`** | Wave HUD: WaveHud (entry), WaveHudController (logic), WaveHudView (UI), WaveHudRemotes (remotes), CountdownToken (countdown cancellation), MapVotePayloadUtil (map-vote payload + timer text), WaveHudMessages (game-over/win copy). |
 | **`Enemies/`** | Enemy health bars, death VFX. |
 | **`Shop/`** | Shop UI (catalog, buy). |
 | **`Classes/`** | Class UI, XP bar. |

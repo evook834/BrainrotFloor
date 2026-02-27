@@ -386,7 +386,7 @@ function ShopService.start()
 	weaponReloadRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.WeaponReload)
 	damageIndicatorRemote = ensureRemote(remotesFolder, "RemoteEvent", Config.Remotes.DamageIndicator)
 
-	-- Initialize weapon tool factory
+	-- Initialize weapon tool factory (handler registry from WeaponFireHandlers for scalability)
 	WeaponToolFactory.init({
 		ammoRuntime = ammoRuntime,
 		sentryTurretController = SentryTurretController,
@@ -394,9 +394,7 @@ function ShopService.start()
 		weaponFireRemote = weaponFireRemote,
 		fireMeleeAttack = WeaponFireHandlers.fireMeleeAttack,
 		fireBulletShot = WeaponFireHandlers.fireBulletShot,
-		fireRocket = WeaponFireHandlers.fireRocket,
-		fireGrenadeLauncher = WeaponFireHandlers.fireGrenadeLauncher,
-		fireFlamethrower = WeaponFireHandlers.fireFlamethrower,
+		getClassFireHandlers = WeaponFireHandlers.getClassFireHandlers,
 	})
 
 	-- Start weapon remote bindings

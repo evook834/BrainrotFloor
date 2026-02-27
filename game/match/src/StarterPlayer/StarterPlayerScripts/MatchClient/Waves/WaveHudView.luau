@@ -18,6 +18,80 @@ local function createLine(parent: Frame, name: string, order: number): TextLabel
 	return line
 end
 
+export type MapVoteOption = {
+	placeId: number,
+	label: string,
+	votes: number,
+}
+
+function getMapVoteButtonWidth(optionCount: number): number
+	if optionCount <= 1 then return 280 end
+	if optionCount == 2 then return 230 end
+	if optionCount == 3 then return 200 end
+	return 160
+end
+
+function clearMapVoteOptionButtons(frame: Frame): ()
+	for _, child in frame:GetChildren() do
+		if child:IsA("TextButton") then
+			child:Destroy()
+		end
+	end
+end
+
+function buildMapVoteOptionButton(
+	parent: Frame,
+	option: MapVoteOption,
+	layoutOrder: number,
+	optionCount: number,
+	onActivated: () -> ()
+): TextButton
+	local buttonWidth = getMapVoteButtonWidth(optionCount)
+	local button = Instance.new("TextButton")
+	button.Name = ("Option_%d"):format(option.placeId)
+	button.LayoutOrder = layoutOrder
+	button.Size = UDim2.fromOffset(buttonWidth, 112)
+	button.BackgroundColor3 = Color3.fromRGB(34, 41, 52)
+	button.BorderSizePixel = 0
+	button.Text = ""
+	button.TextWrapped = true
+	button.TextYAlignment = Enum.TextYAlignment.Center
+	button.TextColor3 = Color3.fromRGB(224, 232, 244)
+	button.Font = Enum.Font.GothamBold
+	button.TextSize = 16
+	button.ZIndex = 22
+	button.Parent = parent
+	local buttonCorner = Instance.new("UICorner")
+	buttonCorner.CornerRadius = UDim.new(0, 10)
+	buttonCorner.Parent = button
+	local buttonStroke = Instance.new("UIStroke")
+	buttonStroke.Color = Color3.fromRGB(98, 124, 156)
+	buttonStroke.Transparency = 0.18
+	buttonStroke.Thickness = 1
+	buttonStroke.Parent = button
+	button.Activated:Connect(onActivated)
+	return button
+end
+
+function updateMapVoteButtonVisual(
+	button: TextButton,
+	option: MapVoteOption,
+	isSelected: boolean,
+	mapVoteOpen: boolean
+): ()
+	if mapVoteOpen then
+		button.Active = true
+		button.AutoButtonColor = true
+	else
+		button.Active = false
+		button.AutoButtonColor = false
+	end
+	button.BackgroundColor3 = if isSelected then Color3.fromRGB(64, 108, 166) else Color3.fromRGB(34, 41, 52)
+	button.TextColor3 = if isSelected then Color3.fromRGB(245, 250, 255) else Color3.fromRGB(224, 232, 244)
+	local markerText = if isSelected then "\nYOUR VOTE" else ""
+	button.Text = string.format("%s\nVotes: %d%s", option.label, option.votes, markerText)
+end
+
 export type ViewRefs = {
 	gui: ScreenGui,
 	topTimer: TextLabel,
@@ -387,4 +461,8 @@ end
 
 return {
 	build = build,
+	getMapVoteButtonWidth = getMapVoteButtonWidth,
+	clearMapVoteOptionButtons = clearMapVoteOptionButtons,
+	buildMapVoteOptionButton = buildMapVoteOptionButton,
+	updateMapVoteButtonVisual = updateMapVoteButtonVisual,
 }
