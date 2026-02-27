@@ -3,6 +3,7 @@ local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local ShopUiConstants = require(script.Parent:WaitForChild("ShopUiConstants"))
+local ShopUiMessages = require(script.Parent:WaitForChild("ShopUiMessages"))
 
 export type WeaponRowRefs = {
 	row: Frame,
@@ -55,7 +56,7 @@ local function build(): View
 	title.Size = UDim2.new(1, -54, 0, 36)
 	title.Position = UDim2.fromOffset(18, 10)
 	title.BackgroundTransparency = 1
-	title.Text = "Weapon Trader"
+	title.Text = ShopUiMessages.Title
 	title.TextXAlignment = Enum.TextXAlignment.Left
 	title.TextColor3 = ShopUiConstants.TitleColor
 	title.Font = Enum.Font.GothamBold
@@ -67,7 +68,7 @@ local function build(): View
 	subtitle.Size = UDim2.new(1, -24, 0, 22)
 	subtitle.Position = UDim2.fromOffset(18, 46)
 	subtitle.BackgroundTransparency = 1
-	subtitle.Text = "Buy only between waves"
+	subtitle.Text = ShopUiMessages.SubtitleInitial
 	subtitle.TextXAlignment = Enum.TextXAlignment.Left
 	subtitle.TextColor3 = ShopUiConstants.DefaultSubtitleColor
 	subtitle.Font = Enum.Font.Gotham

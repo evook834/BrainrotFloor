@@ -29,36 +29,37 @@ function buildWeaponInfoText(weapon)
 	local ammoLine = ""
 	if type(weapon.magazineSize) == "number" and weapon.magazineSize > 0 then
 		local reloadSeconds = tonumber(weapon.reloadSeconds) or 0
-		ammoLine = string.format("  MAG %d  RELOAD %.1fs", weapon.magazineSize, reloadSeconds)
+		ammoLine = string.format(ShopUiMessages.WeaponInfoMagReload, weapon.magazineSize, reloadSeconds)
 	end
 
 	local displayedRange = math.max(0, math.floor((tonumber(weapon.effectiveRange) or tonumber(weapon.range) or 0) + 0.5))
-	local rangeText = string.format("RANGE %d", displayedRange)
+	local rangeText = string.format(ShopUiMessages.WeaponInfoRange, displayedRange)
 	local rangeBonusPct = tonumber(weapon.rangeBonusPct) or 0
 	if rangeBonusPct >= 0.05 then
-		rangeText = string.format("RANGE %d (+%.1f%% class)", displayedRange, rangeBonusPct)
+		rangeText = string.format(ShopUiMessages.WeaponInfoRangeBonus, displayedRange, rangeBonusPct)
 	end
 
 	local ownedAmmoLine = ""
 	if weapon.owned and type(weapon.currentAmmoTotal) == "number" and type(weapon.maxAmmoTotal) == "number" and weapon.maxAmmoTotal > 0 then
 		local currentTotal = roundWholeNumber(weapon.currentAmmoTotal)
 		local maxTotal = roundWholeNumber(weapon.maxAmmoTotal)
-		ownedAmmoLine = string.format("  AMMO %d/%d", currentTotal, maxTotal)
+		ownedAmmoLine = string.format(ShopUiMessages.WeaponInfoAmmo, currentTotal, maxTotal)
 	end
 
 	local upgradeLine = ""
 	if not weapon.owned and type(weapon.requiresWeaponName) == "string" and weapon.requiresWeaponName ~= "" then
+		local upperName = string.upper(weapon.requiresWeaponName)
 		if weapon.upgradeLocked == true then
-			upgradeLine = string.format("  REQUIRES %s", string.upper(weapon.requiresWeaponName))
+			upgradeLine = string.format(ShopUiMessages.WeaponInfoRequires, upperName)
 		else
-			upgradeLine = string.format("  UPGRADE FROM %s", string.upper(weapon.requiresWeaponName))
+			upgradeLine = string.format(ShopUiMessages.WeaponInfoUpgradeFrom, upperName)
 		end
 	end
 
 	return string.format(
-		"%s (%s)  |  $%d\nDMG %d  %s  CD %.2fs%s%s%s",
-		weapon.name or weapon.id or "?",
-		weapon.weaponClass or "Weapon",
+		ShopUiMessages.WeaponInfoFormat,
+		weapon.name or weapon.id or ShopUiMessages.WeaponInfoNameDefault,
+		weapon.weaponClass or ShopUiMessages.WeaponInfoClassDefault,
 		weapon.cost or 0,
 		weapon.damage or 0,
 		rangeText,

@@ -127,7 +127,7 @@ Match client UI and HUD. Match folder names to responsibility.
 | **`Enemies/`** | Enemy health bars, death VFX. |
 | **`Shop/`** | Shop UI: ShopUi (entry), ShopUiController, ShopUiView, ShopUiRemotes (remote resolution), ShopUiConstants (colors), ShopUiCatalogDisplay (catalog/row display logic), ShopUiMessages (user-facing copy). |
 | **`Classes/`** | Class UI; **`Classes/XpBarHud/`** — XP bar: XpBarHud (entry), XpBarHudController, XpBarHudView, XpBarHudRemotes, XpBarHudPayloadUtil. |
-| **`Combat/`** | Crosshair, ammo HUD, dual-wield pose, damage numbers. |
+| **`Combat/`** | Crosshair (entry under **`Combat/Crosshair/`**), ammo HUD, dual-wield pose, damage numbers. **`Combat/Crosshair/`** — Crosshair system: Crosshair (entry), CrosshairController, CrosshairView, CrosshairRemotes, CrosshairConstants, CrosshairWeaponConfig, DualWieldPose, SentryPlacementPreview. |
 | **`Settings/`** | Match settings UI. |
 | **`Spectator/`** | Spectator mode client: Spectator (entry), SpectatorController (logic), SpectatorView (UI). |
 | **`ReturnToLobby/`** | Placeholder for return-to-lobby client. |

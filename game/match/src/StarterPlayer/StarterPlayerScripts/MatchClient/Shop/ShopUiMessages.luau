@@ -4,6 +4,10 @@
 ]]
 
 local ShopUiMessages = {
+	-- View: panel title and initial subtitle
+	Title = "Weapon Trader",
+	SubtitleInitial = "Buy only between waves",
+
 	-- Controller: shop actions
 	ShopActionFailedRemote = "Shop action failed: remote error.",
 	ShopActionSuccessDefault = "Shop action successful.",
@@ -36,6 +40,17 @@ local ShopUiMessages = {
 	RowFullAmmo = "Full Ammo",
 	RowNeedsUpgrade = "Needs %s",
 	RowBuy = "Buy",
+
+	-- CatalogDisplay: weapon row info line format
+	WeaponInfoFormat = "%s (%s)  |  $%d\nDMG %d  %s  CD %.2fs%s%s%s",
+	WeaponInfoMagReload = "  MAG %d  RELOAD %.1fs",
+	WeaponInfoRange = "RANGE %d",
+	WeaponInfoRangeBonus = "RANGE %d (+%.1f%% class)",
+	WeaponInfoAmmo = "  AMMO %d/%d",
+	WeaponInfoRequires = "  REQUIRES %s",
+	WeaponInfoUpgradeFrom = "  UPGRADE FROM %s",
+	WeaponInfoNameDefault = "?",
+	WeaponInfoClassDefault = "Weapon",
 }
 
 return ShopUiMessages
