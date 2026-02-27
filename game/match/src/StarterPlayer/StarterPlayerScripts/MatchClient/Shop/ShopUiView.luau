@@ -2,9 +2,13 @@ local Players = game:GetService("Players")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
+local ShopUiConstants = require(script.Parent:WaitForChild("ShopUiConstants"))
 
-local DEFAULT_STATUS_COLOR = Color3.fromRGB(225, 235, 245)
-local DEFAULT_SUBTITLE_COLOR = Color3.fromRGB(175, 190, 205)
+export type WeaponRowRefs = {
+	row: Frame,
+	infoLabel: TextLabel,
+	buyButton: TextButton,
+}
 
 export type View = {
 	gui: ScreenGui,
@@ -16,6 +20,7 @@ export type View = {
 	setStatus: (text: string?, color: Color3?) -> (),
 	setSubtitle: (text: string, color: Color3?) -> (),
 	clearRows: () -> (),
+	buildWeaponRow: (listFrame: ScrollingFrame, index: number) -> WeaponRowRefs,
 }
 
 local function build(): View
@@ -29,7 +34,7 @@ local function build(): View
 	panel.Size = UDim2.fromOffset(520, 430)
 	panel.Position = UDim2.fromScale(0.5, 0.5)
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
-	panel.BackgroundColor3 = Color3.fromRGB(18, 20, 24)
+	panel.BackgroundColor3 = ShopUiConstants.PanelBackground
 	panel.BackgroundTransparency = 0.08
 	panel.BorderSizePixel = 0
 	panel.Visible = false
@@ -40,7 +45,7 @@ local function build(): View
 	panelCorner.Parent = panel
 
 	local panelStroke = Instance.new("UIStroke")
-	panelStroke.Color = Color3.fromRGB(75, 95, 120)
+	panelStroke.Color = ShopUiConstants.PanelStroke
 	panelStroke.Transparency = 0.18
 	panelStroke.Thickness = 1
 	panelStroke.Parent = panel
@@ -52,7 +57,7 @@ local function build(): View
 	title.BackgroundTransparency = 1
 	title.Text = "Weapon Trader"
 	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.TextColor3 = Color3.fromRGB(245, 248, 255)
+	title.TextColor3 = ShopUiConstants.TitleColor
 	title.Font = Enum.Font.GothamBold
 	title.TextSize = 24
 	title.Parent = panel
@@ -64,7 +69,7 @@ local function build(): View
 	subtitle.BackgroundTransparency = 1
 	subtitle.Text = "Buy only between waves"
 	subtitle.TextXAlignment = Enum.TextXAlignment.Left
-	subtitle.TextColor3 = DEFAULT_SUBTITLE_COLOR
+	subtitle.TextColor3 = ShopUiConstants.DefaultSubtitleColor
 	subtitle.Font = Enum.Font.Gotham
 	subtitle.TextSize = 14
 	subtitle.Parent = panel
@@ -73,10 +78,10 @@ local function build(): View
 	closeButton.Name = "CloseButton"
 	closeButton.Size = UDim2.fromOffset(34, 34)
 	closeButton.Position = UDim2.new(1, -42, 0, 10)
-	closeButton.BackgroundColor3 = Color3.fromRGB(52, 56, 70)
+	closeButton.BackgroundColor3 = ShopUiConstants.CloseButtonBackground
 	closeButton.BorderSizePixel = 0
 	closeButton.Text = "X"
-	closeButton.TextColor3 = Color3.fromRGB(240, 240, 245)
+	closeButton.TextColor3 = ShopUiConstants.CloseButtonText
 	closeButton.Font = Enum.Font.GothamBold
 	closeButton.TextSize = 18
 	closeButton.Parent = panel
@@ -89,10 +94,10 @@ local function build(): View
 	listFrame.Name = "ItemList"
 	listFrame.Size = UDim2.new(1, -24, 1, -166)
 	listFrame.Position = UDim2.fromOffset(12, 76)
-	listFrame.BackgroundColor3 = Color3.fromRGB(12, 13, 16)
+	listFrame.BackgroundColor3 = ShopUiConstants.ListBackground
 	listFrame.BackgroundTransparency = 0.15
 	listFrame.BorderSizePixel = 0
-	listFrame.ScrollBarImageColor3 = Color3.fromRGB(95, 115, 140)
+	listFrame.ScrollBarImageColor3 = ShopUiConstants.ListScrollBar
 	listFrame.ScrollBarThickness = 6
 	listFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	listFrame.CanvasSize = UDim2.new()
@@ -120,10 +125,10 @@ local function build(): View
 	refillAllButton.Name = "RefillAllButton"
 	refillAllButton.Size = UDim2.fromOffset(214, 34)
 	refillAllButton.Position = UDim2.new(1, -226, 1, -76)
-	refillAllButton.BackgroundColor3 = Color3.fromRGB(62, 64, 72)
+	refillAllButton.BackgroundColor3 = ShopUiConstants.RefillAllButtonDefault
 	refillAllButton.BorderSizePixel = 0
 	refillAllButton.AutoButtonColor = false
-	refillAllButton.TextColor3 = Color3.fromRGB(240, 245, 240)
+	refillAllButton.TextColor3 = ShopUiConstants.ButtonText
 	refillAllButton.Font = Enum.Font.GothamBold
 	refillAllButton.TextSize = 13
 	refillAllButton.Text = "Refill All Owned"
@@ -140,7 +145,7 @@ local function build(): View
 	statusLabel.BackgroundTransparency = 1
 	statusLabel.TextXAlignment = Enum.TextXAlignment.Left
 	statusLabel.Text = ""
-	statusLabel.TextColor3 = DEFAULT_STATUS_COLOR
+	statusLabel.TextColor3 = ShopUiConstants.DefaultStatusColor
 	statusLabel.Font = Enum.Font.GothamSemibold
 	statusLabel.TextSize = 14
 	statusLabel.Parent = panel
@@ -150,7 +155,7 @@ local function build(): View
 		if color then
 			statusLabel.TextColor3 = color
 		else
-			statusLabel.TextColor3 = DEFAULT_STATUS_COLOR
+			statusLabel.TextColor3 = ShopUiConstants.DefaultStatusColor
 		end
 	end
 
@@ -159,7 +164,7 @@ local function build(): View
 		if color then
 			subtitle.TextColor3 = color
 		else
-			subtitle.TextColor3 = DEFAULT_SUBTITLE_COLOR
+			subtitle.TextColor3 = ShopUiConstants.DefaultSubtitleColor
 		end
 	end
 
@@ -169,6 +174,55 @@ local function build(): View
 				child:Destroy()
 			end
 		end
+	end
+
+	local function buildWeaponRow(parentListFrame: ScrollingFrame, index: number): WeaponRowRefs
+		local row = Instance.new("Frame")
+		row.Name = "WeaponRow_" .. tostring(index)
+		row.Size = UDim2.new(1, -4, 0, 64)
+		row.BackgroundColor3 = ShopUiConstants.RowBackground
+		row.BorderSizePixel = 0
+		row.LayoutOrder = index
+		row.Parent = parentListFrame
+
+		local rowCorner = Instance.new("UICorner")
+		rowCorner.CornerRadius = UDim.new(0, 8)
+		rowCorner.Parent = row
+
+		local info = Instance.new("TextLabel")
+		info.Name = "Info"
+		info.Size = UDim2.new(1, -146, 1, 0)
+		info.Position = UDim2.fromOffset(10, 0)
+		info.BackgroundTransparency = 1
+		info.TextXAlignment = Enum.TextXAlignment.Left
+		info.TextYAlignment = Enum.TextYAlignment.Center
+		info.TextWrapped = true
+		info.Font = Enum.Font.GothamSemibold
+		info.TextSize = 14
+		info.TextColor3 = ShopUiConstants.InfoText
+		info.Parent = row
+
+		local buyButton = Instance.new("TextButton")
+		buyButton.Name = "BuyButton"
+		buyButton.Size = UDim2.fromOffset(118, 40)
+		buyButton.Position = UDim2.new(1, -126, 0.5, -20)
+		buyButton.BackgroundColor3 = ShopUiConstants.ButtonEnabled
+		buyButton.BorderSizePixel = 0
+		buyButton.TextColor3 = ShopUiConstants.ButtonText
+		buyButton.Font = Enum.Font.GothamBold
+		buyButton.TextSize = 14
+		buyButton.Text = "Buy"
+		buyButton.Parent = row
+
+		local buyCorner = Instance.new("UICorner")
+		buyCorner.CornerRadius = UDim.new(0, 8)
+		buyCorner.Parent = buyButton
+
+		return {
+			row = row,
+			infoLabel = info,
+			buyButton = buyButton,
+		}
 	end
 
 	return {
@@ -181,6 +235,7 @@ local function build(): View
 		setStatus = setStatus,
 		setSubtitle = setSubtitle,
 		clearRows = clearRows,
+		buildWeaponRow = buildWeaponRow,
 	}
 end
 
