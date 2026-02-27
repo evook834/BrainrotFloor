@@ -7,7 +7,6 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Match = script.Parent.Parent.Parent.Parent
-local AimResolver = require(Match.Combat.AimResolver)
 local EnemyTargeting = require(Match.Enemies.EnemyTargeting)
 local EnemyDamageService = require(Match.Combat.EnemyDamageService)
 local WeaponVfx = require(script.Parent.Parent.WeaponVfx)
@@ -19,6 +18,7 @@ local createExplosionEffect = WeaponVfx.createExplosionEffect
 local resolveShotRay = WeaponCombatShared.resolveShotRay
 local resolveAimTargetPosition = WeaponCombatShared.resolveAimTargetPosition
 local retargetDirectionToward = WeaponCombatShared.retargetDirectionToward
+local buildWeaponRaycastParams = WeaponCombatShared.buildWeaponRaycastParams
 
 local function fireRocket(player, character, origin, direction, weaponDef, shotOrigin, shotDirection, damageContext)
 	local speed = math.max(30, tonumber(weaponDef.ProjectileSpeed) or 140)
@@ -55,7 +55,7 @@ local function fireRocket(player, character, origin, direction, weaponDef, shotO
 	task.spawn(function()
 		local currentPosition = origin
 		local traveled = 0
-		local raycastParams = AimResolver.buildWeaponRaycastParams(character, { rocket })
+		local raycastParams = buildWeaponRaycastParams(character, { rocket })
 
 		while rocket.Parent and traveled < range do
 			local deltaTime = RunService.Heartbeat:Wait()
@@ -146,7 +146,7 @@ local function fireGrenadeLauncher(player, character, origin, direction, weaponD
 		local velocity = direction * speed
 		local elapsed = 0
 		local traveled = 0
-		local raycastParams = AimResolver.buildWeaponRaycastParams(character, { grenade })
+		local raycastParams = buildWeaponRaycastParams(character, { grenade })
 		local directTarget = nil
 
 		while grenade.Parent and elapsed < fuseSeconds and traveled < range do

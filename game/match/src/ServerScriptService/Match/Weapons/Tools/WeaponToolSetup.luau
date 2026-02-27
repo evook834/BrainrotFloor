@@ -144,21 +144,6 @@ function WeaponToolSetup.stopDualWieldArmPose(state)
 	state.offhandRightShoulderState = nil
 end
 
-local function _isR6ShoulderMotor(motor)
-	if not motor or not motor:IsA("Motor6D") then
-		return false
-	end
-	if motor.Name == "Left Shoulder" or motor.Name == "Right Shoulder" then
-		return true
-	end
-	local part1 = motor.Part1
-	if not part1 then
-		return false
-	end
-	local part1Name = string.lower(part1.Name)
-	return part1Name == "left arm" or part1Name == "right arm"
-end
-
 function WeaponToolSetup.startDualWieldArmPose(character, state)
 	WeaponToolSetup.stopDualWieldArmPose(state)
 	-- Client handles the dual-wield arm pose locally to avoid server/client joint conflicts.

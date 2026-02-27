@@ -102,7 +102,7 @@ Match server logic. Put each script in the folder whose description matches its 
 | **`Enemies/`** | Enemy spawn, lifecycle, AI, VFX, model/hitbox resolution, targeting. |
 | **`Combat/`** | Aim validation, damage application, feedback/DOT. |
 | **`Shop/`** | Commerce: catalog, pricing, purchase, inventory. |
-| **`Weapons/`** | Weapon and sentry runtime. Subsystems: **`Weapons/Tools/`** (tool creation, template lookup, ammo, shot origin; WeaponToolSetup, WeaponAmmoRuntime, WeaponShotResolver, WeaponToolFactory), **`Weapons/Combat/`** (fire facade/remotes/VFX; WeaponVfx, WeaponFireHandlers, WeaponRemoteBindings; per-mode handlers in `Weapons/Combat/Handlers/`), **`Weapons/Sentry/`** (deploy, placement, combat loop, repair, stat normalization; SentryRuntime, SentryTurretController, SentryStatResolver). |
+| **`Weapons/`** | Weapon and sentry runtime. Subsystems: **`Weapons/Tools/`** (tool creation, template lookup, ammo, shot origin; WeaponToolSetup, WeaponAmmoRuntime, WeaponShotResolver, WeaponToolFactory), **`Weapons/Combat/`** (fire facade/remotes/VFX; WeaponVfx, WeaponFireHandlers, WeaponRemoteBindings; per-mode handlers in `Weapons/Combat/Handlers/`), **`Weapons/Sentry/`** (deploy, placement, combat loop, repair, targeting, stat/health UI helpers; SentryRuntime, SentryTurretController, SentryStatResolver, SentryPlacement, SentryHealthBar, SentryTargeting). |
 | **`Classes/`** | Class selection, XP, levels, persistence, combat rules. |
 | **`Pickups/`** | Ammo zones, pickups, player pickup. |
 | **`Difficulty/`** | Difficulty settings (multipliers, etc.). |

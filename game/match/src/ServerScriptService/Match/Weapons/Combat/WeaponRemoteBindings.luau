@@ -17,7 +17,9 @@ local function start(context)
 	if started then
 		return
 	end
-	started = true
+	if type(context) ~= "table" then
+		return
+	end
 
 	local weaponAimRemote = context.weaponAimRemote
 	local weaponFireRemote = context.weaponFireRemote
@@ -29,6 +31,11 @@ local function start(context)
 	local classService = context.classService
 	local weaponToolFactory = context.weaponToolFactory
 	local sentryRuntime = context.sentryRuntime
+	if not weaponById or not toolRuntimeState or not ammoRuntime or not classService or not weaponToolFactory or not sentryRuntime then
+		return
+	end
+
+	started = true
 
 	local function canPlayerUseWeapon(player, weaponDef)
 		return classService.canPlayerUseWeapon(player, weaponDef)

@@ -7,19 +7,20 @@ local Workspace = game:GetService("Workspace")
 
 local Match = script.Parent.Parent.Parent.Parent
 local Weapons = script.Parent.Parent.Parent
-local AimResolver = require(Match.Combat.AimResolver)
 local EnemyTargeting = require(Match.Enemies.EnemyTargeting)
 local EnemyDamageService = require(Match.Combat.EnemyDamageService)
-local WeaponToolFactory = require(Weapons.Tools.WeaponToolFactory)
+local WeaponShotResolver = require(Weapons.Tools.WeaponShotResolver)
 local WeaponVfx = require(script.Parent.Parent.WeaponVfx)
+local WeaponCombatShared = require(script.Parent.WeaponCombatShared)
 
 local getEffectsFolder = WeaponVfx.getEffectsFolder
 local createTracerSegment = WeaponVfx.createTracerSegment
 local createMuzzleFlash = WeaponVfx.createMuzzleFlash
 local createFlamePuff = WeaponVfx.createFlamePuff
+local buildWeaponRaycastParams = WeaponCombatShared.buildWeaponRaycastParams
 
 local randomGenerator = Random.new()
-local playerGroundFireState = {}
+local playerGroundFireState = setmetatable({}, { __mode = "k" })
 
 local function createFlameEmitterBurst(origin, direction, travelDistance)
 	local emitterPart = Instance.new("Part")
@@ -243,14 +244,19 @@ local function spawnFlamethrowerGroundFire(player, weaponDef, hitResult)
 		local queryHeight = math.max(4, radius * 1.35)
 		local querySize = Vector3.new(radius * 2, queryHeight, radius * 2)
 		local queryCenter = centerPosition + Vector3.new(0, queryHeight * 0.5, 0)
+		local overlapParams = nil
+		local overlapContainer = nil
 
 		while patch.Parent and elapsed < duration do
 			local enemyContainer = EnemyTargeting.getEnemyContainer()
 			if enemyContainer then
-				local overlapParams = OverlapParams.new()
-				overlapParams.FilterType = Enum.RaycastFilterType.Include
-				overlapParams.FilterDescendantsInstances = { enemyContainer }
-				overlapParams.MaxParts = 256
+				if enemyContainer ~= overlapContainer then
+					overlapContainer = enemyContainer
+					overlapParams = OverlapParams.new()
+					overlapParams.FilterType = Enum.RaycastFilterType.Include
+					overlapParams.FilterDescendantsInstances = { enemyContainer }
+					overlapParams.MaxParts = 256
+				end
 				local touchedParts = Workspace:GetPartBoundsInBox(CFrame.new(queryCenter), querySize, overlapParams)
 				local damagedThisTick = {}
 				for _, touchedPart in ipairs(touchedParts) do
@@ -289,9 +295,9 @@ local function fireFlamethrower(player, character, weaponDef, state, handle)
 				break
 			end
 
-			local origin, direction = WeaponToolFactory.getWeaponOriginAndDirection(player, character, liveRootPart, handle)
+			local origin, direction = WeaponShotResolver.getWeaponOriginAndDirection(player, character, liveRootPart, handle)
 			createFlamethrowerVisuals(origin, direction, range)
-			local raycastParams = AimResolver.buildWeaponRaycastParams(character, {})
+			local raycastParams = buildWeaponRaycastParams(character, {})
 			local impactResult = Workspace:Raycast(origin, direction * range, raycastParams)
 			if impactResult then
 				spawnFlamethrowerGroundFire(player, weaponDef, impactResult)

@@ -25,12 +25,23 @@ function PricingEngine.getWeaponCostForPlayer(player, weaponDef, classService)
 		return baseCost
 	end
 
-	local discountMultiplier = classService.getWeaponShopCostMultiplier(player, weaponDef)
-	if not discountMultiplier or discountMultiplier <= 0 then
-		return baseCost
+	-- Current ClassService API returns adjusted cost directly.
+	if type(classService.getWeaponShopCost) == "function" then
+		local adjustedCost = classService.getWeaponShopCost(player, weaponDef)
+		if type(adjustedCost) == "number" then
+			return roundWholeNumber(adjustedCost)
+		end
 	end
 
-	return math.max(0, math.floor(baseCost * discountMultiplier + 0.5))
+	-- Backward compatibility: older API may expose a multiplier.
+	if type(classService.getWeaponShopCostMultiplier) == "function" then
+		local discountMultiplier = classService.getWeaponShopCostMultiplier(player, weaponDef)
+		if type(discountMultiplier) == "number" and discountMultiplier > 0 then
+			return roundWholeNumber(baseCost * discountMultiplier)
+		end
+	end
+
+	return baseCost
 end
 
 -- Get ammo refill pricing configuration

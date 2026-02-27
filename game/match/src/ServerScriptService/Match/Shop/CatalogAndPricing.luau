@@ -95,6 +95,10 @@ function CatalogAndPricing.canPurchaseNow(remotesFolder, config)
 	return CatalogBuilder.canPurchaseNow(remotesFolder, config)
 end
 
+function CatalogAndPricing.getWeaponCostForPlayer(player, weaponDef, classService)
+	return getWeaponCostForPlayer(player, weaponDef, classService)
+end
+
 function CatalogAndPricing.buildWeaponAmmoRefillQuote(player, weaponDef, tool, pricingConfig, context)
 	return AmmoInventory.buildToolQuote(player, weaponDef, tool, pricingConfig, context)
 end

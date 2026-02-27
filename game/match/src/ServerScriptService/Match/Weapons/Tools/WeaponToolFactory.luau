@@ -55,22 +55,22 @@ local function resolveActiveFireContext(owner, tool)
 	return character, rootPart
 end
 
-local function resolveActiveReloadContext(owner, tool)
+local function canReloadWithActiveTool(owner, tool)
 	if not owner or not owner:IsA("Player") then
-		return nil
+		return false
 	end
 
 	local character = owner.Character
 	if not character or tool.Parent ~= character then
-		return nil
+		return false
 	end
 
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	if not humanoid or humanoid.Health <= 0 then
-		return nil
+		return false
 	end
 
-	return character
+	return true
 end
 
 function init(options)
@@ -319,8 +319,7 @@ local function configureWeaponTool(tool, weaponDef, owner)
 			return
 		end
 
-		local character = resolveActiveReloadContext(owner, tool)
-		if not character then
+		if not canReloadWithActiveTool(owner, tool) then
 			return
 		end
 

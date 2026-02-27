@@ -24,6 +24,9 @@ local ShopConstants = require(Match.Shop.ShopConstants)
 local WeaponVfx = require(Weapons.Combat.WeaponVfx)
 local WeaponToolSetup = require(Weapons.Tools.WeaponToolSetup)
 local SentryStatResolver = require(script.Parent.SentryStatResolver)
+local SentryPlacement = require(script.Parent.SentryPlacement)
+local SentryHealthBar = require(script.Parent.SentryHealthBar)
+local SentryTargeting = require(script.Parent.SentryTargeting)
 
 local MAX_SENTRY_COUNT_PER_PLAYER = ShopConstants.MAX_SENTRY_COUNT_PER_PLAYER
 local SENTRY_REPAIR_INTERRUPT_SECONDS = ShopConstants.SENTRY_REPAIR_INTERRUPT_SECONDS
@@ -64,232 +67,22 @@ local function normalizeWeaponToken(token)
 end
 
 -- Health helpers
-local function isEnemyModelAlive(enemyModel)
-	if not enemyModel or not enemyModel.Parent then
-		return false
-	end
-
-	local humanoid = enemyModel:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		return humanoid.Health > 0
-	end
-
-	local health = enemyModel:GetAttribute("EnemyHealth")
-	if type(health) ~= "number" then
-		return true
-	end
-
-	return health > 0
-end
-
-local function getEnemyModelHealth(enemyModel)
-	if not enemyModel or not enemyModel.Parent then
-		return nil, nil
-	end
-
-	local humanoid = enemyModel:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		local currentHealth = tonumber(humanoid.Health)
-		local maxHealth = tonumber(humanoid.MaxHealth)
-		if type(maxHealth) ~= "number" or maxHealth <= 0 then
-			maxHealth = 1
-		end
-		return currentHealth, maxHealth
-	end
-
-	local currentHealth = enemyModel:GetAttribute("EnemyHealth")
-	if type(currentHealth) ~= "number" then
-		return nil, nil
-	end
-
-	local maxHealth = enemyModel:GetAttribute("EnemyMaxHealth")
-	if type(maxHealth) ~= "number" or maxHealth <= 0 then
-		maxHealth = math.max(1, currentHealth)
-	end
-
-	return currentHealth, maxHealth
-end
+local sentryTargeting = SentryTargeting.new({
+	modelRootResolver = ModelRootResolver,
+	getEnemyContainer = getEnemyContainer,
+	getEffectsFolder = getEffectsFolder,
+	enemyContainerName = Config.Enemy.ContainerName,
+})
+local isEnemyModelAlive = sentryTargeting.isEnemyModelAlive
+local getEnemyModelHealth = sentryTargeting.getEnemyModelHealth
 
 -- Healthbar UI
-local function getTurretFillColor(healthRatio)
-	if healthRatio <= 0.2 then
-		return Color3.fromRGB(220, 65, 60)
-	end
-	if healthRatio <= 0.5 then
-		return Color3.fromRGB(230, 165, 60)
-	end
-	return Color3.fromRGB(70, 220, 105)
-end
-
-local function attachTurretHealthBar(model, rootPart)
-	local billboard = Instance.new("BillboardGui")
-	billboard.Name = "TurretHealthBar"
-	billboard.Adornee = rootPart
-	billboard.AlwaysOnTop = true
-	billboard.LightInfluence = 0
-	billboard.MaxDistance = 220
-	billboard.Size = UDim2.fromOffset(96, 26)
-	billboard.StudsOffsetWorldSpace = Vector3.new(0, 3.5, 0)
-	billboard.Parent = model
-
-	local background = Instance.new("Frame")
-	background.Name = "Background"
-	background.Size = UDim2.new(1, 0, 0, 8)
-	background.Position = UDim2.fromOffset(0, 0)
-	background.BackgroundColor3 = Color3.fromRGB(28, 32, 36)
-	background.BackgroundTransparency = 0.2
-	background.BorderSizePixel = 0
-	background.Parent = billboard
-
-	local backgroundCorner = Instance.new("UICorner")
-	backgroundCorner.CornerRadius = UDim.new(0, 6)
-	backgroundCorner.Parent = background
-
-	local fill = Instance.new("Frame")
-	fill.Name = "Fill"
-	fill.Size = UDim2.fromScale(1, 1)
-	fill.BackgroundColor3 = Color3.fromRGB(70, 220, 105)
-	fill.BorderSizePixel = 0
-	fill.Parent = background
-
-	local fillCorner = Instance.new("UICorner")
-	fillCorner.CornerRadius = UDim.new(0, 6)
-	fillCorner.Parent = fill
-
-	local ammoText = Instance.new("TextLabel")
-	ammoText.Name = "AmmoText"
-	ammoText.BackgroundTransparency = 1
-	ammoText.Size = UDim2.new(1, 0, 0, 14)
-	ammoText.Position = UDim2.fromOffset(0, 10)
-	ammoText.Font = Enum.Font.GothamSemibold
-	ammoText.TextSize = 11
-	ammoText.TextXAlignment = Enum.TextXAlignment.Center
-	ammoText.TextYAlignment = Enum.TextYAlignment.Center
-	ammoText.TextColor3 = Color3.fromRGB(195, 220, 255)
-	ammoText.TextStrokeTransparency = 0.35
-	ammoText.Text = "Ammo 0/0"
-	ammoText.Parent = billboard
-
-	return fill, ammoText
-end
+local getTurretFillColor = SentryHealthBar.getTurretFillColor
+local attachTurretHealthBar = SentryHealthBar.attachTurretHealthBar
 
 -- Targeting
-local function pickTurretTargetCandidate(bestCandidate, candidate, preferredModel)
-	if not bestCandidate then
-		return candidate
-	end
-
-	if candidate.health < bestCandidate.health then
-		return candidate
-	end
-	if candidate.health > bestCandidate.health then
-		return bestCandidate
-	end
-
-	if candidate.distance < bestCandidate.distance then
-		return candidate
-	end
-	if candidate.distance > bestCandidate.distance then
-		return bestCandidate
-	end
-
-	if preferredModel then
-		if candidate.model == preferredModel and bestCandidate.model ~= preferredModel then
-			return candidate
-		end
-		if bestCandidate.model == preferredModel and candidate.model ~= preferredModel then
-			return bestCandidate
-		end
-	end
-
-	return bestCandidate
-end
-
-local function findTurretTarget(record, muzzleOrigin)
-	local enemyContainer = getEnemyContainer()
-	if not enemyContainer then
-		record.currentTarget = nil
-		return nil, nil
-	end
-
-	local maxRange = math.max(100, tonumber(record.acquireRange) or 100000)
-	local preferredModel = record.currentTarget
-	local bestCandidate = nil
-
-	local raycastParams = RaycastParams.new()
-	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-	raycastParams.FilterDescendantsInstances = { record.model, getEffectsFolder() }
-	raycastParams.IgnoreWater = true
-
-	local function buildCandidate(enemyModel)
-		if not enemyModel:IsA("Model") or not isEnemyModelAlive(enemyModel) then
-			return nil
-		end
-
-		local enemyRoot = ModelRootResolver.resolveRootPart(enemyModel)
-		if not enemyRoot then
-			return nil
-		end
-
-		local delta = enemyRoot.Position - muzzleOrigin
-		local distance = delta.Magnitude
-		if distance <= 0.01 or distance > maxRange then
-			return nil
-		end
-
-		local hitResult = Workspace:Raycast(muzzleOrigin, delta, raycastParams)
-		local isVisible = false
-		if not hitResult then
-			isVisible = true
-		else
-			isVisible = hitResult.Instance and hitResult.Instance:IsDescendantOf(enemyModel)
-		end
-		if not isVisible then
-			return nil
-		end
-
-		local currentHealth = getEnemyModelHealth(enemyModel)
-		local resolvedHealth = math.huge
-		if type(currentHealth) == "number" then
-			resolvedHealth = math.max(0, currentHealth)
-		end
-
-		return {
-			model = enemyModel,
-			root = enemyRoot,
-			distance = distance,
-			health = resolvedHealth,
-		}
-	end
-
-	-- Hard target lock: keep current target until dead or out of range.
-	if preferredModel and preferredModel.Parent then
-		local preferredRoot = ModelRootResolver.resolveRootPart(preferredModel)
-		if preferredRoot and isEnemyModelAlive(preferredModel) then
-			local preferredDelta = preferredRoot.Position - muzzleOrigin
-			local preferredDistance = preferredDelta.Magnitude
-			if preferredDistance > 0.01 and preferredDistance <= maxRange then
-				record.currentTarget = preferredModel
-				return preferredModel, preferredRoot
-			end
-		end
-	end
-
-	for _, enemyModel in ipairs(enemyContainer:GetChildren()) do
-		local candidate = buildCandidate(enemyModel)
-		if candidate then
-			bestCandidate = pickTurretTargetCandidate(bestCandidate, candidate, preferredModel)
-		end
-	end
-
-	if bestCandidate then
-		record.currentTarget = bestCandidate.model
-		return bestCandidate.model, bestCandidate.root
-	end
-
-	record.currentTarget = nil
-	return nil, nil
-end
+local pickTurretTargetCandidate = sentryTargeting.pickTurretTargetCandidate
+local findTurretTarget = sentryTargeting.findTurretTarget
 
 local function getTurretBurstRocketDirection(baseDirection, rocketIndex, rocketCount, spreadDegrees)
 	local normalizedDirection = baseDirection
@@ -356,134 +149,11 @@ local function fireTurretRocketBurst(record, muzzleOrigin, lookDirection, turret
 end
 
 -- Placement helpers
-local function getHorizontalUnitDirection(vector)
-	if typeof(vector) ~= "Vector3" then
-		return nil
-	end
-
-	local horizontal = Vector3.new(vector.X, 0, vector.Z)
-	if horizontal.Magnitude <= 0.001 then
-		return nil
-	end
-
-	return horizontal.Unit
-end
-
-local function alignPivotYawToDirection(pivotCFrame, desiredLookDirection, desiredPosition)
-	local pivotPosition = desiredPosition
-	if typeof(pivotPosition) ~= "Vector3" then
-		pivotPosition = pivotCFrame.Position
-	end
-
-	local targetForward = getHorizontalUnitDirection(desiredLookDirection)
-	local currentForward = getHorizontalUnitDirection(pivotCFrame.LookVector)
-	if not currentForward then
-		currentForward = getHorizontalUnitDirection(pivotCFrame.RightVector)
-	end
-
-	if not targetForward then
-		targetForward = currentForward or Vector3.new(0, 0, -1)
-	end
-
-	if not currentForward then
-		return CFrame.lookAt(pivotPosition, pivotPosition + targetForward)
-	end
-
-	local yawDot = math.clamp(currentForward:Dot(targetForward), -1, 1)
-	local yawRadians = math.acos(yawDot)
-	if currentForward:Cross(targetForward).Y < 0 then
-		yawRadians = -yawRadians
-	end
-
-	local baseRotation = pivotCFrame - pivotCFrame.Position
-	local yawRotation = CFrame.fromAxisAngle(Vector3.yAxis, yawRadians)
-	return CFrame.new(pivotPosition) * yawRotation * baseRotation
-end
-
-local function resolveSentryPlacementReferencePart(sentryModel)
-	if not sentryModel or not sentryModel:IsA("Model") then
-		return nil
-	end
-
-	local handle = sentryModel:FindFirstChild("Handle", true)
-	if handle and handle:IsA("BasePart") then
-		return handle
-	end
-
-	return ModelRootResolver.resolveRootPart(sentryModel)
-end
-
-local function resolveSentryPlacementPivotCFrame(sentryModel, referencePlacementCFrame)
-	local referencePart = resolveSentryPlacementReferencePart(sentryModel)
-	if not referencePart then
-		return referencePlacementCFrame
-	end
-
-	local currentPivot = sentryModel:GetPivot()
-	local referenceToPivot = referencePart.CFrame:ToObjectSpace(currentPivot)
-	return referencePlacementCFrame * referenceToPivot
-end
-
-local function resolveSentryPlacementRotationOffsetCFrame(weaponDef)
-	if type(weaponDef) ~= "table" then
-		return CFrame.new()
-	end
-
-	local rotationDeg = weaponDef.TurretPlacementRotationDeg
-	if typeof(rotationDeg) ~= "Vector3" then
-		return CFrame.new()
-	end
-
-	return CFrame.Angles(
-		math.rad(rotationDeg.X),
-		math.rad(rotationDeg.Y),
-		math.rad(rotationDeg.Z)
-	)
-end
-
-local function applySentryPlacementRotationOffset(referencePlacementCFrame, weaponDef)
-	return referencePlacementCFrame * resolveSentryPlacementRotationOffsetCFrame(weaponDef)
-end
-
-local function resolveUprightSentryReferencePlacementCFrame(sentryModel, referencePlacementCFrame, desiredLookDirection)
-	local desiredFlatLook = getHorizontalUnitDirection(desiredLookDirection)
-	local forwardAxis = referencePlacementCFrame.LookVector
-	local rightAxis = referencePlacementCFrame.RightVector
-
-	local candidateRotations = {
-		CFrame.new(),
-		CFrame.fromAxisAngle(forwardAxis, math.pi),
-		CFrame.fromAxisAngle(forwardAxis, math.pi * 0.5),
-		CFrame.fromAxisAngle(forwardAxis, -math.pi * 0.5),
-		CFrame.fromAxisAngle(rightAxis, math.pi * 0.5),
-		CFrame.fromAxisAngle(rightAxis, -math.pi * 0.5),
-		CFrame.fromAxisAngle(rightAxis, math.pi),
-	}
-
-	local bestReferencePlacementCFrame = referencePlacementCFrame
-	local bestScore = -math.huge
-
-	for _, rotation in ipairs(candidateRotations) do
-		local candidateReferencePlacementCFrame = referencePlacementCFrame * rotation
-		local candidatePivotCFrame = resolveSentryPlacementPivotCFrame(sentryModel, candidateReferencePlacementCFrame)
-		local upScore = candidatePivotCFrame.UpVector.Y
-		local facingScore = 0
-		if desiredFlatLook then
-			local candidateFlatLook = getHorizontalUnitDirection(candidatePivotCFrame.LookVector)
-			if candidateFlatLook then
-				facingScore = desiredFlatLook:Dot(candidateFlatLook)
-			end
-		end
-
-		local totalScore = upScore * 10 + facingScore
-		if totalScore > bestScore then
-			bestScore = totalScore
-			bestReferencePlacementCFrame = candidateReferencePlacementCFrame
-		end
-	end
-
-	return bestReferencePlacementCFrame
-end
+local alignPivotYawToDirection = SentryPlacement.alignPivotYawToDirection
+local resolveSentryPlacementReferencePart = SentryPlacement.resolveSentryPlacementReferencePart
+local resolveSentryPlacementPivotCFrame = SentryPlacement.resolveSentryPlacementPivotCFrame
+local applySentryPlacementRotationOffset = SentryPlacement.applySentryPlacementRotationOffset
+local resolveUprightSentryReferencePlacementCFrame = SentryPlacement.resolveUprightSentryReferencePlacementCFrame
 
 local function startTurretCombatLoop(record)
 	if not sentryRuntime then

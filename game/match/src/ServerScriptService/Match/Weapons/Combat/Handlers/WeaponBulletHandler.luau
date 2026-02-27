@@ -7,7 +7,6 @@ local Workspace = game:GetService("Workspace")
 local Match = script.Parent.Parent.Parent.Parent
 local Weapons = script.Parent.Parent.Parent
 local ClassService = require(Match.Classes.ClassService)
-local AimResolver = require(Match.Combat.AimResolver)
 local EnemyTargeting = require(Match.Enemies.EnemyTargeting)
 local EnemyDamageService = require(Match.Combat.EnemyDamageService)
 local WeaponToolSetup = require(Weapons.Tools.WeaponToolSetup)
@@ -19,6 +18,7 @@ local createMuzzleFlash = WeaponVfx.createMuzzleFlash
 local resolveWeaponClass = WeaponToolSetup.resolveWeaponClass
 local normalizeWeaponToken = WeaponToolSetup.normalizeWeaponToken
 local resolveShotRay = WeaponCombatShared.resolveShotRay
+local buildWeaponRaycastParams = WeaponCombatShared.buildWeaponRaycastParams
 
 local randomGenerator = Random.new()
 
@@ -68,7 +68,7 @@ local function fireBulletShot(player, character, origin, direction, weaponDef, s
 		end
 	end
 	rayDirection = applyBulletSpread(rayDirection, spreadDegrees)
-	local raycastParams = AimResolver.buildWeaponRaycastParams(character, {})
+	local raycastParams = buildWeaponRaycastParams(character, {})
 	local result = Workspace:Raycast(rayOrigin, rayDirection * range, raycastParams)
 	local hitPosition = rayOrigin + rayDirection * range
 	local enemyTarget = nil

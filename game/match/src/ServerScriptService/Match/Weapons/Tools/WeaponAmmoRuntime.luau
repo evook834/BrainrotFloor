@@ -222,8 +222,8 @@ function WeaponAmmoRuntime.new(options)
 			syncToolCombatStats(tool, weaponDef, state, owner)
 			local refreshedMagazineSize = state.magazineSize
 			if refreshedMagazineSize then
-				local currentAmmo = math.max(0, math.floor((tonumber(state.ammo) or 0) + 0.5))
-				local reserveAmmo = math.max(0, math.floor((tonumber(state.reserveAmmo) or 0) + 0.5))
+				local currentAmmo = toRoundedNonNegative(state.ammo, 0)
+				local reserveAmmo = toRoundedNonNegative(state.reserveAmmo, 0)
 				local neededAmmo = math.max(0, refreshedMagazineSize - currentAmmo)
 				local loadedAmmo = math.min(neededAmmo, reserveAmmo)
 				state.ammo = currentAmmo + loadedAmmo
@@ -292,7 +292,7 @@ function WeaponAmmoRuntime.new(options)
 			return false
 		end
 
-		local reserveAmmoCapacity = math.max(0, math.floor((tonumber(state.reserveAmmoCapacity) or 0) + 0.5))
+		local reserveAmmoCapacity = toRoundedNonNegative(state.reserveAmmoCapacity, 0)
 		local ammoBefore = toRoundedNonNegative(state.ammo, 0)
 		local reserveBefore = toRoundedNonNegative(state.reserveAmmo, 0)
 
