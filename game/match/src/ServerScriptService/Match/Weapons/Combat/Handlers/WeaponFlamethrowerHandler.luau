@@ -14,108 +14,148 @@ local WeaponVfx = require(script.Parent.Parent.WeaponVfx)
 local WeaponCombatShared = require(script.Parent.WeaponCombatShared)
 
 local getEffectsFolder = WeaponVfx.getEffectsFolder
-local createTracerSegment = WeaponVfx.createTracerSegment
-local createMuzzleFlash = WeaponVfx.createMuzzleFlash
-local createFlamePuff = WeaponVfx.createFlamePuff
 local buildWeaponRaycastParams = WeaponCombatShared.buildWeaponRaycastParams
 
 local randomGenerator = Random.new()
 local playerGroundFireState = setmetatable({}, { __mode = "k" })
+local effectEnabledState = setmetatable({}, { __mode = "k" })
 
-local function createFlameEmitterBurst(origin, direction, travelDistance)
-	local emitterPart = Instance.new("Part")
-	emitterPart.Name = "FlameEmitter"
-	emitterPart.Anchored = true
-	emitterPart.CanCollide = false
-	emitterPart.CanTouch = false
-	emitterPart.CanQuery = false
-	emitterPart.Transparency = 1
-	emitterPart.Size = Vector3.new(0.2, 0.2, 0.2)
-	emitterPart.CFrame = CFrame.lookAt(origin, origin + direction)
-	emitterPart.Parent = getEffectsFolder()
-
-	local attachment = Instance.new("Attachment")
-	attachment.Parent = emitterPart
-
-	local flameEmitter = Instance.new("ParticleEmitter")
-	flameEmitter.Texture = "rbxasset://textures/particles/fire_main.dds"
-	flameEmitter.Rate = 0
-	flameEmitter.LightEmission = 1
-	flameEmitter.Lifetime = NumberRange.new(0.14, 0.28)
-	flameEmitter.Speed = NumberRange.new(
-		math.max(12, travelDistance * 0.85),
-		math.max(20, travelDistance * 1.25)
-	)
-	flameEmitter.SpreadAngle = Vector2.new(24, 24)
-	flameEmitter.Drag = 4
-	flameEmitter.Acceleration = Vector3.new(0, 16, 0)
-	flameEmitter.RotSpeed = NumberRange.new(-150, 150)
-	flameEmitter.EmissionDirection = Enum.NormalId.Front
-	flameEmitter.Size = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.85),
-		NumberSequenceKeypoint.new(0.4, 1.25),
-		NumberSequenceKeypoint.new(1, 0.2),
-	})
-	flameEmitter.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.08),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	flameEmitter.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 230, 140)),
-		ColorSequenceKeypoint.new(0.3, Color3.fromRGB(255, 165, 80)),
-		ColorSequenceKeypoint.new(1, Color3.fromRGB(110, 45, 28)),
-	})
-	flameEmitter.Parent = attachment
-	flameEmitter:Emit(24)
-
-	local smokeEmitter = Instance.new("ParticleEmitter")
-	smokeEmitter.Texture = "rbxasset://textures/particles/smoke_main.dds"
-	smokeEmitter.Rate = 0
-	smokeEmitter.Lifetime = NumberRange.new(0.3, 0.55)
-	smokeEmitter.Speed = NumberRange.new(7, 13)
-	smokeEmitter.SpreadAngle = Vector2.new(30, 30)
-	smokeEmitter.Drag = 6
-	smokeEmitter.Acceleration = Vector3.new(0, 9, 0)
-	smokeEmitter.EmissionDirection = Enum.NormalId.Front
-	smokeEmitter.Size = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.9),
-		NumberSequenceKeypoint.new(1, 2.2),
-	})
-	smokeEmitter.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.65),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	smokeEmitter.Color = ColorSequence.new(Color3.fromRGB(70, 70, 70), Color3.fromRGB(45, 45, 45))
-	smokeEmitter.Parent = attachment
-	smokeEmitter:Emit(10)
-
-	Debris:AddItem(emitterPart, 0.5)
+local function createFlameEmitterBurst(_origin, _direction, _travelDistance)
+	return
 end
 
-local function createFlamethrowerVisuals(origin, direction, range)
-	local visualDistance = math.min(range, 15)
-	createMuzzleFlash(origin, Color3.fromRGB(255, 165, 90), 1.15, 0.12)
-	createMuzzleFlash(origin + direction * 1.1, Color3.fromRGB(255, 210, 120), 0.62, 0.1)
-	createTracerSegment(origin, origin + direction * visualDistance, Color3.fromRGB(255, 130, 70), 0.56, 0.08)
-	createTracerSegment(origin, origin + direction * (visualDistance * 0.72), Color3.fromRGB(255, 205, 120), 0.32, 0.07)
-	createFlameEmitterBurst(origin, direction, visualDistance)
+local function createFlamethrowerVisuals(_origin, _direction, _range)
+	return
+end
 
-	local upReference = math.abs(direction:Dot(Vector3.yAxis)) > 0.92 and Vector3.xAxis or Vector3.yAxis
-	local right = direction:Cross(upReference)
-	if right.Magnitude <= 0.001 then
-		right = Vector3.xAxis
+local function setFlamethrowerModelEffectsEnabled(handle, enabled)
+	if not handle then
+		return
 	end
-	right = right.Unit
-	local up = right:Cross(direction).Unit
 
-	for i = 1, 9 do
-		local progress = i / 9
-		local travel = visualDistance * progress
-		local spread = (1 - progress) * 0.32
-		local jitter = right * randomGenerator:NextNumber(-spread, spread) + up * randomGenerator:NextNumber(-spread, spread)
-		local puffPosition = origin + direction * travel + jitter
-		local puffSize = randomGenerator:NextNumber(0.48, 0.95) * (1 - progress * 0.2)
-		createFlamePuff(puffPosition, puffSize, randomGenerator:NextNumber(0.12, 0.22))
+	local effectRoot = handle.Parent or handle
+	for _, descendant in ipairs(effectRoot:GetDescendants()) do
+		local isToggleEffect = descendant:IsA("ParticleEmitter") or descendant:IsA("Trail") or descendant:IsA("Beam")
+		if isToggleEffect then
+			if enabled then
+				if effectEnabledState[descendant] == nil then
+					effectEnabledState[descendant] = descendant.Enabled
+				end
+				descendant.Enabled = true
+				if descendant:IsA("ParticleEmitter") and descendant.Rate <= 0 then
+					local emitCount = math.max(1, math.floor((tonumber(descendant:GetAttribute("BurstCount")) or 1) + 0.5))
+					descendant:Emit(emitCount)
+				end
+			else
+				local previousEnabled = effectEnabledState[descendant]
+				if previousEnabled ~= nil then
+					descendant.Enabled = previousEnabled
+					effectEnabledState[descendant] = nil
+				end
+			end
+		end
+	end
+end
+
+local function resolveFlamethrowerPath(character, origin, direction, range)
+	local worldExclusions = {}
+	local enemyContainer = EnemyTargeting.getEnemyContainer()
+	if enemyContainer then
+		table.insert(worldExclusions, enemyContainer)
+	end
+	local worldRaycastParams = buildWeaponRaycastParams(character, worldExclusions)
+	local straightLength = math.max(2, range * 0.78)
+	local straightVector = direction * straightLength
+	local straightImpact = Workspace:Raycast(origin, straightVector, worldRaycastParams)
+	if straightImpact then
+		return {
+			straightDirection = direction,
+			straightLength = (straightImpact.Position - origin).Magnitude,
+			dropOrigin = nil,
+			dropDirection = nil,
+			dropLength = 0,
+			impactResult = straightImpact,
+		}
+	end
+
+	local straightEnd = origin + straightVector
+	local nominalEnd = origin + direction * range
+	local probeHeight = math.max(8, range * 0.3)
+	local probeDepth = math.max(12, range * 1.1)
+	local groundProbeParams = worldRaycastParams
+	local probeStart = nominalEnd + Vector3.new(0, probeHeight, 0)
+	local groundResult = Workspace:Raycast(probeStart, Vector3.new(0, -(probeHeight + probeDepth), 0), groundProbeParams)
+	local dropEnd = groundResult and groundResult.Position or (nominalEnd - Vector3.new(0, math.max(4, range * 0.2), 0))
+	local dropVector = dropEnd - straightEnd
+	local dropLength = dropVector.Magnitude
+	if dropLength <= 0.05 then
+		return {
+			straightDirection = direction,
+			straightLength = straightLength,
+			dropOrigin = nil,
+			dropDirection = nil,
+			dropLength = 0,
+			impactResult = groundResult,
+		}
+	end
+
+	local dropDirection = dropVector.Unit
+	local dropImpact = Workspace:Raycast(straightEnd, dropVector, worldRaycastParams)
+	local resolvedDropLength = dropLength
+	local impactResult = groundResult
+	if dropImpact then
+		resolvedDropLength = (dropImpact.Position - straightEnd).Magnitude
+		impactResult = dropImpact
+	end
+
+	return {
+		straightDirection = direction,
+		straightLength = straightLength,
+		dropOrigin = straightEnd,
+		dropDirection = dropDirection,
+		dropLength = resolvedDropLength,
+		impactResult = impactResult,
+	}
+end
+
+local function applyFlamethrowerPathDamage(player, character, origin, pathState, tickDamage, weaponDef, arcDegrees)
+	local hitEnemies = {}
+	local straightRange = math.max(0, pathState.straightLength or 0)
+	if straightRange > 0.05 then
+		local straightTargets = EnemyTargeting.getEnemiesInCone(
+			character,
+			origin,
+			pathState.straightDirection,
+			straightRange,
+			arcDegrees,
+			true
+		)
+		for _, enemyModel in ipairs(straightTargets) do
+			if not hitEnemies[enemyModel] then
+				hitEnemies[enemyModel] = true
+				EnemyDamageService.applyDamageToEnemy(player, enemyModel, tickDamage, weaponDef)
+			end
+		end
+	end
+
+	local dropOrigin = pathState.dropOrigin
+	local dropDirection = pathState.dropDirection
+	local dropRange = math.max(0, pathState.dropLength or 0)
+	if dropOrigin and dropDirection and dropRange > 0.05 then
+		local dropTargets = EnemyTargeting.getEnemiesInCone(
+			character,
+			dropOrigin,
+			dropDirection,
+			dropRange,
+			arcDegrees,
+			true
+		)
+		for _, enemyModel in ipairs(dropTargets) do
+			if not hitEnemies[enemyModel] then
+				hitEnemies[enemyModel] = true
+				EnemyDamageService.applyDamageToEnemy(player, enemyModel, tickDamage, weaponDef)
+			end
+		end
 	end
 end
 
@@ -286,6 +326,7 @@ local function fireFlamethrower(player, character, weaponDef, state, handle)
 	local tickDamage = math.max(1, (tonumber(weaponDef.Damage) or 10) / burstTicks)
 
 	task.spawn(function()
+		setFlamethrowerModelEffectsEnabled(handle, true)
 		for _ = 1, burstTicks do
 			if not character.Parent then
 				break
@@ -296,19 +337,16 @@ local function fireFlamethrower(player, character, weaponDef, state, handle)
 			end
 
 			local origin, direction = WeaponShotResolver.getWeaponOriginAndDirection(player, character, liveRootPart, handle)
-			createFlamethrowerVisuals(origin, direction, range)
-			local raycastParams = buildWeaponRaycastParams(character, {})
-			local impactResult = Workspace:Raycast(origin, direction * range, raycastParams)
+			local pathState = resolveFlamethrowerPath(character, origin, direction, range)
+			local impactResult = pathState.impactResult
 			if impactResult then
 				spawnFlamethrowerGroundFire(player, weaponDef, impactResult)
 			end
 
-			local targets = EnemyTargeting.getEnemiesInCone(character, origin, direction, range, arcDegrees, true)
-			for _, enemyModel in ipairs(targets) do
-				EnemyDamageService.applyDamageToEnemy(player, enemyModel, tickDamage, weaponDef)
-			end
+			applyFlamethrowerPathDamage(player, character, origin, pathState, tickDamage, weaponDef, arcDegrees)
 			task.wait(burstInterval)
 		end
+		setFlamethrowerModelEffectsEnabled(handle, false)
 		state.isBursting = false
 	end)
 end

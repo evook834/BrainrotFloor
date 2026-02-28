@@ -93,7 +93,7 @@ local function writeStateToPlayerData(player, state)
 		return
 	end
 
-	PlayerDataService.set(player, { "classes" }, ClassStateHelpers.copyStateForPersistence(state))
+	PlayerDataService.set(player, { "classes" }, ClassStateHelpers.copyStateForPersistence(state), true)
 end
 
 function buildPayloadForPlayer(player)

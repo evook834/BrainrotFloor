@@ -66,7 +66,7 @@ local function ensureLeaderstats(player, configPlayer, playerDataService, starti
 			if moneyValue then
 				syncedMoney = math.max(0, math.floor((tonumber(moneyValue.Value) or startingMoney) + 0.5))
 			end
-			playerDataService.set(player, { "money" }, syncedMoney)
+			playerDataService.set(player, { "money" }, syncedMoney, true)
 			if moneyValue then
 				moneyValue.Value = syncedMoney
 			end

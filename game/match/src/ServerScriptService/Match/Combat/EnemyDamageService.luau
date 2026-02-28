@@ -58,7 +58,7 @@ local function addMoney(player, amount)
 	if PlayerDataService.isReady() and PlayerDataService.hasProfile(player) then
 		PlayerDataService.update(player, { "money" }, function(m)
 			return (tonumber(m) or 0) + add
-		end)
+		end, true)
 	else
 		local moneyValue = getMoneyValue(player)
 		if moneyValue then
