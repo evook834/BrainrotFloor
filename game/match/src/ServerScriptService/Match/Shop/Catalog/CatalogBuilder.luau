@@ -12,6 +12,8 @@ end
 -- Build catalog for a single weapon
 function CatalogBuilder.buildWeaponEntry(player, weaponDef, context)
 	local baseRange = math.max(0, tonumber(weaponDef.Range) or 0)
+	local weaponClass = context.resolveWeaponClass and context.resolveWeaponClass(weaponDef) or "Unknown"
+	local isRepeatPurchasable = weaponClass == "RepairTool"
 
 	-- Calculate class-based range multiplier
 	local rangeMultiplier = 1
@@ -52,7 +54,8 @@ function CatalogBuilder.buildWeaponEntry(player, weaponDef, context)
 	return {
 		id = weaponDef.Id,
 		name = weaponDef.DisplayName,
-		weaponClass = context.resolveWeaponClass and context.resolveWeaponClass(weaponDef) or "Unknown",
+		weaponClass = weaponClass,
+		repeatPurchasable = isRepeatPurchasable,
 		cost = cost,
 		damage = weaponDef.Damage,
 		range = baseRange,

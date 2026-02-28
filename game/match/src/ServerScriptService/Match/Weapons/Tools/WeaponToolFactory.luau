@@ -142,6 +142,8 @@ local function configureWeaponTool(tool, weaponDef, owner)
 
 	tool.Name = weaponDef.DisplayName
 	tool.CanBeDropped = false
+	tool.Enabled = true
+	tool.ManualActivationOnly = false
 	tool:SetAttribute("WeaponId", weaponDef.Id)
 	tool:SetAttribute("WeaponClass", weaponClass)
 	tool:SetAttribute("ClassTag", weaponDef.ClassTag)

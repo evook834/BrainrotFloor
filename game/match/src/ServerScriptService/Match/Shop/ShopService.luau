@@ -153,6 +153,20 @@ local function playerOwnsWeapon(player, weaponId)
 		return false
 	end
 
+	local weaponDef = weaponById[normalizedWeaponId]
+	local weaponClass = resolveWeaponClass(weaponDef)
+	if weaponClass == "RepairTool" then
+		return false
+	end
+
+	if weaponClass == "SentryDeployer" then
+		if InventoryIndex.hasWeaponTool(player, normalizedWeaponId) then
+			return true
+		end
+
+		return sentryRuntime.playerOwnsWeaponId(player, normalizedWeaponId)
+	end
+
 	if InventoryIndex.hasWeaponTool(player, normalizedWeaponId) then
 		return true
 	end

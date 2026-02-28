@@ -645,9 +645,6 @@ local function deploySentryTurret(player, character, rootPart, weaponDef, explic
 	if activeCount >= MAX_SENTRY_COUNT_PER_PLAYER then
 		return false
 	end
-	if sentryRuntime.countPlayerSentriesByKind(player, weaponDef.Id) >= 1 then
-		return false
-	end
 
 	local placementWeaponDef = resolvePlacementWeaponDef(weaponDef, placementTool)
 

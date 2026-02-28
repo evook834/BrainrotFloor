@@ -18,6 +18,9 @@ return {
 	-- Weapon IDs that hide the weapon model while scoped
 	HIDE_WEAPON_MODEL_WHILE_SCOPED_IDS = {
 		awp = true,
+		magnum = true,
+		psg1 = true,
+		barret = true,
 	},
 
 	-- Sentry

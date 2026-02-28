@@ -123,6 +123,26 @@ function getWeaponRowButtonState(weapon, canPurchase): WeaponRowButtonState
 	local text = ShopUiMessages.RowBuy
 	local backgroundColor = ShopUiConstants.ButtonEnabled
 	local refillCost = roundWholeNumber(weapon.refillCost)
+	local isRepeatPurchasable = weapon.repeatPurchasable == true
+
+	if isRepeatPurchasable then
+		if not canPurchase then
+			disabled = true
+			text = ShopUiMessages.RowWaveActive
+			backgroundColor = ShopUiConstants.ButtonClosed
+		elseif weapon.upgradeLocked == true then
+			disabled = true
+			text = string.format(ShopUiMessages.RowNeedsUpgrade, tostring(weapon.requiresWeaponName or weapon.requiresWeaponId or "Upgrade"))
+			backgroundColor = ShopUiConstants.ButtonLocked
+		end
+
+		return {
+			disabled = disabled,
+			isAmmoPurchase = false,
+			text = text,
+			backgroundColor = backgroundColor,
+		}
+	end
 
 	if weapon.owned then
 		if weapon.isRefillable ~= true then
