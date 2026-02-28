@@ -18,7 +18,7 @@ local function isPlayerInstance(player)
 end
 
 local function canUsePlayerData(player)
-	return isPlayerInstance(player) and PlayerDataService.isReady()
+	return isPlayerInstance(player) and PlayerDataService.isReady() and PlayerDataService.hasProfile(player)
 end
 
 local function getMoneyAmount(player)
