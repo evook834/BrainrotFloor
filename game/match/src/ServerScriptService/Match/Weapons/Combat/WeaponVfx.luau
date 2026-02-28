@@ -49,6 +49,46 @@ function WeaponVfx.createTracerSegment(startPos, endPos, color, thickness, lifet
 	Debris:AddItem(segment, lifetimeSeconds or 0.1)
 end
 
+function WeaponVfx.createLaserBeam(startPos, endPos, options)
+	local delta = endPos - startPos
+	local length = delta.Magnitude
+	if length <= 0.05 then
+		return
+	end
+
+	local laserOptions = type(options) == "table" and options or {}
+	local beamColor = typeof(laserOptions.color) == "Color3" and laserOptions.color or Color3.fromRGB(255, 40, 40)
+	local coreColor = typeof(laserOptions.coreColor) == "Color3" and laserOptions.coreColor or Color3.fromRGB(255, 205, 205)
+	local pulseSpeed = math.max(0.1, tonumber(laserOptions.pulseSpeed) or 8)
+	local lifetime = math.max(0.04, tonumber(laserOptions.lifetimeSeconds) or 0.09)
+	local baseThickness = math.max(0.12, tonumber(laserOptions.thickness) or 0.5)
+	local pulseAlpha = 0.5 + (0.5 * math.sin(os.clock() * pulseSpeed))
+	local outerThickness = baseThickness * (1.8 + (0.45 * pulseAlpha))
+	local middleThickness = baseThickness * (1.08 + (0.2 * pulseAlpha))
+	local coreThickness = baseThickness * (0.34 + (0.1 * pulseAlpha))
+
+	local function createBeamLayer(name, color, thickness, transparency)
+		local segment = Instance.new("Part")
+		segment.Name = name
+		segment.Anchored = true
+		segment.CanCollide = false
+		segment.CanTouch = false
+		segment.CanQuery = false
+		segment.Material = Enum.Material.Neon
+		segment.Color = color
+		segment.Transparency = math.clamp(transparency, 0, 1)
+		segment.Size = Vector3.new(thickness, thickness, length)
+		segment.CFrame = CFrame.lookAt((startPos + endPos) * 0.5, endPos)
+		segment.Parent = WeaponVfx.getEffectsFolder()
+		Debris:AddItem(segment, lifetime)
+		return segment
+	end
+
+	createBeamLayer("LaserBeamGlow", beamColor:Lerp(Color3.new(0, 0, 0), 0.15), outerThickness, 0.68 - (0.08 * pulseAlpha))
+	createBeamLayer("LaserBeamBody", beamColor, middleThickness, 0.18 - (0.05 * pulseAlpha))
+	createBeamLayer("LaserBeamCore", coreColor, coreThickness, 0.04)
+end
+
 function WeaponVfx.createMuzzleFlash(position, color, size, lifetimeSeconds)
 	local flash = Instance.new("Part")
 	flash.Name = "MuzzleFlash"

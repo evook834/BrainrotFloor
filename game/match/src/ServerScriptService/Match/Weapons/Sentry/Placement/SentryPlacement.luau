@@ -1,6 +1,6 @@
 --[[
 	SentryPlacement — Placement and orientation helpers for sentry models.
-	Reference part, pivot CFrame, upright orientation, rotation offset from weapon def.
+	Reference part, pivot CFrame, upright orientation, facing yaw, and rotation offset from weapon def.
 ]]
 
 local Match = script.Parent.Parent.Parent.Parent
@@ -86,18 +86,58 @@ local function resolveSentryPlacementRotationOffsetCFrame(weaponDef)
 		return CFrame.new()
 	end
 
-	return CFrame.Angles(
-		math.rad(rotationDeg.X),
-		math.rad(rotationDeg.Y),
-		math.rad(rotationDeg.Z)
-	)
+	-- Apply yaw first so large flip corrections (for upside-down templates) do not introduce
+	-- an unintended sideways lean when creators tune the placement angles by hand.
+	local yaw = CFrame.fromAxisAngle(Vector3.yAxis, math.rad(rotationDeg.Y))
+	local pitch = CFrame.fromAxisAngle(Vector3.xAxis, math.rad(rotationDeg.X))
+	local roll = CFrame.fromAxisAngle(Vector3.zAxis, math.rad(rotationDeg.Z))
+	return yaw * pitch * roll
+end
+
+local function resolveSentryPlacementFacingOffsetCFrame(weaponDef)
+	if type(weaponDef) ~= "table" then
+		return CFrame.new()
+	end
+
+	local facingYawDeg = tonumber(weaponDef.TurretPlacementFacingYawDeg)
+	if type(facingYawDeg) ~= "number" then
+		return CFrame.new()
+	end
+
+	return CFrame.fromAxisAngle(Vector3.yAxis, math.rad(facingYawDeg))
+end
+
+local function resolveSentryPlacementPositionOffsetCFrame(weaponDef)
+	if type(weaponDef) ~= "table" then
+		return CFrame.new()
+	end
+
+	local positionOffset = weaponDef.TurretPlacementPositionOffset
+	if typeof(positionOffset) ~= "Vector3" then
+		return CFrame.new()
+	end
+
+	return CFrame.new(positionOffset)
 end
 
 function SentryPlacement.applySentryPlacementRotationOffset(referencePlacementCFrame, weaponDef)
 	return referencePlacementCFrame * resolveSentryPlacementRotationOffsetCFrame(weaponDef)
 end
 
-function SentryPlacement.resolveUprightSentryReferencePlacementCFrame(sentryModel, referencePlacementCFrame, desiredLookDirection)
+function SentryPlacement.applySentryPlacementFacingOffset(referencePlacementCFrame, weaponDef)
+	return referencePlacementCFrame * resolveSentryPlacementFacingOffsetCFrame(weaponDef)
+end
+
+function SentryPlacement.applySentryPlacementPositionOffset(referencePlacementCFrame, weaponDef)
+	return referencePlacementCFrame * resolveSentryPlacementPositionOffsetCFrame(weaponDef)
+end
+
+function SentryPlacement.resolveUprightSentryReferencePlacementCFrame(
+	sentryModel,
+	referencePlacementCFrame,
+	desiredLookDirection,
+	weaponDef
+)
 	local desiredFlatLook = getHorizontalUnitDirection(desiredLookDirection)
 	local forwardAxis = referencePlacementCFrame.LookVector
 	local rightAxis = referencePlacementCFrame.RightVector
@@ -117,6 +157,8 @@ function SentryPlacement.resolveUprightSentryReferencePlacementCFrame(sentryMode
 
 	for _, rotation in ipairs(candidateRotations) do
 		local candidateReferencePlacementCFrame = referencePlacementCFrame * rotation
+		candidateReferencePlacementCFrame =
+			SentryPlacement.applySentryPlacementFacingOffset(candidateReferencePlacementCFrame, weaponDef)
 		local candidatePivotCFrame =
 			SentryPlacement.resolveSentryPlacementPivotCFrame(sentryModel, candidateReferencePlacementCFrame)
 		local upScore = candidatePivotCFrame.UpVector.Y

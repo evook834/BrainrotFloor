@@ -6,6 +6,10 @@
 local ServerStorage = game:GetService("ServerStorage")
 
 local WeaponTemplateResolver = {}
+local SENTRY_TEMPLATE_PREPARED_ATTR = "SentryTemplatePrepared"
+local SENTRY_TEMPLATE_PREPARING_ATTR = "SentryTemplatePreparing"
+local TOOL_SKIP_PREPARE_PARTS_ATTR = "SkipPrepareToolParts"
+local PREVIEW_TRANSPARENCY_ATTR = "PreviewTransparency"
 
 local templateCache = {
 	folder = nil,
@@ -95,34 +99,71 @@ local function getTemplateCandidates(folder)
 	return templateCache.candidates
 end
 
-local function matchesTemplateCandidate(candidate, templateNameLower, templateNameKey, idLower, nameLower, idKey, nameKey)
+local function getTemplateCandidateMatchScore(candidate, weaponDef, templateNameLower, templateNameKey, idLower, nameLower, idKey, nameKey)
 	local candidateNameLower = string.lower(candidate.Name)
 	local candidateKey = normalizeTemplateKey(candidate.Name)
+	local bestScore = nil
+
+	local function considerScore(score)
+		if type(score) ~= "number" then
+			return
+		end
+		if bestScore == nil or score > bestScore then
+			bestScore = score
+		end
+	end
 
 	if templateNameLower ~= "" and candidateNameLower == templateNameLower then
-		return true
+		considerScore(900)
 	end
-	if keyMatches(candidateKey, templateNameKey) then
-		return true
+	if templateNameKey ~= "" and candidateKey == templateNameKey then
+		considerScore(880)
+	elseif keyMatches(candidateKey, templateNameKey) then
+		considerScore(620)
 	end
 	if candidateNameLower == idLower or candidateNameLower == nameLower then
-		return true
+		considerScore(860)
 	end
-	if keyMatches(candidateKey, idKey) then
-		return true
+	if idKey ~= "" and candidateKey == idKey then
+		considerScore(840)
+	elseif keyMatches(candidateKey, idKey) then
+		considerScore(580)
 	end
-	if keyMatches(candidateKey, nameKey) then
-		return true
+	if nameKey ~= "" and candidateKey == nameKey then
+		considerScore(820)
+	elseif keyMatches(candidateKey, nameKey) then
+		considerScore(560)
 	end
+
 	local attributeKey = normalizeTemplateKey(
 		candidate:GetAttribute("WeaponId")
 			or candidate:GetAttribute("ShopWeaponId")
 			or candidate:GetAttribute("TemplateId")
 	)
-	if attributeKey ~= "" and (attributeKey == idKey or attributeKey == nameKey or attributeKey == templateNameKey) then
-		return true
+	if attributeKey ~= "" then
+		if attributeKey == templateNameKey then
+			considerScore(980)
+		end
+		if attributeKey == idKey or attributeKey == nameKey then
+			considerScore(960)
+		end
 	end
-	return false
+
+	if bestScore == nil then
+		return nil
+	end
+
+	local weaponClassKey = normalizeTemplateKey(weaponDef and weaponDef.WeaponClass)
+	if weaponClassKey == "sentrydeployer" then
+		if candidate:IsA("Model") then
+			bestScore += 250
+		end
+		if string.find(candidateKey, "sentry", 1, true) then
+			bestScore += 400
+		end
+	end
+
+	return bestScore
 end
 
 local function createCenterHandleForModel(model, tool)
@@ -152,6 +193,26 @@ local function createCenterHandleForModel(model, tool)
 	handle.Anchored = false
 	handle.Parent = tool
 	return handle
+end
+
+local function prepareSentryPreviewModelForTool(model)
+	if not model or not model:IsA("Model") then
+		return
+	end
+
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+			descendant.CanCollide = false
+			descendant.CanTouch = false
+			descendant.CanQuery = false
+			descendant.Massless = true
+			if descendant:GetAttribute(PREVIEW_TRANSPARENCY_ATTR) == nil then
+				descendant:SetAttribute(PREVIEW_TRANSPARENCY_ATTR, descendant.Transparency)
+			end
+			descendant.Transparency = 1
+		end
+	end
 end
 
 local function stripLegacyToolScripts(tool)
@@ -189,6 +250,52 @@ local function ensureDirectToolHandle(tool)
 	return nil
 end
 
+local function isSentryDeployerDefinition(weaponDef)
+	return normalizeTemplateKey(weaponDef and weaponDef.WeaponClass) == "sentrydeployer"
+end
+
+local function prepareSentryTemplateModel(template)
+	if not template or not template:IsA("Model") then
+		return
+	end
+	if template:GetAttribute(SENTRY_TEMPLATE_PREPARED_ATTR) == true then
+		return
+	end
+
+	for _, descendant in ipairs(template:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+			descendant.CanCollide = false
+			descendant.CanTouch = true
+			descendant.CanQuery = true
+		end
+	end
+
+	template:SetAttribute(SENTRY_TEMPLATE_PREPARED_ATTR, true)
+end
+
+local function scheduleSentryTemplatePreparation(template)
+	if not template or not template:IsA("Model") then
+		return
+	end
+	if template:GetAttribute(SENTRY_TEMPLATE_PREPARED_ATTR) == true then
+		return
+	end
+	if template:GetAttribute(SENTRY_TEMPLATE_PREPARING_ATTR) == true then
+		return
+	end
+
+	template:SetAttribute(SENTRY_TEMPLATE_PREPARING_ATTR, true)
+	task.defer(function()
+		if template.Parent then
+			prepareSentryTemplateModel(template)
+		end
+		if template.Parent then
+			template:SetAttribute(SENTRY_TEMPLATE_PREPARING_ATTR, nil)
+		end
+	end)
+end
+
 function WeaponTemplateResolver.findShopItemTemplate(weaponDef)
 	local shopItemsFolder = ServerStorage:FindFirstChild("ShopItems")
 	if not shopItemsFolder then
@@ -203,13 +310,32 @@ function WeaponTemplateResolver.findShopItemTemplate(weaponDef)
 	local nameLower = string.lower(weaponDef.DisplayName or "")
 	local idKey = normalizeTemplateKey(weaponDef.Id)
 	local nameKey = normalizeTemplateKey(weaponDef.DisplayName)
+	local bestCandidate = nil
+	local bestScore = nil
 
 	for _, candidate in ipairs(getTemplateCandidates(shopItemsFolder)) do
-		if candidate.Parent and matchesTemplateCandidate(candidate, templateNameLower, templateNameKey, idLower, nameLower, idKey, nameKey) then
-			return candidate
+		if candidate.Parent then
+			local score = getTemplateCandidateMatchScore(
+				candidate,
+				weaponDef,
+				templateNameLower,
+				templateNameKey,
+				idLower,
+				nameLower,
+				idKey,
+				nameKey
+			)
+			if score ~= nil and (bestScore == nil or score > bestScore) then
+				bestCandidate = candidate
+				bestScore = score
+			end
 		end
 	end
-	return nil
+
+	if bestCandidate and isSentryDeployerDefinition(weaponDef) and bestCandidate:IsA("Model") then
+		scheduleSentryTemplatePreparation(bestCandidate)
+	end
+	return bestCandidate
 end
 
 function WeaponTemplateResolver.buildSentryModelFromTemplate(weaponDef)
@@ -219,6 +345,9 @@ function WeaponTemplateResolver.buildSentryModelFromTemplate(weaponDef)
 	end
 
 	if template:IsA("Model") then
+		if isSentryDeployerDefinition(weaponDef) then
+			prepareSentryTemplateModel(template)
+		end
 		return template:Clone()
 	end
 	if template:IsA("Tool") then
@@ -263,9 +392,9 @@ function WeaponTemplateResolver.createToolFromTemplate(weaponDef)
 	end
 
 	local tool = Instance.new("Tool")
-	local cloned = template:Clone()
 
 	if template:IsA("Model") then
+		local cloned = template:Clone()
 		cloned.Parent = tool
 		local handle = createCenterHandleForModel(cloned, tool)
 		if not (handle and handle:IsA("BasePart")) then
@@ -273,9 +402,15 @@ function WeaponTemplateResolver.createToolFromTemplate(weaponDef)
 			warn(string.format("Shop item template '%s' could not create centered handle", template.Name))
 			return nil
 		end
+		if isSentryDeployerDefinition(weaponDef) then
+			prepareSentryPreviewModelForTool(cloned)
+			tool:SetAttribute(TOOL_SKIP_PREPARE_PARTS_ATTR, true)
+		end
+		tool:SetAttribute("TurretPlacementReferenceMode", "BoundsCenter")
 		return tool
 	end
 	if template:IsA("BasePart") then
+		local cloned = template:Clone()
 		cloned.Name = "Handle"
 		cloned.Parent = tool
 		return tool
