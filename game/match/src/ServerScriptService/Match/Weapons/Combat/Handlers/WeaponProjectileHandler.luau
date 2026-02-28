@@ -3,6 +3,7 @@
 ]]
 
 local Debris = game:GetService("Debris")
+local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
@@ -19,6 +20,15 @@ local resolveShotRay = WeaponCombatShared.resolveShotRay
 local resolveAimTargetPosition = WeaponCombatShared.resolveAimTargetPosition
 local retargetDirectionToward = WeaponCombatShared.retargetDirectionToward
 local buildWeaponRaycastParams = WeaponCombatShared.buildWeaponRaycastParams
+
+local function appendLivePlayerCharacters(exclusions)
+	for _, player in ipairs(Players:GetPlayers()) do
+		local playerCharacter = player.Character
+		if playerCharacter then
+			table.insert(exclusions, playerCharacter)
+		end
+	end
+end
 
 local function fireRocket(player, character, origin, direction, weaponDef, shotOrigin, shotDirection, damageContext)
 	local speed = math.max(30, tonumber(weaponDef.ProjectileSpeed) or 140)
@@ -55,7 +65,11 @@ local function fireRocket(player, character, origin, direction, weaponDef, shotO
 	task.spawn(function()
 		local currentPosition = origin
 		local traveled = 0
-		local raycastParams = buildWeaponRaycastParams(character, { rocket })
+		local raycastExclusions = { rocket }
+		if type(damageContext) == "table" and damageContext.ignorePlayerCharacters then
+			appendLivePlayerCharacters(raycastExclusions)
+		end
+		local raycastParams = buildWeaponRaycastParams(character, raycastExclusions)
 
 		while rocket.Parent and traveled < range do
 			local deltaTime = RunService.Heartbeat:Wait()

@@ -375,7 +375,8 @@ local WeaponCatalog = {
 		TurretRocketProjectileSpeed = 145,
 		TurretRocketRange = 180,
 		TurretRocketSpreadDegrees = 4,
-		TurretPlacementRotationDeg = Vector3.new(0, -20, 0),
+		TurretMuzzleOffset = Vector3.new(0.8, 0, 4),
+		TurretPlacementRotationDeg = Vector3.new(0, 160, 0),
 		Color = Color3.fromRGB(210, 120, 190),
 	},
 	{
