@@ -32,6 +32,7 @@ Each place has a Rojo **`default.project.json`** that mounts **`../shared`** int
 | **Waves** | WaveService: state machine (Preparing → InProgress → Cleared / Blocked / GameOver) plus KF-style director (WaveTotalTarget + AliveCap, composition, 1500 cap), intermission | WaveHud: wave number, state, intermission countdown, game-over overlay, map vote UI | WaveState (S→All) |
 | **Classes** | ClassService: selection, XP, levels, combat bonuses; persistence via DataService (PlayerDataService) | ClassUi, XpBarHud | ClassGetData, ClassSelect, ClassState (C→S / S→C) |
 | **Shop** | ShopService: catalog per player, buy weapon/ammo, trader prompt | ShopUi | ShopOpen (S→C), ShopGetCatalog, ShopBuyWeapon, ShopBuyAmmo (C→S) |
+| **Friends** | Shared FriendService: requests, presence, 10-minute rejection cooldowns, and in-game direct messages | FriendSystem UI (settings menu) plus lobby nameplates | FriendGetState, FriendAction, FriendState (C→S / S→C) |
 | **Combat** | Weapon fire/reload/aim handlers, damage, ammo | Crosshair, AmmoHud, DamageIndicators, DualWieldPose | WeaponAim, WeaponFire, WeaponReload (C→S), DamageIndicator (S→C) |
 | **Enemies** | EnemyService, EnemyAIService, EnemyVfxService, difficulty-scaled HP/damage | EnemyHealthBars, EnemyDeathCloud | — |
 | **Settings** | Shared SettingsService: get/save via DataService (audio, HUD) | SettingsUi (lobby + match) | SettingsGet (C→S), SettingsSave (C→S) |

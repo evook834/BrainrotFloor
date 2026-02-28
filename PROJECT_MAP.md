@@ -48,6 +48,7 @@ Server-only shared (e.g. matchmaking, place role). Used by both lobby and match.
 | Folder / file | Purpose |
 |---------------|--------|
 | **`Classes/`** | Shared class system helpers: progression (XP, bonuses), state helpers, payload builder + lobby payload, optional persistence. |
+| **`Friends/`** | FriendService: shared social backend for friend requests, presence, cooldowns, and in-game direct messages. |
 | **`Matchmaking/`** | Matchmaking config and place-role detection. |
 | **`PlayerData/`** | PlayerDataService: wraps DataService (leifstout/dataService) for persistent, replicated player data (settings, classes, money). |
 | **`Settings/`** | Shared SettingsService: binds SettingsGet/SettingsSave remotes, reads/writes via PlayerDataService. Also config (`SettingsConfig`, `HudLayoutConfig`). |
@@ -58,6 +59,7 @@ Client-only shared. Runs in both lobby and match.
 
 | Folder / file | Purpose |
 |---------------|--------|
+| **`Friends/`** | Friend system modal UI/controller used by both lobby and match. |
 | **`Movement/`** | Sprint, stamina, movement behavior. |
 | **`ReturnToLobby/`** | Placeholder for return-to-lobby client. |
 | **`Settings/`** | Settings client UI and controllers. |
@@ -81,6 +83,7 @@ Lobby place: difficulty selection, matchmaking, teleport to match.
 |---------------|--------|
 | **`Core/`** | Lobby HUD and placeholders. |
 | **`Classes/`** | Class selection UI (same as Match; selection persists to Match). |
+| **`Social/`** | Lobby-only social surfaces such as clickable overhead nameplates. |
 | **`Settings/`** | Lobby settings UI. |
 
 ### `game/lobby/src/Workspace/`
@@ -129,6 +132,7 @@ Match client UI and HUD. Match folder names to responsibility.
 | **`Classes/`** | Class UI; **`Classes/XpBarHud/`** — XP bar: XpBarHud (entry), XpBarHudController, XpBarHudView, XpBarHudRemotes, XpBarHudPayloadUtil. |
 | **`Combat/`** | Crosshair (entry under **`Combat/Crosshair/`**), ammo HUD (under **`Combat/AmmoHud/`**), dual-wield pose, damage numbers. **`Combat/Crosshair/`** — Crosshair system: Crosshair (entry), CrosshairController, CrosshairView, CrosshairRemotes, CrosshairConstants, CrosshairWeaponConfig, DualWieldPose, SentryPlacementPreview. **`Combat/AmmoHud/`** — Ammo HUD: AmmoHud (entry), AmmoHudController, AmmoHudView, AmmoHudConstants, AmmoHudPayloadUtil. |
 | **`Settings/`** | Match settings UI. |
+| **`Social/`** | Match-only social surfaces such as non-interactive in-game nameplates. |
 | **`Spectator/`** | Spectator mode client: Spectator (entry), SpectatorController (logic), SpectatorView (UI). |
 | **`ReturnToLobby/`** | Placeholder for return-to-lobby client. |
 

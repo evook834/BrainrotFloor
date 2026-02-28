@@ -9,6 +9,7 @@ export type View = {
 	panel: Frame,
 	closeButton: TextButton,
 	statusLabel: TextLabel,
+	currentIcon: ImageLabel,
 	currentInfo: TextLabel,
 	listFrame: ScrollingFrame,
 	bonusInfoMenu: Frame,
@@ -25,30 +26,39 @@ local function build(): View
 
 	local openButton = Instance.new("TextButton")
 	openButton.Name = "OpenClassPanel"
-	openButton.Size = UDim2.fromOffset(46, 126)
-	openButton.Position = UDim2.new(0, 12, 0.5, -63)
-	openButton.BackgroundColor3 = Color3.fromRGB(32, 37, 47)
+	openButton.Size = UDim2.fromOffset(146, 40)
+	openButton.Position = UDim2.new(0, 12, 0.5, 24)
+	openButton.BackgroundColor3 = Color3.fromRGB(86, 118, 156)
 	openButton.BorderSizePixel = 0
-	openButton.Text = "CLASS"
-	openButton.TextColor3 = Color3.fromRGB(242, 246, 255)
+	openButton.Text = "Classes"
+	openButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	openButton.TextTransparency = 0
 	openButton.Font = Enum.Font.GothamBold
 	openButton.TextSize = 16
 	openButton.Parent = gui
 
 	local openButtonCorner = Instance.new("UICorner")
-	openButtonCorner.CornerRadius = UDim.new(0, 8)
+	openButtonCorner.CornerRadius = UDim.new(0, 10)
 	openButtonCorner.Parent = openButton
 
 	local openButtonStroke = Instance.new("UIStroke")
-	openButtonStroke.Color = Color3.fromRGB(88, 104, 128)
-	openButtonStroke.Transparency = 0.2
+	openButtonStroke.Color = Color3.fromRGB(132, 162, 198)
+	openButtonStroke.Transparency = 0.04
 	openButtonStroke.Thickness = 1
 	openButtonStroke.Parent = openButton
+
+	local openButtonGradient = Instance.new("UIGradient")
+	openButtonGradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(118, 152, 194)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(66, 97, 132)),
+	})
+	openButtonGradient.Rotation = 90
+	openButtonGradient.Parent = openButton
 
 	local panel = Instance.new("Frame")
 	panel.Name = "ClassPanel"
 	panel.Size = UDim2.fromOffset(380, 500)
-	panel.Position = UDim2.new(0, 66, 0.5, -250)
+	panel.Position = UDim2.new(0, 176, 0.5, -250)
 	panel.BackgroundColor3 = Color3.fromRGB(18, 20, 25)
 	panel.BackgroundTransparency = 0.08
 	panel.BorderSizePixel = 0
@@ -103,8 +113,8 @@ local function build(): View
 
 	local currentInfo = Instance.new("TextLabel")
 	currentInfo.Name = "CurrentInfo"
-	currentInfo.Size = UDim2.new(1, -24, 0, 92)
-	currentInfo.Position = UDim2.fromOffset(12, 66)
+	currentInfo.Size = UDim2.new(1, -118, 0, 86)
+	currentInfo.Position = UDim2.fromOffset(100, 70)
 	currentInfo.BackgroundColor3 = Color3.fromRGB(24, 29, 37)
 	currentInfo.BackgroundTransparency = 0.12
 	currentInfo.BorderSizePixel = 0
@@ -120,6 +130,27 @@ local function build(): View
 	local currentInfoCorner = Instance.new("UICorner")
 	currentInfoCorner.CornerRadius = UDim.new(0, 8)
 	currentInfoCorner.Parent = currentInfo
+
+	local currentIcon = Instance.new("ImageLabel")
+	currentIcon.Name = "CurrentIcon"
+	currentIcon.Size = UDim2.fromOffset(76, 76)
+	currentIcon.Position = UDim2.fromOffset(14, 75)
+	currentIcon.BackgroundColor3 = Color3.fromRGB(24, 29, 37)
+	currentIcon.BackgroundTransparency = 0.08
+	currentIcon.BorderSizePixel = 0
+	currentIcon.Image = ""
+	currentIcon.ScaleType = Enum.ScaleType.Fit
+	currentIcon.Parent = panel
+
+	local currentIconCorner = Instance.new("UICorner")
+	currentIconCorner.CornerRadius = UDim.new(0, 10)
+	currentIconCorner.Parent = currentIcon
+
+	local currentIconStroke = Instance.new("UIStroke")
+	currentIconStroke.Color = Color3.fromRGB(76, 92, 116)
+	currentIconStroke.Transparency = 0.18
+	currentIconStroke.Thickness = 1
+	currentIconStroke.Parent = currentIcon
 
 	local listFrame = Instance.new("ScrollingFrame")
 	listFrame.Name = "ClassList"
@@ -253,6 +284,7 @@ local function build(): View
 		panel = panel,
 		closeButton = closeButton,
 		statusLabel = statusLabel,
+		currentIcon = currentIcon,
 		currentInfo = currentInfo,
 		listFrame = listFrame,
 		bonusInfoMenu = bonusInfoMenu,

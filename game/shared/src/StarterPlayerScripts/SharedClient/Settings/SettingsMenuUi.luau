@@ -8,6 +8,7 @@ export type View = {
 	launcher: Frame,
 	launcherGear: TextButton,
 	launcherLabel: TextLabel,
+	friendLauncherButton: TextButton,
 
 	panel: Frame,
 	panelTitle: TextLabel,
@@ -228,10 +229,24 @@ local function build(): View
 	launcherLabel.TextSize = 18
 	launcherLabel.Parent = launcher
 
+	local friendLauncherButton = Instance.new("TextButton")
+	friendLauncherButton.Name = "FriendLauncherButton"
+	friendLauncherButton.Size = UDim2.fromOffset(146, 32)
+	friendLauncherButton.Position = UDim2.new(0, 12, 0.5, 124)
+	friendLauncherButton.BackgroundColor3 = Color3.fromRGB(45, 101, 98)
+	friendLauncherButton.BorderSizePixel = 0
+	friendLauncherButton.Text = "Friend List"
+	friendLauncherButton.TextColor3 = Color3.fromRGB(238, 249, 246)
+	friendLauncherButton.Font = Enum.Font.GothamBold
+	friendLauncherButton.TextSize = 13
+	friendLauncherButton.Parent = gui
+	styleRounded(friendLauncherButton, 8)
+	styleStroke(friendLauncherButton, Color3.fromRGB(88, 130, 126), 0.28, 1)
+
 	local panel = Instance.new("Frame")
 	panel.Name = "SettingsPanel"
-	panel.Size = UDim2.fromOffset(400, 360)
-	panel.Position = UDim2.new(0, 66, 0.5, -180)
+	panel.Size = UDim2.fromOffset(400, 400)
+	panel.Position = UDim2.new(0, 66, 0.5, -200)
 	panel.BackgroundColor3 = Color3.fromRGB(18, 20, 25)
 	panel.BackgroundTransparency = 0.08
 	panel.BorderSizePixel = 0
@@ -532,6 +547,7 @@ local function build(): View
 		launcher = launcher,
 		launcherGear = launcherGear,
 		launcherLabel = launcherLabel,
+		friendLauncherButton = friendLauncherButton,
 
 		panel = panel,
 		panelTitle = panelTitle,

@@ -27,13 +27,6 @@ local function createOrReplaceGui(guiName: string, displayOrder: number): Screen
 			return existing
 		end
 	end
-	-- In match, AmmoHud creates the real ammo HUD (AmmoContainer has AmmoStatus label); do not replace it
-	if guiName == "AmmoHud" and existing then
-		local ammoContainer = existing:FindFirstChild("AmmoContainer")
-		if ammoContainer and ammoContainer:FindFirstChild("AmmoStatus") then
-			return existing
-		end
-	end
 	if existing then
 		existing:Destroy()
 	end
@@ -159,62 +152,6 @@ if classXpGuiIsPlaceholder then
 	applyRoundedCorners(xpBarFill, 6)
 end
 
-local ammoGui = createOrReplaceGui("AmmoHud", 35)
-
-local ammoContainer = Instance.new("Frame")
-ammoContainer.Name = "AmmoContainer"
-ammoContainer.Size = UDim2.fromOffset(250, 106)
-ammoContainer.AnchorPoint = Vector2.new(1, 1)
-ammoContainer.Position = UDim2.new(1, -18, 1, -18)
-ammoContainer.BackgroundColor3 = Color3.fromRGB(18, 23, 34)
-ammoContainer.BackgroundTransparency = 0.12
-ammoContainer.BorderSizePixel = 0
-ammoContainer.Visible = false
-ammoContainer.Parent = ammoGui
-applyRoundedCorners(ammoContainer, 10)
-
-local ammoStroke = Instance.new("UIStroke")
-ammoStroke.Color = Color3.fromRGB(92, 110, 136)
-ammoStroke.Transparency = 0.2
-ammoStroke.Thickness = 1
-ammoStroke.Parent = ammoContainer
-
-local ammoTitle = Instance.new("TextLabel")
-ammoTitle.Name = "WeaponName"
-ammoTitle.Size = UDim2.new(1, -16, 0, 22)
-ammoTitle.Position = UDim2.fromOffset(8, 6)
-ammoTitle.BackgroundTransparency = 1
-ammoTitle.Text = "WEAPON PREVIEW"
-ammoTitle.TextXAlignment = Enum.TextXAlignment.Right
-ammoTitle.TextColor3 = Color3.fromRGB(206, 219, 242)
-ammoTitle.Font = Enum.Font.GothamSemibold
-ammoTitle.TextSize = 14
-ammoTitle.Parent = ammoContainer
-
-local ammoValue = Instance.new("TextLabel")
-ammoValue.Name = "AmmoValue"
-ammoValue.Size = UDim2.new(1, -16, 0, 44)
-ammoValue.Position = UDim2.fromOffset(8, 28)
-ammoValue.BackgroundTransparency = 1
-ammoValue.Text = "30 / 120"
-ammoValue.TextXAlignment = Enum.TextXAlignment.Right
-ammoValue.TextColor3 = Color3.fromRGB(245, 250, 255)
-ammoValue.Font = Enum.Font.GothamBlack
-ammoValue.TextSize = 36
-ammoValue.Parent = ammoContainer
-
-local ammoDetails = Instance.new("TextLabel")
-ammoDetails.Name = "AmmoDetails"
-ammoDetails.Size = UDim2.new(1, -16, 0, 18)
-ammoDetails.Position = UDim2.fromOffset(8, 74)
-ammoDetails.BackgroundTransparency = 1
-ammoDetails.Text = "MAG 30   RESERVE 90"
-ammoDetails.TextXAlignment = Enum.TextXAlignment.Right
-ammoDetails.TextColor3 = Color3.fromRGB(157, 176, 208)
-ammoDetails.Font = Enum.Font.Gotham
-ammoDetails.TextSize = 13
-ammoDetails.Parent = ammoContainer
-
 local function setPreviewVisible(isVisible: boolean?)
 	local visible = isVisible == true
 	if nextWaveTimer then
@@ -223,7 +160,6 @@ local function setPreviewVisible(isVisible: boolean?)
 	if xpContainer then
 		xpContainer.Visible = visible
 	end
-	ammoContainer.Visible = visible
 end
 
 local function refreshPreviewVisibility()

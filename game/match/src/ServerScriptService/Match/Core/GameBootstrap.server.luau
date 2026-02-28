@@ -13,6 +13,7 @@ local PlaceRole = require(ServerScriptService.Shared.Matchmaking.PlaceRole)
 local MatchmakingConfig = require(ServerScriptService.Shared.Matchmaking.MatchmakingConfig)
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local PlayerDataService = require(ServerScriptService.Shared.PlayerData.PlayerDataService)
+local FriendService = require(ServerScriptService.Shared.Friends.FriendService)
 local SettingsService = require(ServerScriptService.Shared.Settings.SettingsService)
 
 local Match = script.Parent.Parent
@@ -111,6 +112,7 @@ MatchSetup.ensureDifficultyAttribute(Workspace, function()
 	return DifficultyService.getCurrentDifficulty()
 end)
 Workspace:SetAttribute("GameOver", false)
+Workspace:SetAttribute("Won", false)
 
 Players.CharacterAutoLoads = false
 Players.PlayerAdded:Connect(bindPlayerSystems)
@@ -130,6 +132,7 @@ PlayerDataService.start()
 OfflinePlayerDataEditor.start()
 ClassService.start()
 SettingsService.start()
+FriendService.start()
 ShopService.start()
 AmmoPickupService.start()
 WaveService.setOnWinCallback(triggerWin)

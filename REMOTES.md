@@ -24,6 +24,9 @@ All remotes live under `ReplicatedStorage.Remotes` (folder name from `RemoteName
 | **ClassState**    | RemoteEvent    | S→C       | **Server** fires to **one** client when class state changes. Payload: `ClassStateSync.buildPayloadForPlayer(player)` plus `reason`. Schema: `{ success, canSwitch, waveState, maxLevel, currentClassId, currentClassName, currentBonuses, classes[], reason? }`. Each `classes[]`: `{ id, name, description, weaponTag, level, xp, xpToNext, isCurrent, currentBonuses, perLevelBonuses }`. |
 | **SettingsGet**   | RemoteFunction | C→S       | **Client** invokes (no args). **Server** returns: `{ success: boolean, settings?: table }`. `settings`: `{ schemaVersion, audio: { musicVolume, musicMuted, sfxVolume, sfxMuted }, hud: { scale, positions } }`. Audio values are in [0,1], hud.scale is in [0.6, 1.45]. |
 | **SettingsSave**  | RemoteEvent    | C→S       | **Client** fires `(rawSettings: table)`. Server sanitizes and persists. Same shape as **SettingsGet** `settings` (audio/hud). |
+| **FriendGetState** | RemoteFunction | C→S | **Client** invokes (no args). **Server** returns the caller's social payload: `{ success, incomingRequests[], outgoingRequests[], friends[], requestCooldownsByUserId, conversationsByUserId, summary }`. `friends[]` include `userId`, names, `online`, and `lastSeenAt`; request entries include `createdAt`; conversations are keyed by friend userId. |
+| **FriendAction** | RemoteFunction | C→S | **Client** invokes `(payload: table)` for social actions. `payload.action` is one of `"sendRequest"`, `"respondRequest"`, `"sendMessage"`, or `"removeFriend"`. Request payloads include `targetUserId` and optional display-name hints; responses include `accept`; messages include `message`; removals include `targetUserId`. **Server** returns `{ success: boolean, message?: string }`. |
+| **FriendState** | RemoteEvent | S→C | **Server** fires to **one** client whenever that player's friend state changes. Payload matches **FriendGetState** so the client can refresh requests, online/offline presence, cooldowns, and message history without relying on manual reloads alone. |
 | **EditOfflinePlayerData** | RemoteFunction | C→S | **Client** invokes `(userId: number, edits: { { path: string, value: any } })`. Server edits saved player data only when that player is offline. Paths are dot-separated (e.g. `classes.progressByClassId.scentry.level`). Returns `{ success: boolean, message?: string }`. Allowed only in Studio by default. |
 | **SpectatorState** | RemoteEvent | S→C | **Server** fires to **one** client when spectator state changes. Payload: `{ isSpectating: boolean, livingPlayerUserIds: { number }?, respawnsAt: number? }`. When `isSpectating` is true, client enters spectator mode and can cycle camera among players in `livingPlayerUserIds`. `respawnsAt` is server time (seconds, from `workspace:GetServerTimeNow()`) when the spectator will spawn; client can compute countdown as `respawnsAt - workspace:GetServerTimeNow()`. When false or `respawnsAt` is 0/nill, client exits spectator mode (e.g. after respawn). Server updates `livingPlayerUserIds` when the set of living players in the match changes. |
 | **SpectatorRequest** | RemoteFunction | C→S | **Client** invokes `(request: string)`. **Server** returns: `{ success: boolean, message?: string, isSpectating?: boolean }`. Requests: `"toggleSpectate"` (toggle spectator mode when dead), `"spawnNow"` (attempt immediate spawn), `"exitSpectate"` (exit spectator mode without spawning). Used for late joiners or players who want to control their spectator state. |
@@ -32,27 +35,30 @@ All remotes live under `ReplicatedStorage.Remotes` (folder name from `RemoteName
 
 ## Summary table (quick reference)
 
-| Name                | Type           | Direction |
-|---------------------|----------------|-----------|
-| WaveState           | RemoteEvent    | S→All     |
-| ReturnToLobby       | RemoteEvent    | C→S       |
-| MapVote             | RemoteEvent    | —         |
-| ShopOpen            | RemoteEvent    | S→C       |
-| ShopGetCatalog      | RemoteFunction | C→S       |
-| ShopBuyWeapon       | RemoteFunction | C→S       |
-| ShopBuyAmmo         | RemoteFunction | C→S       |
-| WeaponAim           | RemoteEvent    | C→S       |
-| WeaponFire          | RemoteEvent    | C→S       |
-| WeaponReload        | RemoteEvent    | C→S       |
-| DamageIndicator     | RemoteEvent    | S→C       |
-| ClassGetData        | RemoteFunction | C→S       |
-| ClassSelect         | RemoteFunction | C→S       |
-| ClassState          | RemoteEvent    | S→C       |
-| SettingsGet         | RemoteFunction | C→S       |
-| SettingsSave        | RemoteEvent    | C→S       |
+| Name                  | Type           | Direction |
+|-----------------------|----------------|-----------|
+| WaveState             | RemoteEvent    | S→All     |
+| ReturnToLobby         | RemoteEvent    | C→S       |
+| MapVote               | RemoteEvent    | —         |
+| ShopOpen              | RemoteEvent    | S→C       |
+| ShopGetCatalog        | RemoteFunction | C→S       |
+| ShopBuyWeapon         | RemoteFunction | C→S       |
+| ShopBuyAmmo           | RemoteFunction | C→S       |
+| WeaponAim             | RemoteEvent    | C→S       |
+| WeaponFire            | RemoteEvent    | C→S       |
+| WeaponReload          | RemoteEvent    | C→S       |
+| DamageIndicator       | RemoteEvent    | S→C       |
+| ClassGetData          | RemoteFunction | C→S       |
+| ClassSelect           | RemoteFunction | C→S       |
+| ClassState            | RemoteEvent    | S→C       |
+| SettingsGet           | RemoteFunction | C→S       |
+| SettingsSave          | RemoteEvent    | C→S       |
+| FriendGetState        | RemoteFunction | C→S       |
+| FriendAction          | RemoteFunction | C→S       |
+| FriendState           | RemoteEvent    | S→C       |
 | EditOfflinePlayerData | RemoteFunction | C→S       |
-| SpectatorState      | RemoteEvent    | S→C       |
-| SpectatorRequest    | RemoteFunction | C→S       |
+| SpectatorState        | RemoteEvent    | S→C       |
+| SpectatorRequest      | RemoteFunction | C→S       |
 
 ---
 

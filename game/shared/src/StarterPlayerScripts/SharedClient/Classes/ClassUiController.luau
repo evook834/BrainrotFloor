@@ -15,6 +15,40 @@ type ClassPayload = {
 
 local REMOTE_WAIT = 15
 local DEFAULT_MAX_LEVEL = 200
+local CLASS_ICONS_FOLDER_NAME = "ClassIcons"
+local CLASS_ICONS_ALT_FOLDER_NAME = "Class Icons"
+local CLASS_ICON_GAME_ASSET_CATEGORY = "Images"
+
+local function normalizeIconKey(value: string?): string
+	local normalized = string.lower(tostring(value or ""))
+	normalized = normalized:gsub("%.png$", "")
+	normalized = normalized:gsub("[^%w]+", "")
+	return normalized
+end
+
+local function buildGameAssetIconUri(value: string?): string?
+	local assetName = tostring(value or "")
+	assetName = assetName:gsub("%.png$", "")
+	assetName = assetName:gsub("[^%w]+", "")
+	if assetName == "" then
+		return nil
+	end
+
+	return string.format("rbxgameasset://%s/%s", CLASS_ICON_GAME_ASSET_CATEGORY, assetName)
+end
+
+local function readImageContent(source: Instance): string?
+	for _, propertyName in ipairs({ "Image", "Texture", "Value" }) do
+		local ok, value = pcall(function()
+			return source[propertyName]
+		end)
+		if ok and type(value) == "string" and value ~= "" then
+			return value
+		end
+	end
+
+	return nil
+end
 
 local function formatPercent(value: number?): string
 	return string.format("%.1f%%", tonumber(value) or 0)
@@ -152,6 +186,7 @@ local function run(options: { isLobby: boolean? }?)
 	local bonusInfoCloseButton = view.bonusInfoCloseButton
 	local bonusInfoText = view.bonusInfoText
 	local bonusInfoScroll = view.bonusInfoScroll
+	local currentIcon = view.currentIcon
 	local currentInfo = view.currentInfo
 	local listFrame = view.listFrame
 	local panel = view.panel
@@ -164,6 +199,59 @@ local function run(options: { isLobby: boolean? }?)
 	local classSelectFunction: RemoteFunction? = nil
 	local classStateRemote: RemoteEvent? = nil
 	local waveStateRemote: RemoteEvent? = nil
+	local classIconContentByKey: { [string]: string } = {}
+
+	local function getClassIconsFolder(): Instance?
+		return ReplicatedStorage:FindFirstChild(CLASS_ICONS_FOLDER_NAME)
+			or ReplicatedStorage:FindFirstChild(CLASS_ICONS_ALT_FOLDER_NAME)
+	end
+
+	local function refreshClassIconCache()
+		local classIconsFolder = getClassIconsFolder()
+		if not classIconsFolder then
+			return
+		end
+
+		table.clear(classIconContentByKey)
+		for _, child in ipairs(classIconsFolder:GetChildren()) do
+			local normalizedKey = normalizeIconKey(child.Name)
+			local content = readImageContent(child)
+			if normalizedKey ~= "" and content then
+				classIconContentByKey[normalizedKey] = content
+			end
+		end
+	end
+
+	local function getClassIconContent(classData: any): string?
+		if type(classData) ~= "table" then
+			return nil
+		end
+
+		refreshClassIconCache()
+
+		local candidates = {
+			classData.name,
+			classData.weaponTag,
+			classData.id,
+		}
+
+		for _, candidate in ipairs(candidates) do
+			local normalizedKey = normalizeIconKey(candidate)
+			local content = classIconContentByKey[normalizedKey]
+			if normalizedKey ~= "" and content then
+				return content
+			end
+		end
+
+		for _, candidate in ipairs(candidates) do
+			local gameAssetUri = buildGameAssetIconUri(candidate)
+			if gameAssetUri then
+				return gameAssetUri
+			end
+		end
+
+		return nil
+	end
 
 	local function setStatus(text: string?, color: Color3?)
 		statusLabel.Text = text or ""
@@ -236,21 +324,22 @@ local function run(options: { isLobby: boolean? }?)
 		if currentClassData then
 			local levelText = string.format("Lv %d/%d", currentClassData.level or 1, maxLevel)
 			local xpText = formatXpProgressText(currentClassData.xp, currentClassData.xpToNext)
+			currentIcon.Image = getClassIconContent(currentClassData) or ""
 			currentInfo.Text = string.format(
-				"Current: %s (%s)\n%s | %s\nUse the i button next to a class to view bonuses.",
+				"Current: %s\n%s | %s\nUse the i button next to a class to view bonuses.",
 				currentClassData.name or payload.currentClassName or "?",
-				currentClassData.weaponTag or "NoTag",
 				levelText,
 				xpText
 			)
 		else
+			currentIcon.Image = ""
 			currentInfo.Text = "Current class data unavailable."
 		end
 
 		for index, classData in ipairs(payload.classes or {}) do
 			local row = Instance.new("Frame")
 			row.Name = "ClassRow_" .. tostring(index)
-			row.Size = UDim2.new(1, -4, 0, 84)
+			row.Size = UDim2.new(1, -4, 0, 92)
 			row.BackgroundColor3 = Color3.fromRGB(28, 32, 40)
 			row.BorderSizePixel = 0
 			row.LayoutOrder = index
@@ -260,10 +349,31 @@ local function run(options: { isLobby: boolean? }?)
 			rowCorner.CornerRadius = UDim.new(0, 8)
 			rowCorner.Parent = row
 
+			local icon = Instance.new("ImageLabel")
+			icon.Name = "Icon"
+			icon.Size = UDim2.fromOffset(60, 60)
+			icon.Position = UDim2.fromOffset(10, 16)
+			icon.BackgroundColor3 = Color3.fromRGB(20, 24, 31)
+			icon.BackgroundTransparency = 0.06
+			icon.BorderSizePixel = 0
+			icon.Image = getClassIconContent(classData) or ""
+			icon.ScaleType = Enum.ScaleType.Fit
+			icon.Parent = row
+
+			local iconCorner = Instance.new("UICorner")
+			iconCorner.CornerRadius = UDim.new(0, 8)
+			iconCorner.Parent = icon
+
+			local iconStroke = Instance.new("UIStroke")
+			iconStroke.Color = Color3.fromRGB(70, 84, 108)
+			iconStroke.Transparency = 0.22
+			iconStroke.Thickness = 1
+			iconStroke.Parent = icon
+
 			local info = Instance.new("TextLabel")
 			info.Name = "Info"
-			info.Size = UDim2.new(1, -168, 1, -8)
-			info.Position = UDim2.fromOffset(10, 6)
+			info.Size = UDim2.new(1, -214, 0, 46)
+			info.Position = UDim2.fromOffset(80, 6)
 			info.BackgroundTransparency = 1
 			info.TextWrapped = true
 			info.TextXAlignment = Enum.TextXAlignment.Left
@@ -274,9 +384,8 @@ local function run(options: { isLobby: boolean? }?)
 
 			local xpLine = formatXpProgressText(classData.xp, classData.xpToNext)
 			info.Text = string.format(
-				"%s (%s)\nLv %d/%d  |  %s",
+				"%s\nLv %d/%d  |  %s",
 				classData.name or classData.id or "?",
-				classData.weaponTag or "NoTag",
 				classData.level or 1,
 				maxLevel,
 				xpLine
@@ -285,19 +394,25 @@ local function run(options: { isLobby: boolean? }?)
 
 			local infoButton = Instance.new("TextButton")
 			infoButton.Name = "InfoButton"
-			infoButton.Size = UDim2.fromOffset(24, 24)
-			infoButton.Position = UDim2.new(1, -142, 0, 8)
-			infoButton.BackgroundColor3 = Color3.fromRGB(54, 79, 109)
+			infoButton.Size = UDim2.fromOffset(54, 22)
+			infoButton.Position = UDim2.fromOffset(80, 62)
+			infoButton.BackgroundColor3 = Color3.fromRGB(46, 70, 98)
 			infoButton.BorderSizePixel = 0
-			infoButton.TextColor3 = Color3.fromRGB(235, 242, 250)
-			infoButton.Font = Enum.Font.GothamBold
-			infoButton.TextSize = 12
-			infoButton.Text = "i"
+			infoButton.TextColor3 = Color3.fromRGB(230, 238, 248)
+			infoButton.Font = Enum.Font.GothamSemibold
+			infoButton.TextSize = 11
+			infoButton.Text = "Info"
 			infoButton.Parent = row
 
 			local infoButtonCorner = Instance.new("UICorner")
-			infoButtonCorner.CornerRadius = UDim.new(0, 12)
+			infoButtonCorner.CornerRadius = UDim.new(0, 6)
 			infoButtonCorner.Parent = infoButton
+
+			local infoButtonStroke = Instance.new("UIStroke")
+			infoButtonStroke.Color = Color3.fromRGB(88, 114, 146)
+			infoButtonStroke.Transparency = 0.18
+			infoButtonStroke.Thickness = 1
+			infoButtonStroke.Parent = infoButton
 
 			infoButton.Activated:Connect(function()
 				if activeInfoClassId == classData.id and bonusInfoMenu.Visible then
@@ -420,6 +535,14 @@ local function run(options: { isLobby: boolean? }?)
 	if not remotesFolder then
 		warn("ClassUi could not find ReplicatedStorage/Remotes")
 		return
+	end
+
+	if not getClassIconsFolder() then
+		ReplicatedStorage:WaitForChild(CLASS_ICONS_FOLDER_NAME, 2)
+		if not getClassIconsFolder() then
+			ReplicatedStorage:WaitForChild(CLASS_ICONS_ALT_FOLDER_NAME, 2)
+		end
+		refreshClassIconCache()
 	end
 
 	classGetDataFunction = remotesFolder:WaitForChild(Config.Remotes.ClassGetData, REMOTE_WAIT) :: RemoteFunction?
