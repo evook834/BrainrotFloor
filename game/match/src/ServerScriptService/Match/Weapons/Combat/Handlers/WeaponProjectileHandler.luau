@@ -8,7 +8,9 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Match = script.Parent.Parent.Parent.Parent
+local ClassService = require(Match.Classes.ClassService)
 local EnemyTargeting = require(Match.Enemies.EnemyTargeting)
+local ModelRootResolver = require(Match.Enemies.ModelRootResolver)
 local EnemyDamageService = require(Match.Combat.EnemyDamageService)
 local WeaponVfx = require(script.Parent.Parent.WeaponVfx)
 local WeaponCombatShared = require(script.Parent.WeaponCombatShared)
@@ -47,6 +49,186 @@ local function orientFlareProjectile(part, position, direction)
 	end
 
 	part.CFrame = CFrame.lookAt(position, position + direction)
+end
+
+local function resolveGroundFirePosition(character, position)
+	local enemyContainer = EnemyTargeting.getEnemyContainer()
+	local exclusions = {}
+	if enemyContainer then
+		table.insert(exclusions, enemyContainer)
+	end
+
+	local raycastParams = buildWeaponRaycastParams(character, exclusions)
+	local probeStart = position + Vector3.new(0, 10, 0)
+	local groundResult = Workspace:Raycast(probeStart, Vector3.new(0, -28, 0), raycastParams)
+	if groundResult then
+		local groundNormal = groundResult.Normal
+		if typeof(groundNormal) ~= "Vector3" or groundNormal.Magnitude <= 0.001 then
+			groundNormal = Vector3.yAxis
+		end
+		return groundResult.Position + (groundNormal * 0.08), groundNormal
+	end
+
+	return position, Vector3.yAxis
+end
+
+local function applyStickyAttachment(stickyBomb, targetPart, position)
+	if not (stickyBomb and stickyBomb.Parent) then
+		return
+	end
+
+	stickyBomb.CFrame = CFrame.new(position)
+	if targetPart and targetPart:IsA("BasePart") and targetPart.Parent then
+		stickyBomb.Anchored = false
+		stickyBomb.Massless = true
+		local weld = Instance.new("WeldConstraint")
+		weld.Name = "StickyBombWeld"
+		weld.Part0 = stickyBomb
+		weld.Part1 = targetPart
+		weld.Parent = stickyBomb
+	else
+		stickyBomb.Anchored = true
+	end
+end
+
+local function spawnStickyBombGroundFire(player, character, centerPosition, weaponDef)
+	if not player or not player:IsA("Player") then
+		return
+	end
+
+	local radius = ClassService.getWeaponGroundFireRadius(player, weaponDef)
+	if type(radius) ~= "number" then
+		radius = tonumber(weaponDef.GroundFireRadius) or 8
+	end
+	radius = math.max(3, radius)
+
+	local duration = ClassService.getWeaponGroundFireDurationSeconds(player, weaponDef)
+	if type(duration) ~= "number" then
+		duration = tonumber(weaponDef.GroundFireDurationSeconds) or 6
+	end
+	duration = math.max(0.5, duration)
+	local tickInterval = math.max(0.1, tonumber(weaponDef.GroundFireTickIntervalSeconds) or 0.4)
+	local damageScale = math.max(0, tonumber(weaponDef.GroundFireDamageScale) or 0.05)
+	local damagePerTick = math.max(0, (tonumber(weaponDef.Damage) or 0) * damageScale)
+	if damagePerTick <= 0 then
+		return
+	end
+
+	local groundPosition = resolveGroundFirePosition(character, centerPosition)
+
+	local patch = Instance.new("Part")
+	patch.Name = "StickyBombGroundFire"
+	patch.Anchored = true
+	patch.CanCollide = false
+	patch.CanTouch = false
+	patch.CanQuery = false
+	patch.Material = Enum.Material.Neon
+	patch.Color = Color3.fromRGB(255, 88, 64)
+	patch.Transparency = 0.28
+	patch.Size = Vector3.new(radius * 2, 0.2, radius * 2)
+	patch.CFrame = CFrame.new(groundPosition + Vector3.new(0, 0.02, 0))
+	patch.Parent = getEffectsFolder()
+	Debris:AddItem(patch, duration + 0.4)
+
+	local attachment = Instance.new("Attachment")
+	attachment.Position = Vector3.new(0, patch.Size.Y * 0.5, 0)
+	attachment.Parent = patch
+
+	local fireEmitter = Instance.new("ParticleEmitter")
+	fireEmitter.Texture = "rbxasset://textures/particles/fire_main.dds"
+	fireEmitter.LightEmission = 1
+	fireEmitter.Rate = 42
+	fireEmitter.Lifetime = NumberRange.new(0.22, 0.42)
+	fireEmitter.Speed = NumberRange.new(3, 7)
+	fireEmitter.SpreadAngle = Vector2.new(24, 24)
+	fireEmitter.Acceleration = Vector3.new(0, 12, 0)
+	fireEmitter.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1.5),
+		NumberSequenceKeypoint.new(0.5, 0.9),
+		NumberSequenceKeypoint.new(1, 0.22),
+	})
+	fireEmitter.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.08),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	fireEmitter.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 238, 150)),
+		ColorSequenceKeypoint.new(0.35, Color3.fromRGB(255, 122, 72)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(110, 34, 24)),
+	})
+	fireEmitter.Parent = attachment
+
+	local smokeEmitter = Instance.new("ParticleEmitter")
+	smokeEmitter.Texture = "rbxasset://textures/particles/smoke_main.dds"
+	smokeEmitter.Rate = 12
+	smokeEmitter.Lifetime = NumberRange.new(0.5, 0.9)
+	smokeEmitter.Speed = NumberRange.new(1.5, 4)
+	smokeEmitter.SpreadAngle = Vector2.new(32, 32)
+	smokeEmitter.Acceleration = Vector3.new(0, 7, 0)
+	smokeEmitter.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1.8),
+		NumberSequenceKeypoint.new(1, 3.4),
+	})
+	smokeEmitter.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.6),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	smokeEmitter.Color = ColorSequence.new(Color3.fromRGB(85, 78, 72), Color3.fromRGB(42, 38, 36))
+	smokeEmitter.Parent = attachment
+
+	local burnConfig = ClassService.getBurnOnHitConfig(player, weaponDef)
+
+	task.delay(duration, function()
+		if fireEmitter then
+			fireEmitter.Enabled = false
+		end
+		if smokeEmitter then
+			smokeEmitter.Enabled = false
+		end
+	end)
+
+	task.spawn(function()
+		local elapsed = 0
+		local queryHeight = math.max(4, radius * 1.6)
+		local querySize = Vector3.new(radius * 2, queryHeight, radius * 2)
+		local queryCenter = groundPosition + Vector3.new(0, queryHeight * 0.5, 0)
+		local overlapParams = nil
+		local overlapContainer = nil
+
+		while patch.Parent and elapsed < duration do
+			local enemyContainer = EnemyTargeting.getEnemyContainer()
+			if enemyContainer then
+				if enemyContainer ~= overlapContainer then
+					overlapContainer = enemyContainer
+					overlapParams = OverlapParams.new()
+					overlapParams.FilterType = Enum.RaycastFilterType.Include
+					overlapParams.FilterDescendantsInstances = { enemyContainer }
+					overlapParams.MaxParts = 256
+				end
+			end
+
+			if enemyContainer and overlapParams then
+				local touchedParts = Workspace:GetPartBoundsInBox(CFrame.new(queryCenter), querySize, overlapParams)
+				local damagedThisTick = {}
+				for _, touchedPart in ipairs(touchedParts) do
+					local enemyModel = EnemyTargeting.findEnemyModelFromDescendant(touchedPart, enemyContainer)
+					if enemyModel and not damagedThisTick[enemyModel] then
+						damagedThisTick[enemyModel] = true
+						EnemyDamageService.applyDamageToEnemy(player, enemyModel, damagePerTick, weaponDef, {
+							allowBurnOnHit = false,
+							allowCriticalHits = false,
+						})
+						if type(burnConfig) == "table" then
+							EnemyDamageService.applyBurnDotFromWeapon(player, enemyModel, weaponDef, burnConfig)
+						end
+					end
+				end
+			end
+
+			task.wait(tickInterval)
+			elapsed += tickInterval
+		end
+	end)
 end
 
 local function fireRocket(player, character, origin, direction, weaponDef, shotOrigin, shotDirection, damageContext)
@@ -316,6 +498,163 @@ local function fireFlareGun(player, character, origin, direction, weaponDef, sho
 	end)
 end
 
+local function fireStickyBombLauncher(player, character, origin, direction, weaponDef, shotOrigin, shotDirection)
+	local speed = math.max(35, tonumber(weaponDef.ProjectileSpeed) or 105)
+	local range = math.max(25, tonumber(weaponDef.Range) or 120)
+	local blastRadius = math.max(5, tonumber(weaponDef.BlastRadius) or 18)
+	local blastDamage = tonumber(weaponDef.Damage) or 150
+	local stickDelaySeconds = math.max(0.25, tonumber(weaponDef.StickDelaySeconds) or 2)
+	local blinkInterval = math.max(0.05, tonumber(weaponDef.BlinkIntervalSeconds) or 0.1)
+	local lobFactor = math.clamp(tonumber(weaponDef.LobFactor) or 0.16, -0.2, 0.55)
+	local gravity = math.max(20, Workspace.Gravity)
+
+	local aimRayOrigin, aimRayDirection = resolveShotRay(origin, direction, shotOrigin, shotDirection)
+	local aimTargetPosition = resolveAimTargetPosition(character, aimRayOrigin, aimRayDirection, range)
+	direction = retargetDirectionToward(origin, direction, aimTargetPosition)
+	direction = (direction + Vector3.new(0, lobFactor, 0)).Unit
+
+	local stickyBomb = Instance.new("Part")
+	stickyBomb.Name = "StickyBombProjectile"
+	stickyBomb.Shape = Enum.PartType.Ball
+	stickyBomb.Size = Vector3.new(0.8, 0.8, 0.8)
+	stickyBomb.Material = Enum.Material.Neon
+	stickyBomb.Color = Color3.fromRGB(120, 18, 18)
+	stickyBomb.Transparency = 0.08
+	stickyBomb.Anchored = true
+	stickyBomb.CanCollide = false
+	stickyBomb.CanTouch = false
+	stickyBomb.CanQuery = false
+	stickyBomb.CFrame = CFrame.new(origin)
+	stickyBomb.Parent = getEffectsFolder()
+	Debris:AddItem(stickyBomb, stickDelaySeconds + 8)
+
+	local frontAttachment = Instance.new("Attachment")
+	frontAttachment.Position = Vector3.new(0, 0, -stickyBomb.Size.Z * 0.45)
+	frontAttachment.Parent = stickyBomb
+	local backAttachment = Instance.new("Attachment")
+	backAttachment.Position = Vector3.new(0, 0, stickyBomb.Size.Z * 0.45)
+	backAttachment.Parent = stickyBomb
+
+	local trail = Instance.new("Trail")
+	trail.Attachment0 = frontAttachment
+	trail.Attachment1 = backAttachment
+	trail.Color = ColorSequence.new(Color3.fromRGB(255, 170, 130), Color3.fromRGB(180, 40, 40))
+	trail.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.12),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	trail.Lifetime = 0.08
+	trail.MinLength = 0.04
+	trail.FaceCamera = true
+	trail.Parent = stickyBomb
+
+	local blinkLight = Instance.new("PointLight")
+	blinkLight.Color = Color3.fromRGB(255, 72, 72)
+	blinkLight.Brightness = 1.4
+	blinkLight.Range = 8
+	blinkLight.Parent = stickyBomb
+
+	task.spawn(function()
+		local currentPosition = origin
+		local velocity = direction * speed
+		local traveled = 0
+		local raycastParams = buildWeaponRaycastParams(character, { stickyBomb })
+		local impactResult = nil
+		local stuckEnemy = nil
+
+		while stickyBomb.Parent and traveled < range do
+			local deltaTime = RunService.Heartbeat:Wait()
+			local stepTime = math.min(deltaTime, 0.06)
+			local nextVelocity = velocity + Vector3.new(0, -gravity, 0) * stepTime
+			local displacement = (velocity + nextVelocity) * 0.5 * stepTime
+			local stepDistance = displacement.Magnitude
+
+			if stepDistance <= 0.0001 then
+				velocity = nextVelocity
+				continue
+			end
+
+			if traveled + stepDistance > range then
+				displacement = displacement.Unit * (range - traveled)
+				stepDistance = displacement.Magnitude
+			end
+
+			local raycastResult = Workspace:Raycast(currentPosition, displacement, raycastParams)
+			local stepEndPosition = currentPosition + displacement
+			local nextPosition = stepEndPosition
+
+			if raycastResult then
+				nextPosition = raycastResult.Position
+				impactResult = raycastResult
+				stuckEnemy = EnemyTargeting.resolveEnemyFromRaycastResult(raycastResult)
+			else
+				local fallbackEnemy, fallbackImpact = EnemyTargeting.findEnemyAlongSegment(character, currentPosition, stepEndPosition, 1.3)
+				if fallbackEnemy then
+					stuckEnemy = fallbackEnemy
+					nextPosition = fallbackImpact or stepEndPosition
+				end
+			end
+
+			local facing = displacement.Unit
+			stickyBomb.CFrame = CFrame.lookAt(nextPosition, nextPosition + facing)
+			createTracerSegment(currentPosition, nextPosition, Color3.fromRGB(255, 110, 92), 0.12, 0.08)
+			currentPosition = nextPosition
+			velocity = nextVelocity
+			traveled += stepDistance
+
+			if impactResult or stuckEnemy then
+				break
+			end
+		end
+
+		if not stickyBomb.Parent then
+			return
+		end
+
+		local stickTargetPart = nil
+		if stuckEnemy then
+			if impactResult and impactResult.Instance and impactResult.Instance:IsA("BasePart") then
+				stickTargetPart = impactResult.Instance
+			else
+				stickTargetPart = ModelRootResolver.resolveRootPart(stuckEnemy)
+			end
+		elseif impactResult and impactResult.Instance and impactResult.Instance:IsA("BasePart") then
+			stickTargetPart = impactResult.Instance
+		end
+
+		trail.Enabled = false
+		createFlamePuff(currentPosition, 0.45, 0.08)
+		applyStickyAttachment(stickyBomb, stickTargetPart, currentPosition)
+
+		local blinkState = false
+		local detonateAt = os.clock() + stickDelaySeconds
+		while stickyBomb.Parent and os.clock() < detonateAt do
+			blinkState = not blinkState
+			if blinkState then
+				stickyBomb.Color = Color3.fromRGB(255, 50, 50)
+				stickyBomb.Transparency = 0
+				blinkLight.Brightness = 5
+			else
+				stickyBomb.Color = Color3.fromRGB(92, 10, 10)
+				stickyBomb.Transparency = 0.2
+				blinkLight.Brightness = 0.8
+			end
+			task.wait(blinkInterval)
+		end
+
+		if stickyBomb.Parent then
+			local detonationPosition = stickyBomb.Position
+			createExplosionEffect(detonationPosition, blastRadius)
+			EnemyDamageService.applyBlastDamage(player, detonationPosition, blastRadius, blastDamage, weaponDef, {
+				allowBurnOnHit = false,
+				allowCriticalHits = false,
+			})
+			spawnStickyBombGroundFire(player, character, detonationPosition, weaponDef)
+			stickyBomb:Destroy()
+		end
+	end)
+end
+
 local function fireGrenadeLauncher(player, character, origin, direction, weaponDef, shotOrigin, shotDirection)
 	local speed = math.max(35, tonumber(weaponDef.ProjectileSpeed) or 110)
 	local range = math.max(25, tonumber(weaponDef.Range) or 110)
@@ -423,5 +762,6 @@ end
 return {
 	fireRocket = fireRocket,
 	fireFlareGun = fireFlareGun,
+	fireStickyBombLauncher = fireStickyBombLauncher,
 	fireGrenadeLauncher = fireGrenadeLauncher,
 }

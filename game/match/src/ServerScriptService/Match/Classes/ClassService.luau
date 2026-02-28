@@ -467,6 +467,14 @@ function ClassService.getWeaponBulletRangeMultiplier(player, weaponDef)
 	return classCombatRules.getWeaponBulletRangeMultiplier(player, weaponDef)
 end
 
+function ClassService.getWeaponGroundFireRadius(player, weaponDef)
+	return classCombatRules.getWeaponGroundFireRadius(player, weaponDef)
+end
+
+function ClassService.getWeaponGroundFireDurationSeconds(player, weaponDef)
+	return classCombatRules.getWeaponGroundFireDurationSeconds(player, weaponDef)
+end
+
 function ClassService.getBurnOnHitConfig(player, weaponDef)
 	return classCombatRules.getBurnOnHitConfig(player, weaponDef)
 end

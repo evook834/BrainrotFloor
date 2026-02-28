@@ -26,6 +26,17 @@ local function getClassFireHandlers()
 		RPG = function(owner, character, _rootPart, origin, direction, shotOrigin, shotDirection, context)
 			WeaponProjectileHandler.fireRocket(owner, character, origin, direction, context.weaponDef, shotOrigin, shotDirection)
 		end,
+		StickyBombLauncher = function(owner, character, _rootPart, origin, direction, shotOrigin, shotDirection, context)
+			WeaponProjectileHandler.fireStickyBombLauncher(
+				owner,
+				character,
+				origin,
+				direction,
+				context.weaponDef,
+				shotOrigin,
+				shotDirection
+			)
+		end,
 		GrenadeLauncher = function(owner, character, _rootPart, origin, direction, shotOrigin, shotDirection, context)
 			WeaponProjectileHandler.fireGrenadeLauncher(owner, character, origin, direction, context.weaponDef, shotOrigin, shotDirection)
 		end,
@@ -46,5 +57,6 @@ return {
 	fireFlamethrower = WeaponFlamethrowerHandler.fireFlamethrower,
 	fireRocket = WeaponProjectileHandler.fireRocket,
 	fireFlareGun = WeaponProjectileHandler.fireFlareGun,
+	fireStickyBombLauncher = WeaponProjectileHandler.fireStickyBombLauncher,
 	fireGrenadeLauncher = WeaponProjectileHandler.fireGrenadeLauncher,
 }

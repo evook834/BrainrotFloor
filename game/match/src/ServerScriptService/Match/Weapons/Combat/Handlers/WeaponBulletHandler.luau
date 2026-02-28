@@ -15,6 +15,8 @@ local WeaponCombatShared = require(script.Parent.WeaponCombatShared)
 
 local createTracerSegment = WeaponVfx.createTracerSegment
 local createMuzzleFlash = WeaponVfx.createMuzzleFlash
+local createFlamePuff = WeaponVfx.createFlamePuff
+local createTravelingBullet = WeaponVfx.createTravelingBullet
 local resolveWeaponClass = WeaponToolSetup.resolveWeaponClass
 local normalizeWeaponToken = WeaponToolSetup.normalizeWeaponToken
 local resolveShotRay = WeaponCombatShared.resolveShotRay
@@ -30,6 +32,37 @@ local function isSniperWeaponDefinition(weaponDef)
 	local classTagToken = normalizeWeaponToken(weaponDef.ClassTag)
 	local weaponClassToken = normalizeWeaponToken(resolveWeaponClass(weaponDef))
 	return classIdToken == "sniper" or classTagToken == "sniper" or weaponClassToken == "sniper"
+end
+
+local function isIncendiaryBulletWeapon(weaponDef)
+	if type(weaponDef) ~= "table" then
+		return false
+	end
+	if normalizeWeaponToken(resolveWeaponClass(weaponDef)) ~= "ranged" then
+		return false
+	end
+
+	local burnChance = math.max(0, tonumber(weaponDef.BurnOnHitChance) or 0)
+	local burnDamageFractionPerSecond = math.max(0, tonumber(weaponDef.BurnOnHitDamageFractionPerSecond) or 0)
+	return burnChance > 0 and burnDamageFractionPerSecond > 0
+end
+
+local function createBulletShotVfx(origin, hitPosition, weaponDef)
+	if isIncendiaryBulletWeapon(weaponDef) then
+		createMuzzleFlash(origin, Color3.fromRGB(255, 160, 80), 0.42, 0.08)
+		createMuzzleFlash(origin, Color3.fromRGB(255, 235, 165), 0.22, 0.05)
+		createTravelingBullet(origin, hitPosition, {
+			speed = tonumber(weaponDef.ProjectileSpeed) or 330,
+			size = 0.22,
+			coreColor = Color3.fromRGB(255, 235, 165),
+			tailColor = Color3.fromRGB(255, 120, 65),
+		})
+		createFlamePuff(origin, 0.32, 0.1)
+		return
+	end
+
+	createMuzzleFlash(origin, Color3.fromRGB(255, 210, 120), 0.35, 0.06)
+	createTracerSegment(origin, hitPosition, Color3.fromRGB(255, 235, 140), 0.13, 0.08)
 end
 
 local function applyBulletSpread(direction, spreadDegrees)
@@ -93,8 +126,7 @@ local function fireBulletShot(player, character, origin, direction, weaponDef, s
 		end
 	end
 
-	createMuzzleFlash(origin, Color3.fromRGB(255, 210, 120), 0.35, 0.06)
-	createTracerSegment(origin, hitPosition, Color3.fromRGB(255, 235, 140), 0.13, 0.08)
+	createBulletShotVfx(origin, hitPosition, weaponDef)
 	if enemyTarget then
 		EnemyDamageService.applyDamageToEnemy(player, enemyTarget, weaponDef.Damage or 20, weaponDef)
 	end

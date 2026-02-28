@@ -94,6 +94,108 @@ function WeaponVfx.createFlamePuff(position, size, lifetimeSeconds)
 	Debris:AddItem(puff, puffLifetime + 0.05)
 end
 
+function WeaponVfx.createTravelingBullet(startPos, endPos, options)
+	local delta = endPos - startPos
+	local distance = delta.Magnitude
+	if distance <= 0.05 then
+		return
+	end
+
+	local bulletOptions = type(options) == "table" and options or {}
+	local direction = delta.Unit
+	local speed = math.max(40, tonumber(bulletOptions.speed) or 300)
+	local travelSeconds = math.clamp(distance / speed, 0.04, 0.35)
+	local bulletSize = math.max(0.08, tonumber(bulletOptions.size) or 0.2)
+	local coreColor = typeof(bulletOptions.coreColor) == "Color3" and bulletOptions.coreColor or Color3.fromRGB(255, 225, 155)
+	local tailColor = typeof(bulletOptions.tailColor) == "Color3" and bulletOptions.tailColor or Color3.fromRGB(255, 120, 65)
+
+	local bullet = Instance.new("Part")
+	bullet.Name = "TravelingBullet"
+	bullet.Shape = Enum.PartType.Ball
+	bullet.Anchored = true
+	bullet.CanCollide = false
+	bullet.CanTouch = false
+	bullet.CanQuery = false
+	bullet.Material = Enum.Material.Neon
+	bullet.Color = coreColor
+	bullet.Size = Vector3.new(bulletSize, bulletSize, bulletSize)
+	bullet.CFrame = CFrame.lookAt(startPos, startPos + direction)
+	bullet.Parent = WeaponVfx.getEffectsFolder()
+
+	local backAttachment = Instance.new("Attachment")
+	backAttachment.Position = Vector3.new(0, 0, bulletSize * 0.4)
+	backAttachment.Parent = bullet
+
+	local frontAttachment = Instance.new("Attachment")
+	frontAttachment.Position = Vector3.new(0, 0, -bulletSize * 0.4)
+	frontAttachment.Parent = bullet
+
+	local trail = Instance.new("Trail")
+	trail.Attachment0 = frontAttachment
+	trail.Attachment1 = backAttachment
+	trail.FaceCamera = true
+	trail.LightEmission = 1
+	trail.MinLength = 0
+	trail.Lifetime = math.clamp(travelSeconds * 0.4, 0.03, 0.08)
+	trail.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.02),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	trail.WidthScale = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.75),
+		NumberSequenceKeypoint.new(1, 0),
+	})
+	trail.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, coreColor),
+		ColorSequenceKeypoint.new(1, tailColor),
+	})
+	trail.Parent = bullet
+
+	local ember = Instance.new("ParticleEmitter")
+	ember.Texture = "rbxasset://textures/particles/fire_main.dds"
+	ember.LightEmission = 1
+	ember.Lifetime = NumberRange.new(0.05, 0.09)
+	ember.Rate = 48
+	ember.Speed = NumberRange.new(0.15, 0.4)
+	ember.SpreadAngle = Vector2.new(18, 18)
+	ember.Drag = 6
+	ember.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, bulletSize * 0.75),
+		NumberSequenceKeypoint.new(0.6, bulletSize * 0.35),
+		NumberSequenceKeypoint.new(1, 0),
+	})
+	ember.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.08),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	ember.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, coreColor),
+		ColorSequenceKeypoint.new(1, tailColor),
+	})
+	ember.Parent = backAttachment
+
+	local light = Instance.new("PointLight")
+	light.Color = coreColor
+	light.Brightness = 1.4
+	light.Range = 5
+	light.Parent = bullet
+
+	local endCFrame = CFrame.lookAt(endPos, endPos + direction)
+	local tween = TweenService:Create(
+		bullet,
+		TweenInfo.new(travelSeconds, Enum.EasingStyle.Linear, Enum.EasingDirection.Out),
+		{ CFrame = endCFrame }
+	)
+	tween.Completed:Connect(function()
+		if bullet.Parent then
+			WeaponVfx.createFlamePuff(endPos, math.max(0.14, bulletSize * 0.9), 0.06)
+			bullet:Destroy()
+		end
+	end)
+	tween:Play()
+	Debris:AddItem(bullet, travelSeconds + 0.15)
+end
+
 function WeaponVfx.createExplosionEffect(position, radius)
 	local blast = Instance.new("Part")
 	blast.Name = "RocketExplosion"

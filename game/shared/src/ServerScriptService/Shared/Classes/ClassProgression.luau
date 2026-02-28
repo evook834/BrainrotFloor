@@ -25,6 +25,7 @@ local bonusPctKeyAliases = {
 	SpreadReduction = "bulletSpreadReductionPct",
 	Accuracy = "bulletSpreadReductionPct",
 	BurnChance = "burnChancePct",
+	BurnOnHitChance = "burnOnHitChancePct",
 	CriticalHitChance = "criticalHitChancePct",
 	CritChance = "criticalHitChancePct",
 	SuperCriticalHitChance = "superCriticalHitChancePct",
@@ -35,7 +36,12 @@ local bonusPctKeyAliases = {
 	SentryDamage = "turretDamagePct",
 }
 
-local function resolveBonusPctKeyFromPerLevel(rawBonusKey)
+local bonusValueKeyAliases = {
+	GroundFireRadius = "groundFireRadiusStuds",
+	GroundFireDurationSeconds = "groundFireDurationSeconds",
+}
+
+local function resolveBonusDisplayKeyFromPerLevel(rawBonusKey)
 	if type(rawBonusKey) ~= "string" then
 		return nil
 	end
@@ -47,10 +53,15 @@ local function resolveBonusPctKeyFromPerLevel(rawBonusKey)
 
 	local alias = bonusPctKeyAliases[stem]
 	if alias then
-		return alias
+		return alias, 100
 	end
 
-	return string.lower(string.sub(stem, 1, 1)) .. string.sub(stem, 2) .. "Pct"
+	local valueAlias = bonusValueKeyAliases[stem]
+	if valueAlias then
+		return valueAlias, 1
+	end
+
+	return string.lower(string.sub(stem, 1, 1)) .. string.sub(stem, 2) .. "Pct", 100
 end
 
 local function summarizeBonuses(bonuses)
@@ -69,8 +80,11 @@ local function summarizeBonuses(bonuses)
 	local repairSpeedMultiplier = resolvedBonuses.repairSpeedMultiplier or 1
 	local turretDamageMultiplier = resolvedBonuses.turretDamageMultiplier or 1
 	local burnChance = math.clamp(tonumber(resolvedBonuses.burnChance) or 0, 0, 1)
+	local burnOnHitChance = math.clamp(tonumber(resolvedBonuses.burnOnHitChance) or 0, 0, 1)
 	local criticalHitChance = math.clamp(tonumber(resolvedBonuses.criticalHitChance) or 0, 0, 1)
 	local superCriticalHitChance = math.clamp(tonumber(resolvedBonuses.superCriticalHitChance) or 0, 0, 1)
+	local groundFireRadiusBonus = math.max(0, tonumber(resolvedBonuses.groundFireRadiusBonus) or 0)
+	local groundFireDurationSecondsBonus = math.max(0, tonumber(resolvedBonuses.groundFireDurationSecondsBonus) or 0)
 	local reloadSpeedMultiplier = 1 / math.max(0.1, reloadTimeMultiplier)
 
 	return {
@@ -100,8 +114,11 @@ local function summarizeBonuses(bonuses)
 		repairSpeedPct = (repairSpeedMultiplier - 1) * 100,
 		turretDamagePct = (turretDamageMultiplier - 1) * 100,
 		burnChancePct = burnChance * 100,
+		burnOnHitChancePct = burnOnHitChance * 100,
 		criticalHitChancePct = criticalHitChance * 100,
 		superCriticalHitChancePct = superCriticalHitChance * 100,
+		groundFireRadiusStuds = groundFireRadiusBonus,
+		groundFireDurationSeconds = groundFireDurationSecondsBonus,
 	}
 end
 
@@ -288,6 +305,9 @@ function ClassProgression.getBonusesAtLevel(classDef, level)
 	local baseBurnChance = math.clamp(math.max(0, tonumber(bonuses.BurnChance) or 0), 0, 1)
 	local burnChancePerLevel = math.max(0, tonumber(bonuses.BurnChancePerLevel) or 0)
 	local burnChance = math.clamp(baseBurnChance + (burnChancePerLevel * bonusLevels), 0, 1)
+	local baseBurnOnHitChance = math.clamp(math.max(0, tonumber(bonuses.BurnOnHitChance) or 0), 0, 1)
+	local burnOnHitChancePerLevel = math.max(0, tonumber(bonuses.BurnOnHitChancePerLevel) or 0)
+	local burnOnHitChance = math.clamp(baseBurnOnHitChance + (burnOnHitChancePerLevel * bonusLevels), 0, 1)
 	local baseCriticalHitChance = math.clamp(
 		math.max(0, tonumber(bonuses.CriticalHitChance) or tonumber(bonuses.CritChance) or 0),
 		0,
@@ -315,6 +335,16 @@ function ClassProgression.getBonusesAtLevel(classDef, level)
 	local burnDurationSeconds = math.max(0.1, tonumber(bonuses.BurnDurationSeconds) or 3)
 	local burnDamageFractionPerSecond = math.max(0, tonumber(bonuses.BurnDamageFractionPerSecond) or 0)
 	local burnTickIntervalSeconds = math.max(0.1, tonumber(bonuses.BurnTickIntervalSeconds) or 0.5)
+	local groundFireRadiusBonus = math.max(
+		0,
+		(tonumber(bonuses.GroundFireRadius) or 0)
+			+ (math.max(0, tonumber(bonuses.GroundFireRadiusPerLevel) or 0) * bonusLevels)
+	)
+	local groundFireDurationSecondsBonus = math.max(
+		0,
+		(tonumber(bonuses.GroundFireDurationSeconds) or 0)
+			+ (math.max(0, tonumber(bonuses.GroundFireDurationSecondsPerLevel) or 0) * bonusLevels)
+	)
 
 	return {
 		damageMultiplier = math.max(0, damageMultiplier),
@@ -331,11 +361,14 @@ function ClassProgression.getBonusesAtLevel(classDef, level)
 		repairSpeedMultiplier = math.max(0.1, repairSpeedMultiplier),
 		turretDamageMultiplier = math.max(0, turretDamageMultiplier),
 		burnChance = burnChance,
+		burnOnHitChance = burnOnHitChance,
 		criticalHitChance = criticalHitChance,
 		superCriticalHitChance = superCriticalHitChance,
 		burnDurationSeconds = burnDurationSeconds,
 		burnDamageFractionPerSecond = burnDamageFractionPerSecond,
 		burnTickIntervalSeconds = burnTickIntervalSeconds,
+		groundFireRadiusBonus = groundFireRadiusBonus,
+		groundFireDurationSecondsBonus = groundFireDurationSecondsBonus,
 	}
 end
 
@@ -346,13 +379,13 @@ function ClassProgression.buildPerLevelBonusesFromConfig(rawBonusConfig)
 	end
 
 	for rawBonusKey, rawPerLevelValue in pairs(rawBonusConfig) do
-		local pctKey = resolveBonusPctKeyFromPerLevel(rawBonusKey)
+		local displayKey, scale = resolveBonusDisplayKeyFromPerLevel(rawBonusKey)
 		local perLevelValue = tonumber(rawPerLevelValue)
-		if pctKey and perLevelValue then
-			local pctValue = perLevelValue * 100
-			local existing = perLevelBonuses[pctKey]
-			if type(existing) ~= "number" or math.abs(pctValue) > math.abs(existing) then
-				perLevelBonuses[pctKey] = pctValue
+		if displayKey and perLevelValue then
+			local displayValue = perLevelValue * (tonumber(scale) or 1)
+			local existing = perLevelBonuses[displayKey]
+			if type(existing) ~= "number" or math.abs(displayValue) > math.abs(existing) then
+				perLevelBonuses[displayKey] = displayValue
 			end
 		end
 	end

@@ -7,6 +7,7 @@ local Workspace = game:GetService("Workspace")
 
 local Match = script.Parent.Parent.Parent.Parent
 local Weapons = script.Parent.Parent.Parent
+local ClassService = require(Match.Classes.ClassService)
 local EnemyTargeting = require(Match.Enemies.EnemyTargeting)
 local EnemyDamageService = require(Match.Combat.EnemyDamageService)
 local WeaponShotResolver = require(Weapons.Tools.WeaponShotResolver)
@@ -201,8 +202,17 @@ local function spawnFlamethrowerGroundFire(player, weaponDef, hitResult)
 	end
 	state.lastSpawnAt = now
 
-	local radius = math.max(2, tonumber(weaponDef.GroundFireRadius) or 4.5)
-	local duration = math.max(0.5, tonumber(weaponDef.GroundFireDurationSeconds) or 2.6)
+	local radius = ClassService.getWeaponGroundFireRadius(player, weaponDef)
+	if type(radius) ~= "number" then
+		radius = tonumber(weaponDef.GroundFireRadius) or 4.5
+	end
+	radius = math.max(2, radius)
+
+	local duration = ClassService.getWeaponGroundFireDurationSeconds(player, weaponDef)
+	if type(duration) ~= "number" then
+		duration = tonumber(weaponDef.GroundFireDurationSeconds) or 2.6
+	end
+	duration = math.max(0.5, duration)
 	local tickInterval = math.max(0.08, tonumber(weaponDef.GroundFireTickIntervalSeconds) or 0.35)
 	local damageScale = math.max(0, tonumber(weaponDef.GroundFireDamageScale) or 0.1)
 	local damagePerTick = math.max(0, (tonumber(weaponDef.Damage) or 10) * damageScale)
