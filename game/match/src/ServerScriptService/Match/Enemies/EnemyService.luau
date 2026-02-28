@@ -86,7 +86,7 @@ function EnemyService.spawnWave(enemyCount, waveNumber, options)
 	local spawnPoints = EnemySpawnResolver.getSpawnPoints()
 
 	if #templates == 0 then
-		warn("No enemy templates found in ServerStorage/EnemyTemplates")
+		warn("No spawnable enemy templates found in ServerStorage/EnemyTemplates; check EnemyDefinitions")
 		return 0
 	end
 
@@ -145,7 +145,7 @@ end
 function EnemyService.spawnSingle(templateName, waveNumber, options)
 	local template = EnemySpawnResolver.getTemplateByName(templateName)
 	if not template then
-		warn(string.format("EnemyService.spawnSingle: template %q not found", tostring(templateName)))
+		warn(string.format("EnemyService.spawnSingle: template %q not found or not defined in EnemyDefinitions", tostring(templateName)))
 		return nil
 	end
 
