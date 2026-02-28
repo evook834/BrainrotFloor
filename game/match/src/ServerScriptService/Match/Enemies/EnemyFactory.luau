@@ -71,6 +71,11 @@ function EnemyFactory.spawnFromTemplate(template, spawnPoint, container, waveCon
 		enemy:SetAttribute("EnemyTier", enemyTier)
 	end
 
+	local enemyDanger = resolvedOptions.enemyDanger
+	if type(enemyDanger) == "string" and enemyDanger ~= "" then
+		enemy:SetAttribute("EnemyDanger", enemyDanger)
+	end
+
 	enemy:SetAttribute(
 		"Bounty",
 		(Config.Enemy.BaseBounty or 25) + math.max(0, activeWaveNumber - 1) * (Config.Enemy.BountyPerWave or 4)

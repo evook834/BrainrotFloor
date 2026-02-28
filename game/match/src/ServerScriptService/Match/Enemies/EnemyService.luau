@@ -157,6 +157,7 @@ function EnemyService.spawnSingle(templateName, waveNumber, options)
 
 	local resolvedOptions = type(options) == "table" and options or {}
 	local enemyTier = (type(resolvedOptions.tier) == "string" and resolvedOptions.tier) or "Easy"
+	local enemyDanger = (type(resolvedOptions.danger) == "string" and resolvedOptions.danger) or "Weakling"
 
 	return EnemyFactory.spawnFromTemplate(
 		template,
@@ -166,6 +167,7 @@ function EnemyService.spawnSingle(templateName, waveNumber, options)
 		{
 			enemyName = string.format("Brainrot_%s_%s", templateName, tostring(os.clock()):gsub("%.", "_")),
 			enemyTier = enemyTier,
+			enemyDanger = enemyDanger,
 			onEnemyDied = resolvedOptions.onEnemyDied,
 		}
 	)

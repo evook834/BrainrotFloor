@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local Match = script.Parent.Parent
 local DifficultyService = require(Match.Difficulty.DifficultyService)
+local EnemySpawnResolver = require(Match.Enemies.EnemySpawnResolver)
 
 export type Role = "trash" | "medium" | "heavy" | "special"
 
@@ -24,10 +25,11 @@ export type WaveComposition = {
 	aliveCap: number,
 	roleCaps: RoleCounts,
 	targetCountByRole: RoleCounts,
-	pickTemplate: (RoleCounts?, RoleCounts?) -> { templateName: string, tier: string }?,
+	pickTemplate: (RoleCounts?, RoleCounts?) -> { templateName: string, tier: string, danger: string }?,
 }
 
 local DEFAULT_TIER = "Easy"
+local DEFAULT_DANGER = "Weakling"
 
 -- Catalog tier (Easy/Medium/Hard/Elite) maps to director role (trash/medium/heavy/special).
 local TIER_TO_ROLE: { [string]: Role } = {
@@ -37,12 +39,69 @@ local TIER_TO_ROLE: { [string]: Role } = {
 	Elite = "special",
 }
 
-local function getTier(entry)
-	local t = entry.Tier
-	if type(t) == "string" and (t == "Easy" or t == "Medium" or t == "Hard" or t == "Elite") then
-		return t
+local function normalizeTier(value)
+	if type(value) ~= "string" then
+		return nil
 	end
+
+	local normalizedKey = string.lower(value):gsub("[%s_%-]", "")
+	if normalizedKey == "easy" or normalizedKey == "weakling" or normalizedKey == "weaklings" then
+		return "Easy"
+	end
+	if normalizedKey == "medium" or normalizedKey == "mediums" then
+		return "Medium"
+	end
+	if normalizedKey == "hard" then
+		return "Hard"
+	end
+	if normalizedKey == "elite" or normalizedKey == "veryhard" or normalizedKey == "maxdanger" then
+		return "Elite"
+	end
+
+	return nil
+end
+
+local function getTier(entry)
+	local tier = normalizeTier(entry.Tier) or normalizeTier(entry.Danger)
+	if tier then
+		return tier
+	end
+
 	return DEFAULT_TIER
+end
+
+local function normalizeDanger(value)
+	if type(value) ~= "string" then
+		return nil
+	end
+
+	local normalizedKey = string.lower(value):gsub("[%s_%-]", "")
+	if normalizedKey == "easy" or normalizedKey == "weakling" or normalizedKey == "weaklings" then
+		return "Weakling"
+	end
+	if normalizedKey == "medium" or normalizedKey == "mediums" then
+		return "Medium"
+	end
+	if normalizedKey == "hard" then
+		return "Hard"
+	end
+	if normalizedKey == "elite" or normalizedKey == "veryhard" then
+		return "VeryHard"
+	end
+	if normalizedKey == "maxdanger" then
+		return "MaxDanger"
+	end
+
+	return nil
+end
+
+local function getDanger(entry)
+	local danger = normalizeDanger(entry.Danger) or normalizeDanger(entry.Tier)
+	if danger then
+		return danger
+	end
+
+	return DEFAULT_DANGER
 end
 
 local function getRole(entry): Role
@@ -126,6 +185,55 @@ local function getDiffMultipliers(difficulty: string): (number, number)
 	return tonumber(settings.DiffTotal) or 1, tonumber(settings.DiffAlive) or 1
 end
 
+local function buildEffectiveCatalog()
+	local configuredCatalog = Config.Enemy.Catalog
+	local catalog = {}
+	local knownTemplateNames = {}
+	local spawnableTemplates = EnemySpawnResolver.getEnemyTemplates()
+	local availableTemplateNames = {}
+
+	for _, template in spawnableTemplates do
+		availableTemplateNames[template.Name] = true
+	end
+
+	if type(configuredCatalog) == "table" then
+		for _, entry in configuredCatalog do
+			if type(entry) == "table" then
+				local templateName = entry.TemplateName
+				if
+					type(templateName) == "string"
+					and templateName ~= ""
+					and availableTemplateNames[templateName]
+				then
+					table.insert(catalog, entry)
+					knownTemplateNames[templateName] = true
+				end
+			end
+		end
+	end
+
+	-- Any valid model in ServerStorage/EnemyTemplates becomes spawnable by default.
+	for _, template in spawnableTemplates do
+		local templateName = template.Name
+		if not knownTemplateNames[templateName] then
+			knownTemplateNames[templateName] = true
+			table.insert(catalog, {
+				Id = templateName,
+				TemplateName = templateName,
+				DisplayName = templateName,
+				MinWave = 1,
+				MaxWave = nil,
+				Weight = 1,
+				IsBoss = false,
+				Danger = "Weakling",
+				Tier = "Easy",
+			})
+		end
+	end
+
+	return catalog
+end
+
 -- Role caps: TrashCap/MediumCap from fractions of AliveCap; SpecialCap/HeavyCap from formulas.
 local function computeRoleCaps(aliveCap: number, waveNumber: number, playerCount: number, difficulty: string): RoleCounts
 	local w = math.max(1, math.floor((tonumber(waveNumber) or 1) + 0.5))
@@ -195,7 +303,7 @@ local function getScaledWaveCapLegacy(waveNumber: number, playerCount: number, m
 end
 
 function getWaveComposition(waveNumber: number, playerCount: number, maxMonstersPerWave: number): WaveComposition
-	local catalog = Config.Enemy.Catalog
+	local catalog = buildEffectiveCatalog()
 	if type(catalog) ~= "table" or #catalog == 0 then
 		return {
 			isBossWave = false,
@@ -227,7 +335,7 @@ function getWaveComposition(waveNumber: number, playerCount: number, maxMonsters
 		local pickTemplate = function()
 			local entry = weightedRandomPick(pool)
 			if entry and entry.TemplateName then
-				return { templateName = entry.TemplateName, tier = getTier(entry) }
+				return { templateName = entry.TemplateName, tier = getTier(entry), danger = getDanger(entry) }
 			end
 			return nil
 		end
@@ -350,13 +458,13 @@ function pickFromPool(
 	if not chosen or not chosen.TemplateName then
 		return nil
 	end
-	return { templateName = chosen.TemplateName, tier = getTier(chosen) }
+	return { templateName = chosen.TemplateName, tier = getTier(chosen), danger = getDanger(chosen) }
 end
 
 type WaveSpawnLogicModule = {
 	getWaveComposition: (number, number, number) -> WaveComposition,
 	buildPool: (catalog: { [number]: any }, number) -> { any },
-	pickFromPool: (any, RoleCounts?, RoleCounts?, RoleCounts?, number?) -> { templateName: string, tier: string }?,
+	pickFromPool: (any, RoleCounts?, RoleCounts?, RoleCounts?, number?) -> { templateName: string, tier: string, danger: string }?,
 	countMult: (number) -> number,
 	aliveMult: (number) -> number,
 	computeRoleCaps: (number, number, number, string) -> RoleCounts,

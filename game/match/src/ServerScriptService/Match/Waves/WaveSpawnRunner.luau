@@ -101,6 +101,7 @@ end
 						isRunning = options.isRunning,
 						onEnemyDied = options.onEnemyDied,
 						tier = pick.tier,
+						danger = pick.danger,
 					}
 					EnemyService.spawnSingle(pick.templateName, waveNumber, spawnOpts)
 					spawnedSoFar += 1
