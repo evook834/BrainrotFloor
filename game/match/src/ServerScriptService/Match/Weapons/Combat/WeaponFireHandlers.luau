@@ -20,6 +20,9 @@ local function getClassFireHandlers()
 		Flamethrower = function(owner, character, _rootPart, _origin, _direction, _shotOrigin, _shotDirection, context)
 			WeaponFlamethrowerHandler.fireFlamethrower(owner, character, context.weaponDef, context.state, context.handle)
 		end,
+		FlareGun = function(owner, character, _rootPart, origin, direction, shotOrigin, shotDirection, context)
+			WeaponProjectileHandler.fireFlareGun(owner, character, origin, direction, context.weaponDef, shotOrigin, shotDirection)
+		end,
 		RPG = function(owner, character, _rootPart, origin, direction, shotOrigin, shotDirection, context)
 			WeaponProjectileHandler.fireRocket(owner, character, origin, direction, context.weaponDef, shotOrigin, shotDirection)
 		end,
@@ -42,5 +45,6 @@ return {
 	fireMeleeAttack = WeaponMeleeHandler.fireMeleeAttack,
 	fireFlamethrower = WeaponFlamethrowerHandler.fireFlamethrower,
 	fireRocket = WeaponProjectileHandler.fireRocket,
+	fireFlareGun = WeaponProjectileHandler.fireFlareGun,
 	fireGrenadeLauncher = WeaponProjectileHandler.fireGrenadeLauncher,
 }

@@ -6,16 +6,6 @@
 local WeaponToolSetup = {}
 local WeaponTemplateResolver = require(script.Parent.WeaponTemplateResolver)
 
-local function resolveWeaponClass(weaponDef)
-	if type(weaponDef.WeaponClass) == "string" and weaponDef.WeaponClass ~= "" then
-		return weaponDef.WeaponClass
-	end
-	if (weaponDef.Range or 0) <= 12 then
-		return "Melee"
-	end
-	return "Ranged"
-end
-
 local function normalizeWeaponToken(value)
 	if type(value) ~= "string" then
 		return ""
@@ -23,6 +13,38 @@ local function normalizeWeaponToken(value)
 	local token = string.lower(value)
 	token = string.gsub(token, "%s+", "")
 	return token
+end
+
+local function isFlareGunDefinition(weaponDef)
+	if type(weaponDef) ~= "table" then
+		return false
+	end
+
+	for _, value in ipairs({ weaponDef.Id, weaponDef.DisplayName, weaponDef.TemplateName }) do
+		local token = normalizeWeaponToken(value)
+		local compactToken = string.gsub(token, "[^%w]", "")
+		if compactToken ~= "" and string.find(compactToken, "flaregun", 1, true) then
+			return true
+		end
+	end
+
+	return false
+end
+
+local function resolveWeaponClass(weaponDef)
+	if type(weaponDef) ~= "table" then
+		return "Ranged"
+	end
+	if type(weaponDef.WeaponClass) == "string" and weaponDef.WeaponClass ~= "" then
+		return weaponDef.WeaponClass
+	end
+	if isFlareGunDefinition(weaponDef) then
+		return "FlareGun"
+	end
+	if (weaponDef.Range or 0) <= 12 then
+		return "Melee"
+	end
+	return "Ranged"
 end
 
 local function isMeleeWeaponClass(weaponClass)
@@ -284,6 +306,8 @@ function WeaponToolSetup.createFallbackWeaponTool(weaponDef)
 	local weaponClass = resolveWeaponClass(weaponDef)
 	if isMeleeWeaponClass(weaponClass) then
 		handle.Size = Vector3.new(0.7, 0.7, 2.8)
+	elseif weaponClass == "FlareGun" then
+		handle.Size = Vector3.new(0.85, 0.85, 2.6)
 	elseif weaponClass == "Flamethrower" then
 		handle.Size = Vector3.new(1.2, 1, 3.4)
 	elseif weaponClass == "RPG" then

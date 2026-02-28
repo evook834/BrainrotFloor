@@ -24,6 +24,7 @@ local damageIndicatorRemote = nil
 local enemyDamageBlinkState = setmetatable({}, { __mode = "k" })
 local enemyBurnState = setmetatable({}, { __mode = "k" })
 local randomGenerator = Random.new()
+local startBurnDotFromValues -- forward declaration; defined after applyDamageToEnemy
 local tryApplyBurnOnHit -- forward declaration; defined after applyDamageToEnemy (mutual recursion)
 
 function init(options)
@@ -389,47 +390,24 @@ local function applyDamageToEnemy(player, enemyModel, damage, weaponDef, damageC
 	)
 end
 
-tryApplyBurnOnHit = function(player, enemyModel, weaponDef, classMultiplier)
+startBurnDotFromValues = function(player, enemyModel, damagePerTick, durationSeconds, tickIntervalSeconds)
 	if not player or not player:IsA("Player") then
-		return
+		return false
 	end
 	if not enemyModel or not enemyModel.Parent then
-		return
-	end
-	if type(weaponDef) ~= "table" then
-		return
+		return false
 	end
 
-	local burnConfig = ClassService.getBurnOnHitConfig(player, weaponDef)
-	if type(burnConfig) ~= "table" then
-		return
-	end
-
-	local chance = math.clamp(tonumber(burnConfig.chance) or 0, 0, 1)
-	if chance <= 0 or randomGenerator:NextNumber() > chance then
-		return
-	end
-
-	local durationSeconds = math.max(0.1, tonumber(burnConfig.durationSeconds) or 3)
-	local tickIntervalSeconds = math.max(
-		0.1,
-		tonumber(burnConfig.tickIntervalSeconds) or BURN_DOT_FALLBACK_TICK_INTERVAL_SECONDS
-	)
-	local damageFractionPerSecond = math.max(0, tonumber(burnConfig.damageFractionPerSecond) or 0)
-	if damageFractionPerSecond <= 0 then
-		return
-	end
-
-	local baseWeaponDamage = math.max(0, tonumber(weaponDef.Damage) or 0)
-	if baseWeaponDamage <= 0 then
-		return
-	end
-
-	local effectiveWeaponDamage = baseWeaponDamage * math.max(0, tonumber(classMultiplier) or 1)
-	local damagePerTick = effectiveWeaponDamage * damageFractionPerSecond * tickIntervalSeconds
+	damagePerTick = math.max(0, tonumber(damagePerTick) or 0)
 	if damagePerTick <= 0 then
-		return
+		return false
 	end
+
+	durationSeconds = math.max(0.1, tonumber(durationSeconds) or 0.1)
+	tickIntervalSeconds = math.max(
+		0.1,
+		tonumber(tickIntervalSeconds) or BURN_DOT_FALLBACK_TICK_INTERVAL_SECONDS
+	)
 
 	local ticksRemaining = math.max(1, math.floor((durationSeconds / tickIntervalSeconds) + 0.5))
 	local state = enemyBurnState[enemyModel]
@@ -487,14 +465,118 @@ tryApplyBurnOnHit = function(player, enemyModel, weaponDef, classMultiplier)
 			enemyBurnState[enemyModel] = nil
 		end
 	end)
+
+	return true
+end
+
+local function applyBurnDotFromWeapon(player, enemyModel, weaponDef, burnConfig, options)
+	if not player or not player:IsA("Player") then
+		return false
+	end
+	if not enemyModel or not enemyModel.Parent then
+		return false
+	end
+	if type(burnConfig) ~= "table" then
+		return false
+	end
+
+	local durationSeconds = math.max(0.1, tonumber(burnConfig.durationSeconds) or 3)
+	local tickIntervalSeconds = math.max(
+		0.1,
+		tonumber(burnConfig.tickIntervalSeconds) or BURN_DOT_FALLBACK_TICK_INTERVAL_SECONDS
+	)
+	local damageFractionPerSecond = math.max(0, tonumber(burnConfig.damageFractionPerSecond) or 0)
+	if damageFractionPerSecond <= 0 then
+		return false
+	end
+
+	local baseDamage = math.max(
+		0,
+		tonumber(
+			(type(options) == "table" and options.baseDamage)
+				or burnConfig.baseDamage
+				or (type(weaponDef) == "table" and weaponDef.Damage)
+				or 0
+		) or 0
+	)
+	if baseDamage <= 0 then
+		return false
+	end
+
+	local damageMultiplier = nil
+	if type(options) == "table" and type(options.damageMultiplier) == "number" then
+		damageMultiplier = math.max(0, options.damageMultiplier)
+	elseif not (type(options) == "table" and options.applyClassMultiplier == false) then
+		if type(weaponDef) ~= "table" then
+			return false
+		end
+		local computedMultiplier = ClassService.getWeaponDamageMultiplier(player, weaponDef)
+		if computedMultiplier <= 0 then
+			return false
+		end
+		damageMultiplier = computedMultiplier
+	end
+
+	if damageMultiplier == nil then
+		damageMultiplier = 1
+	end
+
+	local damagePerTick = baseDamage * damageMultiplier * damageFractionPerSecond * tickIntervalSeconds
+	return startBurnDotFromValues(player, enemyModel, damagePerTick, durationSeconds, tickIntervalSeconds)
+end
+
+tryApplyBurnOnHit = function(player, enemyModel, weaponDef, classMultiplier)
+	if not player or not player:IsA("Player") then
+		return
+	end
+	if not enemyModel or not enemyModel.Parent then
+		return
+	end
+	if type(weaponDef) ~= "table" then
+		return
+	end
+
+	local burnConfig = ClassService.getBurnOnHitConfig(player, weaponDef)
+	if type(burnConfig) ~= "table" then
+		return
+	end
+
+	local chance = math.clamp(tonumber(burnConfig.chance) or 0, 0, 1)
+	if chance <= 0 or randomGenerator:NextNumber() > chance then
+		return
+	end
+
+	local durationSeconds = math.max(0.1, tonumber(burnConfig.durationSeconds) or 3)
+	local tickIntervalSeconds = math.max(
+		0.1,
+		tonumber(burnConfig.tickIntervalSeconds) or BURN_DOT_FALLBACK_TICK_INTERVAL_SECONDS
+	)
+	local damageFractionPerSecond = math.max(0, tonumber(burnConfig.damageFractionPerSecond) or 0)
+	if damageFractionPerSecond <= 0 then
+		return
+	end
+
+	local baseWeaponDamage = math.max(0, tonumber(weaponDef.Damage) or 0)
+	if baseWeaponDamage <= 0 then
+		return
+	end
+
+	local effectiveWeaponDamage = baseWeaponDamage * math.max(0, tonumber(classMultiplier) or 1)
+	local damagePerTick = effectiveWeaponDamage * damageFractionPerSecond * tickIntervalSeconds
+	if damagePerTick <= 0 then
+		return
+	end
+
+	return startBurnDotFromValues(player, enemyModel, damagePerTick, durationSeconds, tickIntervalSeconds)
 end
 
 local function applyBlastDamage(player, centerPosition, radius, maxDamage, weaponDef, damageContext)
 	local enemyContainer = getEnemyContainer()
 	if not enemyContainer then
-		return
+		return {}
 	end
 
+	local impactedEnemies = {}
 	for _, enemyModel in enemyContainer:GetChildren() do
 		if enemyModel:IsA("Model") then
 			local enemyRoot = ModelRootResolver.resolveRootPart(enemyModel)
@@ -504,10 +586,13 @@ local function applyBlastDamage(player, centerPosition, radius, maxDamage, weapo
 					local falloff = 1 - (distance / math.max(radius, 0.01))
 					local damageScale = math.clamp(0.3 + falloff * 0.7, 0.3, 1)
 					applyDamageToEnemy(player, enemyModel, maxDamage * damageScale, weaponDef, damageContext)
+					table.insert(impactedEnemies, enemyModel)
 				end
 			end
 		end
 	end
+
+	return impactedEnemies
 end
 
 return {
@@ -516,5 +601,6 @@ return {
 	addMoney = addMoney,
 	applyDamageToEnemy = applyDamageToEnemy,
 	applyBlastDamage = applyBlastDamage,
+	applyBurnDotFromWeapon = applyBurnDotFromWeapon,
 	tryApplyBurnOnHit = tryApplyBurnOnHit,
 }
