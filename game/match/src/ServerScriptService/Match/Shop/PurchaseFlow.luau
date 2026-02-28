@@ -28,7 +28,10 @@ local function success(message)
 end
 
 local function canPurchaseRightNow(context)
-	local canPurchase, _ = context.canPurchaseNow and context.canPurchaseNow() or { false, "Unknown" }
+	local canPurchase = false
+	if context.canPurchaseNow then
+		canPurchase = context.canPurchaseNow()
+	end
 	return type(canPurchase) == "boolean" and canPurchase
 end
 

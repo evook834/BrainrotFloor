@@ -39,6 +39,7 @@ local function run()
 	local isRefreshing = false
 	local refillAllPurchaseEnabled = false
 	local refreshCatalog
+	local openSessionToken = 0
 
 	local function applyShopAction(callback)
 		local ok, result = pcall(callback)
@@ -133,12 +134,25 @@ local function run()
 	end
 
 	local function openShop()
+		openSessionToken += 1
 		panel.Visible = true
 		view.setStatus(ShopUiMessages.OpenStatusHint, ShopUiConstants.StatusInfo)
 		refreshCatalog()
+
+		local sessionToken = openSessionToken
+		task.spawn(function()
+			while panel.Visible and openSessionToken == sessionToken do
+				task.wait(1)
+				if not panel.Visible or openSessionToken ~= sessionToken then
+					break
+				end
+				refreshCatalog()
+			end
+		end)
 	end
 
 	local function closeShop()
+		openSessionToken += 1
 		panel.Visible = false
 		view.setStatus(nil)
 	end

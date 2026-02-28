@@ -1,6 +1,5 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local SharedEnemyDefinitions = require(ReplicatedStorage.Shared.Enemy.EnemyDefinitions)
@@ -152,7 +151,17 @@ local function getFacingOffsetCFrame(profile)
 	return CFrame.Angles(math.rad(pitchOffsetDegrees), math.rad(yawOffsetDegrees), math.rad(rollOffsetDegrees))
 end
 
-local function setMovementState(enemyModel, rootPart, humanoid, targetPosition, speed, deltaTime, turnSpeed, facingOffsetCFrame, hasFacingOffset)
+local function getPivotToRootOffset(enemyModel, rootPart)
+	local modelPivot = enemyModel:GetPivot()
+	return modelPivot:ToObjectSpace(rootPart.CFrame)
+end
+
+local function pivotEnemyModelToRoot(enemyModel, desiredRootCFrame, pivotToRootOffset)
+	local desiredPivotCFrame = desiredRootCFrame * pivotToRootOffset:Inverse()
+	enemyModel:PivotTo(desiredPivotCFrame)
+end
+
+local function setMovementState(enemyModel, rootPart, targetPosition, speed, deltaTime, turnSpeed, facingOffsetCFrame, hasFacingOffset, pivotToRootOffset)
 	local planarTarget = Vector3.new(targetPosition.X, rootPart.Position.Y, targetPosition.Z)
 	local direction = planarTarget - rootPart.Position
 	local directionMagnitude = direction.Magnitude
@@ -160,19 +169,9 @@ local function setMovementState(enemyModel, rootPart, humanoid, targetPosition, 
 		return
 	end
 
-	if humanoid then
-		humanoid.WalkSpeed = speed
-		humanoid:MoveTo(targetPosition)
-		if not hasFacingOffset then
-			return
-		end
-	end
-
 	local destination = rootPart.Position
-	if not humanoid then
-		local stepSize = math.min(speed * deltaTime, directionMagnitude)
-		destination += direction.Unit * stepSize
-	end
+	local stepSize = math.min(speed * deltaTime, directionMagnitude)
+	destination += direction.Unit * stepSize
 
 	local resolvedHeadingFrame = rootPart.CFrame
 	if hasFacingOffset then
@@ -208,10 +207,10 @@ local function setMovementState(enemyModel, rootPart, humanoid, targetPosition, 
 		targetCFrame *= facingOffsetCFrame
 	end
 
-	enemyModel:PivotTo(targetCFrame)
+	pivotEnemyModelToRoot(enemyModel, targetCFrame, pivotToRootOffset)
 end
 
-local function faceTarget(enemyModel, rootPart, targetPosition, turnSpeed, deltaTime, facingOffsetCFrame, hasFacingOffset)
+local function faceTarget(enemyModel, rootPart, targetPosition, turnSpeed, deltaTime, facingOffsetCFrame, hasFacingOffset, pivotToRootOffset)
 	local planarTarget = Vector3.new(targetPosition.X, rootPart.Position.Y, targetPosition.Z)
 	local direction = planarTarget - rootPart.Position
 	if direction.Magnitude <= 0.001 then
@@ -239,31 +238,24 @@ local function faceTarget(enemyModel, rootPart, targetPosition, turnSpeed, delta
 		targetCFrame *= facingOffsetCFrame
 	end
 
-	enemyModel:PivotTo(targetCFrame)
+	pivotEnemyModelToRoot(enemyModel, targetCFrame, pivotToRootOffset)
 end
 
-local function waitForNextTick(hasHumanoid, thinkInterval)
-	if hasHumanoid then
-		task.wait(thinkInterval)
-		return thinkInterval
-	end
-
-	return RunService.Heartbeat:Wait()
+local function waitForNextTick(thinkInterval)
+	local interval = math.max(0.03, tonumber(thinkInterval) or 0.15)
+	task.wait(interval)
+	return interval
 end
 
-local function prepareModelForMovement(enemyModel, humanoid)
+local function prepareModelForMovement(enemyModel)
 	for _, descendant in enemyModel:GetDescendants() do
 		if descendant:IsA("BasePart") then
 			-- Weapon raycasts rely on query/touch visibility on enemy parts.
 			descendant.CanQuery = true
 			descendant.CanTouch = true
 
-			if humanoid then
-				descendant.Anchored = false
-			else
-				descendant.Anchored = true
-				descendant.CanCollide = false
-			end
+			descendant.Anchored = true
+			descendant.CanCollide = false
 		end
 	end
 end
@@ -294,24 +286,21 @@ function EnemyAIService.start(enemyModel, templateName)
 	if not rootPart then
 		return
 	end
+	local pivotToRootOffset = getPivotToRootOffset(enemyModel, rootPart)
 
-	local humanoid = enemyModel:FindFirstChildOfClass("Humanoid")
+	local healthHumanoid = enemyModel:FindFirstChildOfClass("Humanoid")
 	local profile = mergeProfile(templateName)
 	local enemyDamageMultiplier = getEnemyDamageMultiplier(enemyModel)
 	local facingOffsetCFrame = getFacingOffsetCFrame(profile)
 	local hasFacingOffset = facingOffsetCFrame ~= CFrame.new()
 
-	prepareModelForMovement(enemyModel, humanoid)
-
-	if humanoid then
-		humanoid.AutoRotate = not hasFacingOffset
-	end
+	prepareModelForMovement(enemyModel)
 
 	pcall(function()
 		rootPart:SetNetworkOwner(nil)
 	end)
 
-	local animator = ensureAnimator(enemyModel, humanoid)
+	local animator = ensureAnimator(enemyModel, healthHumanoid)
 	local chaseTrack = loadAnimationTrack(animator, profile.ChaseAnimationId)
 	if chaseTrack then
 		chaseTrack.Priority = Enum.AnimationPriority.Movement
@@ -328,9 +317,9 @@ function EnemyAIService.start(enemyModel, templateName)
 
 	task.spawn(function()
 		while enemyModel.Parent do
-			local deltaTime = waitForNextTick(humanoid ~= nil, profile.ThinkInterval)
+			local deltaTime = waitForNextTick(profile.ThinkInterval)
 
-			if humanoid and humanoid.Health <= 0 then
+			if healthHumanoid and healthHumanoid.Health <= 0 then
 				break
 			end
 
@@ -338,22 +327,22 @@ function EnemyAIService.start(enemyModel, templateName)
 			if not rootPart then
 				break
 			end
+			pivotToRootOffset = getPivotToRootOffset(enemyModel, rootPart)
 
 			local targetHumanoid, targetRootPart, distance, targetPlayer = getNearestTarget(rootPart.Position, profile.AcquireRange)
 			if targetHumanoid and targetRootPart then
 				if distance <= profile.AttackRange then
 					stopTrack(chaseTrack)
-					if not humanoid or hasFacingOffset then
-						faceTarget(
-							enemyModel,
-							rootPart,
-							targetRootPart.Position,
-							profile.TurnSpeed,
-							deltaTime,
-							facingOffsetCFrame,
-							hasFacingOffset
-						)
-					end
+					faceTarget(
+						enemyModel,
+						rootPart,
+						targetRootPart.Position,
+						profile.TurnSpeed,
+						deltaTime,
+						facingOffsetCFrame,
+						hasFacingOffset,
+						pivotToRootOffset
+					)
 
 					local now = os.clock()
 					if now - lastAttackAt >= profile.AttackCooldown then
@@ -393,13 +382,13 @@ function EnemyAIService.start(enemyModel, templateName)
 					setMovementState(
 						enemyModel,
 						rootPart,
-						humanoid,
 						targetRootPart.Position,
 						profile.MoveSpeed,
 						deltaTime,
 						profile.TurnSpeed,
 						facingOffsetCFrame,
-						hasFacingOffset
+						hasFacingOffset,
+						pivotToRootOffset
 					)
 				end
 			else

@@ -176,11 +176,16 @@ local function startTurretCombatLoop(record)
 			local modelMaxAmmo = if record.model and record.model:IsA("Model") then record.model:GetAttribute(SentryConstants.ATTR_TURRET_MAX_AMMO) else nil
 			local modelAmmo = if record.model and record.model:IsA("Model") then record.model:GetAttribute(SentryConstants.ATTR_TURRET_AMMO) else nil
 			local fallbackMaxAmmo = sentryRuntime.resolveTurretMaxAmmo(record.weaponDef)
-			local ammo, maxAmmo = SentryStatResolver.resolveAmmoStateFromCandidates(
-				{ record.maxAmmo, modelMaxAmmo, fallbackMaxAmmo },
-				{ record.ammo, modelAmmo },
-				fallbackMaxAmmo
-			)
+			local ammo, maxAmmo
+			if type(sentryRuntime.resolveRecordAmmoState) == "function" then
+				ammo, maxAmmo = sentryRuntime.resolveRecordAmmoState(record, fallbackMaxAmmo)
+			else
+				ammo, maxAmmo = SentryStatResolver.resolveAmmoStateFromCandidates(
+					{ modelMaxAmmo, record.maxAmmo, fallbackMaxAmmo },
+					{ modelAmmo, record.ammo },
+					fallbackMaxAmmo
+				)
+			end
 			record.maxAmmo = maxAmmo
 			record.ammo = ammo
 			if record.ammo <= 0 then
@@ -418,6 +423,7 @@ local function deploySentryTurret(player, character, rootPart, weaponDef, explic
 	sentryModel:SetAttribute(SentryConstants.ATTR_IS_SENTRY_TURRET, true)
 	sentryModel:SetAttribute(SentryConstants.ATTR_SENTRY_OWNER_USER_ID, player.UserId)
 	sentryModel:SetAttribute(SentryConstants.ATTR_SENTRY_OWNER_NAME, player.Name)
+	sentryModel:SetAttribute(SentryConstants.ATTR_SENTRY_WEAPON_ID, tostring(weaponDef.Id or ""))
 	sentryModel:SetAttribute(SentryConstants.ATTR_TURRET_MAX_HEALTH, turretMaxHealth)
 	sentryModel:SetAttribute(SentryConstants.ATTR_TURRET_HEALTH, turretMaxHealth)
 	sentryModel:SetAttribute(SentryConstants.ATTR_TURRET_LAST_DAMAGED_AT, -1)

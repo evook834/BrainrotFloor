@@ -9,6 +9,19 @@ local ModelRootResolver = require(script.Parent.ModelRootResolver)
 
 local EnemyFactory = {}
 
+local function getPivotToRootOffset(enemyModel, rootPart)
+	if not enemyModel or not rootPart then
+		return CFrame.new()
+	end
+
+	local modelPivot = enemyModel:GetPivot()
+	return modelPivot:ToObjectSpace(rootPart.CFrame)
+end
+
+local function getDesiredPivotFromRoot(desiredRootCFrame, pivotToRootOffset)
+	return desiredRootCFrame * pivotToRootOffset:Inverse()
+end
+
 function EnemyFactory.spawnFromTemplate(template, spawnPoint, container, waveContext, options)
 	if not template or not template:IsA("Model") then
 		return nil
@@ -32,7 +45,9 @@ function EnemyFactory.spawnFromTemplate(template, spawnPoint, container, waveCon
 
 	EnemySpawnResolver.addTemplateHitboxProxy(enemy, templateName, root)
 	local spawnOffsetY = EnemySpawnResolver.getSpawnOffsetY(enemy, templateName, spawnPoint)
-	enemy:PivotTo(spawnPoint.CFrame + Vector3.new(0, spawnOffsetY, 0))
+	local pivotToRootOffset = getPivotToRootOffset(enemy, root)
+	local desiredRootCFrame = spawnPoint.CFrame + Vector3.new(0, spawnOffsetY, 0)
+	enemy:PivotTo(getDesiredPivotFromRoot(desiredRootCFrame, pivotToRootOffset))
 	enemy.Parent = container
 
 	local resolvedWaveContext = waveContext or {}

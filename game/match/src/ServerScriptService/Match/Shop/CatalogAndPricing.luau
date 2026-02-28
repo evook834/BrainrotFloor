@@ -76,6 +76,10 @@ function CatalogAndPricing.buildSentryAmmoRefillQuote(player, weaponDef, sentryR
 end
 
 function CatalogAndPricing.collectAmmoRefillQuotesForOwnedWeapons(player, context)
+	if context.prunePlayerSentries then
+		context.prunePlayerSentries(player)
+	end
+
 	local pricingConfig = getAmmoRefillPricingConfig(context.config)
 	local ammoContext = {
 		weaponById = context.weaponById,
@@ -84,6 +88,7 @@ function CatalogAndPricing.collectAmmoRefillQuotesForOwnedWeapons(player, contex
 		collectOwnedSentryRecordsByWeaponId = context.collectOwnedSentryRecordsByWeaponId,
 		getToolAmmoSnapshot = context.getToolAmmoSnapshot,
 		getSentryAmmoSnapshot = context.getSentryAmmoSnapshot,
+		getWeaponCostForPlayer = context.getWeaponCostForPlayer,
 		calculateRefillCost = function(p, w, a, pc, ctx)
 			return calculateRefillCost(p, w, a, pc, { getWeaponCostForPlayer = ctx.getWeaponCostForPlayer })
 		end,
@@ -97,6 +102,7 @@ function CatalogAndPricing.collectAmmoRefillQuotesForOwnedWeapons(player, contex
 		collectOwnedSentryRecordsByWeaponId = ammoContext.collectOwnedSentryRecordsByWeaponId,
 		getToolAmmoSnapshot = ammoContext.getToolAmmoSnapshot,
 		getSentryAmmoSnapshot = ammoContext.getSentryAmmoSnapshot,
+		getWeaponCostForPlayer = ammoContext.getWeaponCostForPlayer,
 		calculateRefillCost = ammoContext.calculateRefillCost,
 	})
 end
