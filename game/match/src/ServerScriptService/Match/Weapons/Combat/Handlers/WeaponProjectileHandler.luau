@@ -34,7 +34,29 @@ local function appendLivePlayerCharacters(exclusions)
 	end
 end
 
-local function buildFlareBurnConfig(weaponDef)
+local function cloneDamageContext(damageContext)
+	if type(damageContext) ~= "table" then
+		return {}
+	end
+
+	local clonedContext = {}
+	for key, value in pairs(damageContext) do
+		clonedContext[key] = value
+	end
+	return clonedContext
+end
+
+local function hasExplosionBurnConfig(weaponDef)
+	return math.max(0, tonumber(weaponDef and weaponDef.BurnDamageFractionPerSecond) or 0) > 0
+end
+
+local function hasGroundFireConfig(weaponDef)
+	return math.max(0, tonumber(weaponDef and weaponDef.GroundFireRadius) or 0) > 0
+		and math.max(0, tonumber(weaponDef and weaponDef.GroundFireDurationSeconds) or 0) > 0
+		and math.max(0, tonumber(weaponDef and weaponDef.GroundFireDamageScale) or 0) > 0
+end
+
+local function buildExplosionBurnConfig(weaponDef)
 	return {
 		durationSeconds = math.max(0.25, tonumber(weaponDef.BurnDurationSeconds) or 4),
 		tickIntervalSeconds = math.max(0.1, tonumber(weaponDef.BurnTickIntervalSeconds) or 0.5),
@@ -91,7 +113,7 @@ local function applyStickyAttachment(stickyBomb, targetPart, position)
 	end
 end
 
-local function spawnStickyBombGroundFire(player, character, centerPosition, weaponDef)
+local function spawnGroundFirePatch(player, character, centerPosition, weaponDef)
 	if not player or not player:IsA("Player") then
 		return
 	end
@@ -117,7 +139,7 @@ local function spawnStickyBombGroundFire(player, character, centerPosition, weap
 	local groundPosition = resolveGroundFirePosition(character, centerPosition)
 
 	local patch = Instance.new("Part")
-	patch.Name = "StickyBombGroundFire"
+	patch.Name = "WeaponGroundFire"
 	patch.Anchored = true
 	patch.CanCollide = false
 	patch.CanTouch = false
@@ -236,6 +258,7 @@ local function fireRocket(player, character, origin, direction, weaponDef, shotO
 	local range = math.max(30, tonumber(weaponDef.Range) or 120)
 	local blastRadius = math.max(4, tonumber(weaponDef.BlastRadius) or 16)
 	local blastDamage = tonumber(weaponDef.Damage) or 100
+	local hasIncendiaryPayload = hasExplosionBurnConfig(weaponDef) or hasGroundFireConfig(weaponDef)
 	local aimRayOrigin, aimRayDirection = resolveShotRay(origin, direction, shotOrigin, shotDirection)
 	local aimTargetPosition = resolveAimTargetPosition(character, aimRayOrigin, aimRayDirection, range)
 	direction = retargetDirectionToward(origin, direction, aimTargetPosition)
@@ -249,19 +272,93 @@ local function fireRocket(player, character, origin, direction, weaponDef, shotO
 	rocket.CanCollide = false
 	rocket.CanTouch = false
 	rocket.CanQuery = false
+	if hasIncendiaryPayload then
+		rocket.Material = Enum.Material.Neon
+		rocket.Color = typeof(weaponDef.Color) == "Color3" and weaponDef.Color or Color3.fromRGB(255, 108, 62)
+		rocket.Transparency = 0.04
+	end
 	rocket.CFrame = CFrame.lookAt(origin, origin + direction)
 	rocket.Parent = getEffectsFolder()
 	Debris:AddItem(rocket, 8)
 
+	local noseAttachment = Instance.new("Attachment")
+	noseAttachment.Position = Vector3.new(0, 0, -rocket.Size.Z * 0.5)
+	noseAttachment.Parent = rocket
 	local tailAttachment = Instance.new("Attachment")
 	tailAttachment.Position = Vector3.new(0, 0, rocket.Size.Z * 0.5)
 	tailAttachment.Parent = rocket
-	local tailFire = Instance.new("Fire")
-	tailFire.Size = 2.5
-	tailFire.Heat = 8
-	tailFire.Color = Color3.fromRGB(255, 185, 90)
-	tailFire.SecondaryColor = Color3.fromRGB(255, 95, 45)
-	tailFire.Parent = rocket
+	if hasIncendiaryPayload then
+		local flightLight = Instance.new("PointLight")
+		flightLight.Color = rocket.Color
+		flightLight.Brightness = 3.2
+		flightLight.Range = 13
+		flightLight.Parent = rocket
+
+		local shellEmitter = Instance.new("ParticleEmitter")
+		shellEmitter.Texture = "rbxasset://textures/particles/fire_main.dds"
+		shellEmitter.LightEmission = 1
+		shellEmitter.LockedToPart = true
+		shellEmitter.Rate = 54
+		shellEmitter.Lifetime = NumberRange.new(0.08, 0.16)
+		shellEmitter.Speed = NumberRange.new(0.15, 0.9)
+		shellEmitter.SpreadAngle = Vector2.new(16, 16)
+		shellEmitter.Acceleration = Vector3.new(0, 3, 0)
+		shellEmitter.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.65),
+			NumberSequenceKeypoint.new(0.5, 0.26),
+			NumberSequenceKeypoint.new(1, 0),
+		})
+		shellEmitter.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.02),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		shellEmitter.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 240, 175)),
+			ColorSequenceKeypoint.new(0.4, Color3.fromRGB(255, 175, 92)),
+			ColorSequenceKeypoint.new(1, rocket.Color),
+		})
+		shellEmitter.Parent = noseAttachment
+
+		local smokeEmitter = Instance.new("ParticleEmitter")
+		smokeEmitter.Texture = "rbxasset://textures/particles/smoke_main.dds"
+		smokeEmitter.LockedToPart = true
+		smokeEmitter.Rate = 12
+		smokeEmitter.Lifetime = NumberRange.new(0.18, 0.34)
+		smokeEmitter.Speed = NumberRange.new(1.5, 3.5)
+		smokeEmitter.Drag = 4
+		smokeEmitter.SpreadAngle = Vector2.new(20, 20)
+		smokeEmitter.Acceleration = Vector3.new(0, 4, 0)
+		smokeEmitter.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.35),
+			NumberSequenceKeypoint.new(1, 0.9),
+		})
+		smokeEmitter.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.72),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		smokeEmitter.Color = ColorSequence.new(Color3.fromRGB(95, 88, 84), Color3.fromRGB(48, 42, 40))
+		smokeEmitter.Parent = tailAttachment
+
+		local fireTrail = Instance.new("Trail")
+		fireTrail.Attachment0 = noseAttachment
+		fireTrail.Attachment1 = tailAttachment
+		fireTrail.Color = ColorSequence.new(Color3.fromRGB(255, 245, 170), rocket.Color)
+		fireTrail.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.04),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		fireTrail.Lifetime = 0.14
+		fireTrail.MinLength = 0.04
+		fireTrail.FaceCamera = true
+		fireTrail.Parent = rocket
+	else
+		local tailFire = Instance.new("Fire")
+		tailFire.Size = 2.5
+		tailFire.Heat = 8
+		tailFire.Color = Color3.fromRGB(255, 185, 90)
+		tailFire.SecondaryColor = Color3.fromRGB(255, 95, 45)
+		tailFire.Parent = rocket
+	end
 
 	task.spawn(function()
 		local currentPosition = origin
@@ -306,8 +403,39 @@ local function fireRocket(player, character, origin, direction, weaponDef, shotO
 		end
 
 		if rocket.Parent then
-			createExplosionEffect(currentPosition, blastRadius)
-			EnemyDamageService.applyBlastDamage(player, currentPosition, blastRadius, blastDamage, weaponDef, damageContext)
+			if hasIncendiaryPayload then
+				createFlareExplosionEffect(currentPosition, blastRadius * 1.1, rocket.Color)
+			else
+				createExplosionEffect(currentPosition, blastRadius)
+			end
+
+			local burnConfig = nil
+			if hasExplosionBurnConfig(weaponDef) then
+				burnConfig = buildExplosionBurnConfig(weaponDef)
+			end
+
+			local hitEnemies = nil
+			if burnConfig then
+				local blastContext = cloneDamageContext(damageContext)
+				blastContext.allowBurnOnHit = false
+				hitEnemies = EnemyDamageService.applyBlastDamage(
+					player,
+					currentPosition,
+					blastRadius,
+					blastDamage,
+					weaponDef,
+					blastContext
+				)
+				for _, enemyModel in ipairs(hitEnemies) do
+					EnemyDamageService.applyBurnDotFromWeapon(player, enemyModel, weaponDef, burnConfig)
+				end
+			else
+				hitEnemies = EnemyDamageService.applyBlastDamage(player, currentPosition, blastRadius, blastDamage, weaponDef, damageContext)
+			end
+
+			if hasGroundFireConfig(weaponDef) then
+				spawnGroundFirePatch(player, character, currentPosition, weaponDef)
+			end
 			rocket:Destroy()
 		end
 	end)
@@ -489,7 +617,7 @@ local function fireFlareGun(player, character, origin, direction, weaponDef, sho
 			local hitEnemies = EnemyDamageService.applyBlastDamage(player, currentPosition, blastRadius, blastDamage, weaponDef, {
 				allowBurnOnHit = false,
 			})
-			local burnConfig = buildFlareBurnConfig(weaponDef)
+			local burnConfig = buildExplosionBurnConfig(weaponDef)
 			for _, enemyModel in ipairs(hitEnemies) do
 				EnemyDamageService.applyBurnDotFromWeapon(player, enemyModel, weaponDef, burnConfig)
 			end
@@ -649,7 +777,7 @@ local function fireStickyBombLauncher(player, character, origin, direction, weap
 				allowBurnOnHit = false,
 				allowCriticalHits = false,
 			})
-			spawnStickyBombGroundFire(player, character, detonationPosition, weaponDef)
+			spawnGroundFirePatch(player, character, detonationPosition, weaponDef)
 			stickyBomb:Destroy()
 		end
 	end)
