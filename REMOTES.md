@@ -1,6 +1,6 @@
 # Remotes reference
 
-All remotes live under `ReplicatedStorage.Remotes` (folder name from `RemoteNames.Folder`). Names are defined in `game/shared/src/ReplicatedStorage/Shared/Remotes/RemoteNames.luau`. **When you add or change a remote, update this file and `RemoteNames.luau`** (and PROJECT_MAP/README/DEPENDENCIES as needed; see [README § Maintaining the docs](README.md#maintaining-the-docs-dependencies-project_map-readme-remotes)).
+All remotes live under `ReplicatedStorage.Remotes` (folder name from `RemoteNames.Folder`). Names are defined in **`src/ReplicatedStorage/Shared/Remotes/RemoteNames.luau`**. **When you add or change a remote, update this file and `RemoteNames.luau`** (and PROJECT_MAP/README/DEPENDENCIES as needed; see [README § Maintaining the docs](README.md#maintaining-the-docs-dependencies-project_map-readme-remotes)).
 
 **Direction**: **C→S** = Client → Server (client fires/invokes, server handles). **S→C** = Server → Client (server fires, client listens). **S→All** = Server → All clients.
 
@@ -30,6 +30,7 @@ All remotes live under `ReplicatedStorage.Remotes` (folder name from `RemoteName
 | **EditOfflinePlayerData** | RemoteFunction | C→S | **Client** invokes `(userId: number, edits: { { path: string, value: any } })`. Server edits saved player data only when that player is offline. Paths are dot-separated (e.g. `classes.progressByClassId.scentry.level`). Returns `{ success: boolean, message?: string }`. Allowed only in Studio by default. |
 | **SpectatorState** | RemoteEvent | S→C | **Server** fires to **one** client when spectator state changes. Payload: `{ isSpectating: boolean, livingPlayerUserIds: { number }?, respawnsAt: number? }`. When `isSpectating` is true, client enters spectator mode and can cycle camera among players in `livingPlayerUserIds`. `respawnsAt` is server time (seconds, from `workspace:GetServerTimeNow()`) when the spectator will spawn; client can compute countdown as `respawnsAt - workspace:GetServerTimeNow()`. When false or `respawnsAt` is 0/nill, client exits spectator mode (e.g. after respawn). Server updates `livingPlayerUserIds` when the set of living players in the match changes. |
 | **SpectatorRequest** | RemoteFunction | C→S | **Client** invokes `(request: string)`. **Server** returns: `{ success: boolean, message?: string, isSpectating?: boolean }`. Requests: `"toggleSpectate"` (toggle spectator mode when dead), `"spawnNow"` (attempt immediate spawn), `"exitSpectate"` (exit spectator mode without spawning). Used for late joiners or players who want to control their spectator state. |
+| **TeleportLoading** | RemoteEvent | S→C | **Server** fires to **one** client to control teleport loading UI. Payload: `{ action: string, title?: string, message?: string }`. `action`: `"Start"` (show loading; `title`, `message`), `"Failed"` (show failure; `message`), `"Hide"` (hide UI). Used by ReturnToLobbyFlow and LobbyMatchmaker (e.g. before/after teleport). |
 
 ---
 
@@ -59,6 +60,7 @@ All remotes live under `ReplicatedStorage.Remotes` (folder name from `RemoteName
 | EditOfflinePlayerData | RemoteFunction | C→S       |
 | SpectatorState        | RemoteEvent    | S→C       |
 | SpectatorRequest      | RemoteFunction | C→S       |
+| TeleportLoading       | RemoteEvent    | S→C       |
 
 ---
 
@@ -179,7 +181,7 @@ Client UI (SettingsMenuController)
 
 ### Configuration
 
-See `SettingsConfig` in `game/shared/src/ReplicatedStorage/Shared/Settings/SettingsConfig.luau`:
+See `SettingsConfig` in `src/ReplicatedStorage/Shared/Settings/SettingsConfig.luau`:
 
 - Audio volume ranges: [0, 1] for both music and SFX
 - HUD scale range: [0.6, 1.45] (configurable)
@@ -209,7 +211,7 @@ Server updates PlayerDataService (persisted to DataStore)
 
 ## SpectatorService
 
-The **SpectatorService** module (`game/match/src/ServerScriptService/Match/Spectator/SpectatorService.luau`) provides a clean API for spectator mode management:
+The **SpectatorService** module (`src/ServerScriptService/Features/Spectator/SpectatorService.luau`) provides a clean API for spectator mode management:
 
 ### Functions
 
@@ -238,10 +240,10 @@ The **Remotes** folder has these server-set attributes for client visibility:
 
 ### Client-Side API
 
-The client-side **Spectator** system is split into:
-- `game/match/src/StarterPlayer/StarterPlayerScripts/MatchClient/Spectator/Spectator.luau` - Entry module
-- `SpectatorController` - Handles camera control, target cycling, and remote communication
-- `SpectatorView` - Handles UI building and rendering
+The client-side **Spectator** system lives under `src/PlayerScriptService/Features/Spectator/`:
+- **Spectator** (entry) — Exports and run entry.
+- **SpectatorController** — Camera control, target cycling, remote communication.
+- **SpectatorView** — UI (target name, respawn countdown).
 
 The client handles:
 - Camera switching to `Scriptable` type and following target player
@@ -249,7 +251,3 @@ The client handles:
 - T key for toggling/exit
 - UI display showing target name and respawn countdown
 - Wave state handling (exits spectator on GameOver/Won)
-
-### Deprecated Client Module
-
-The old `game/shared/src/StarterPlayerScripts/SharedClient/Spectator/SpectatorMode.client.luau` module is deprecated and replaced by the MatchClient structure above.

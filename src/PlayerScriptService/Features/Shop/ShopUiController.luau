@@ -4,11 +4,14 @@
 	and ShopUiView (UI tree and row structure).
 ]]
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
 local ViewModule = require(script.Parent:WaitForChild("ShopUiView"))
 local ShopUiRemotes = require(script.Parent:WaitForChild("ShopUiRemotes"))
 local ShopUiConstants = require(script.Parent:WaitForChild("ShopUiConstants"))
 local ShopUiCatalogDisplay = require(script.Parent:WaitForChild("ShopUiCatalogDisplay"))
 local ShopUiMessages = require(script.Parent:WaitForChild("ShopUiMessages"))
+local Config = require(ReplicatedStorage.Shared.GameConfig)
 
 local started = false
 
@@ -177,11 +180,23 @@ local function run()
 		end)
 	end
 
+	local function connectClassStateRefresh(remote)
+		if remote and remote:IsA("RemoteEvent") then
+			remote.OnClientEvent:Connect(function()
+				if panel.Visible then
+					refreshCatalog()
+				end
+			end)
+		end
+	end
+
 	if classStateRemote then
-		classStateRemote.OnClientEvent:Connect(function()
-			if panel.Visible then
-				refreshCatalog()
-			end
+		connectClassStateRefresh(classStateRemote)
+	elseif remotesFolder then
+		-- ClassState may not exist yet (e.g. Match remotes still replicating). Subscribe when it appears.
+		task.spawn(function()
+			local r = remotesFolder:WaitForChild(Config.Remotes.ClassState, 5)
+			connectClassStateRefresh(r)
 		end)
 	end
 end

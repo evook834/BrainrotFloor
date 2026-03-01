@@ -10,39 +10,46 @@ For dependency rules (who may `require` what), see [DEPENDENCIES.md](DEPENDENCIE
 
 | Path | Purpose |
 |------|--------|
-| **`AGENTS.md`** | Agent instructions. |
+| **`AGENTS.md`** | Agent instructions (placement, file organization). |
+| **`CLAUDE.md`** | Claude-specific guidance (toolchain, architecture). |
 | **`DEPENDENCIES.md`** | Dependency rules and runtime layout. |
+| **`PROJECT_MAP.md`** | This file — folder-by-folder map. |
+| **`README.md`** | Architecture overview, quick start. |
 | **`REMOTES.md`** | Remote names and payloads. |
-| **`README.md`** | Tooling, quick start, CI. |
-| **`UI_SYSTEM.md`** | New state-based UI system documentation. |
-| **`game/`** | Legacy game source (lobby/match). Kept for backwards compatibility. |
-| **`src/`** | New source tree with unified structure (currently active). |
-| **`default.project.json`** | Rojo config for new structure. |
-| **`Packages/`** | Centralized Wally packages. |
+| **`UI_SYSTEM.md`** | State-based UI system (GameStateMachine, UIManager). |
+| **`default.project.json`** | Rojo project (single place; ReplicatedStorage.Shared + ui, ServerScriptService.Shared + Features, StarterPlayerScripts, Workspace.DifficultyButtons). |
+| **`Packages/`** | Wally packages (DataService, etc.). |
+| **`src/`** | Source tree. |
 
 ---
 
-## `src/` — New unified source tree
+## `src/` — Source tree
 
-The new source structure that consolidates all game code.
+Single Rojo project; runtime mapping in [DEPENDENCIES.md](DEPENDENCIES.md).
 
 ### `src/PlayerScriptService/`
 
-Client-only scripts that run under `StarterPlayer.StarterPlayerScripts` at runtime.
+Client scripts; run under `StarterPlayer.StarterPlayerScripts`. Rojo mounts: **ClientEntry**, **ClientMain**, **SharedClient**, **LobbyClient**, **Features**.
 
-| Folder / file | Purpose |
-|---------------|--------|
-| **`Core/`** | Core client systems (bootstrapping, base services). |
-| **`Features/`** | Feature-specific client scripts (classes, combat, waves, lobby). |
-| **`SharedClient/`** | Shared client code (settings, friends, movement). |
-| **`ClientEntry.luau`** | New entry point using UI State System. |
-
-**Subfolders:**
-- `LobbyClient/` — Lobby-specific client scripts
+| Item | Purpose |
+|------|--------|
+| **`ClientEntry.luau`** | Entry API; called by ClientMain, invokes `ReplicatedStorage.ui.UIController.run()`. |
+| **`ClientMain.client.luau`** | Script that runs first; requires ClientEntry and calls `run(options)` (PlaceConfig, etc.). |
+| **`SharedClient/`** | Shared client: Settings (menu, audio, HUD, return-to-lobby), Friends (FriendSystem, nameplates), Classes (ClassUi controller/view), Hud (placeholders), Movement (Sprint), TeleportLoading. |
+| **`Features/`** | Feature client scripts (match + lobby). |
+| **`Features/LobbyClient/`** | Lobby-only: Settings UI, Social (LobbyFriendNameplates), Classes UI. |
+| **`Features/Classes/`** | Class UI, XpBarHud (view, controller, remotes). |
+| **`Features/Combat/`** | Crosshair, AmmoHud, DamageIndicators, DualWieldPose, SentryPlacementPreview. |
+| **`Features/Enemies/`** | EnemyHealthBars, EnemyDeathCloud, EnemyModelUtils. |
+| **`Features/Settings/`** | Match settings UI. |
+| **`Features/Shop/`** | Shop UI (controller, view, remotes, catalog display, messages). |
+| **`Features/Social/`** | MatchFriendNameplates. |
+| **`Features/Spectator/`** | Spectator controller and view. |
+| **`Features/Waves/`** | WaveHud (view, controller, remotes), MapVotePayloadUtil, CountdownToken. |
 
 ### `src/ReplicatedStorage/`
 
-Replicated to client and server at runtime.
+Replicated to client and server. Rojo mounts **Shared** and **ui** (ui from `src/ui/`).
 
 #### `src/ReplicatedStorage/Shared/`
 
@@ -50,100 +57,85 @@ Config and catalogs; may only `require` within this tree.
 
 | Folder / file | Purpose |
 |---------------|--------|
-| **`GameConfig.luau`** | Top-level config; wires subsystems (waves, enemies, classes, shop, player, remotes). |
-| **`Classes/`** | Class definitions and system config. |
-| **`DifficultyConfig.luau`** | Difficulty config (settings per difficulty). |
-| **`Enemy/`** | Enemy config, definitions, profiles. |
-| **`Player/`** | Player config (money, respawn, movement). |
-| **`Remotes/`** | Remote names and Remotes folder name. |
+| **`GameConfig.luau`** | Top-level config; wires subsystems and remotes. |
+| **`PlaceConfig.luau`** | Place IDs (lobby/match); used by client for place detection. |
+| **`DifficultyConfig.luau`** | Difficulty settings. |
 | **`SentryConstants.luau`** | Shared sentry constants. |
-| **`Shop/`** | Shop config and weapon catalog. |
-| **`Waves/`** | Wave config (intermission, scaling, spawn). |
-| **`Pickups/`** | Ammo pickup config. |
-| **`Settings/`** | Settings config and types. |
-
-#### `src/ReplicatedStorage/Core/`
-
-Core shared modules.
-
-#### `src/ReplicatedStorage/Features/`
-
-Feature modules for ReplicatedStorage.
+| **`Classes/`** | ClassSystemConfig, ClassCatalog, ClassIconAssets. |
+| **`Enemy/`** | EnemyConfig, EnemyCatalog, EnemyDefinitions, EnemyProfiles, EnemyPresentation, EnemyModelGeometry. |
+| **`Player/`** | PlayerConfig, PlayerDataTemplate. |
+| **`Remotes/`** | RemoteNames (and Remotes folder name). |
+| **`Settings/`** | SettingsConfig, SettingsDefaults, SettingsTypes, HudLayoutConfig. |
+| **`Shop/`** | ShopConfig, WeaponCatalog, ShopUiConstants, ShopUiMessages. |
+| **`Waves/`** | WaveConfig. |
+| **`Pickups/`** | AmmoPickupConfig. |
 
 ### `src/ServerScriptService/`
 
-Server-only scripts.
+Server-only. Rojo mounts **Shared** and **Features**.
 
 #### `src/ServerScriptService/Shared/`
 
-Server-only shared (e.g. matchmaking, place role).
+Server-only shared (no place-specific logic).
 
 | Folder / file | Purpose |
 |---------------|--------|
-| **`Classes/`** | Shared class system helpers: progression, state helpers, payload builder. |
-| **`Friends/`** | FriendService: shared social backend. |
-| **`Matchmaking/`** | Matchmaking config and place-role detection. |
-| **`PlayerData/`** | PlayerDataService: wraps DataService for persistent data. |
-| **`Settings/`** | Shared SettingsService: binds remotes, persists data. |
+| **`Matchmaking/`** | MatchmakingConfig, PlaceRole (lobby vs match detection). |
+| **`PlayerData/`** | PlayerDataService (wraps DataService). |
+| **`Settings/`** | SettingsService (remotes, persistence). |
+| **`Friends/`** | FriendService (requests, presence, messages). |
+| **`Classes/`** | ClassProgression, ClassStateHelpers, ClassPayloadBuilder, ClassDataPayload, ClassPersistence. |
 
-#### `src/ServerScriptService/Lobby/`
+#### `src/ServerScriptService/Features/`
 
-Lobby place server scripts.
+Place-specific server; PlaceRole controls which systems run (Lobby vs Match).
 
-| File | Purpose |
-|------|--------|
-| **`init.luau`** | Entry point for lobby systems (PlaceRole check, services startup) |
+| Folder / file | Purpose |
+|---------------|--------|
+| **`Lobby/`** | Lobby entry (init.luau); Core: LobbyMatchmaker, LobbySettings, LobbyClassRemotes. |
+| **`Core/`** | GameBootstrap (match entry), Bootstrap (RemotesSetup, ReturnToLobbyFlow, MapVoteFlow, PlayerLifecycleBootstrap, MatchSetup, TempContentSetup), Registry (MatchStore, MatchServerRegistry, etc.). |
+| **`Waves/`** | WaveService, WaveSpawnLogic, WaveSpawnRunner, WaveSpawnSchedule. |
+| **`Enemies/`** | EnemyService, EnemyAIService, EnemyVfxService, EnemyRegistry, EnemyFactory, EnemyScaling, EnemyTargeting, EnemySpawnResolver, etc. |
+| **`Classes/`** | ClassService, ClassStateSync, ClassRuntimeEffects, ClassCombatRules. |
+| **`Shop/`** | ShopService, Catalog (CatalogBuilder, PricingEngine, AmmoInventory), PurchaseFlow, CurrencyService, TraderAccess, Inventory. |
+| **`Weapons/`** | Tools (WeaponToolFactory, WeaponTemplateResolver, ammo, fire handlers), Combat (AimResolver, EnemyDamageService, WeaponFireHandlers, handlers: Bullet, Melee, Projectile, Flamethrower, WeaponVfx, WeaponRemoteBindings), Sentry (Registry, Placement, Targeting, Stats, UI, SentryTurretController). |
+| **`Combat/`** | AimResolver, EnemyDamageService (weapon damage lives under Weapons). |
+| **`Difficulty/`** | DifficultyService. |
+| **`Pickups/`** | AmmoPickupService. |
+| **`Spectator/`** | SpectatorService. |
+| **`Tools/`** | AmmoZoneLayoutGenerator. |
+| **`Admin/`** | OfflinePlayerDataEditor. |
 
-**Subfolders:**
-- `Core/` — Lobby-specific server scripts (matchmaking, class remotes, settings)
-
-### `src/ServerScriptService/Features/`
-
-Feature modules for ServerScriptService.
-
-#### `src/ServerScriptService/Features/Lobby/Core/`
-
-Lobby-specific server scripts.
-
-| File | Purpose |
-|------|--------|
-| **`LobbyMatchmaker.server.luau`** | Matchmaking: difficulty selection, server creation/joining |
-| **`LobbySettings.server.luau`** | Settings management in lobby |
-| **`LobbyClassRemotes.server.luau`** | Class selection remotes (ClassGetData, ClassSelect) |
-
-### `src/ui/` — New UI System
+### `src/ui/` — UI system (mounted at ReplicatedStorage.ui)
 
 #### `src/ui/UI/`
 
-React Luau UI components (declarative UI definitions).
+React Luau views (declarative UI).
 
-| File | Purpose |
+| Item | Purpose |
 |------|--------|
 | **`init.luau`** | UI exports. |
-| **`uitypes.luau`** | Shared type definitions. |
+| **`uitypes.luau`** | Shared UI types. |
+| **`Shop/`** | ShopView. |
 
 #### `src/ui/UIController/`
 
-State management and UI orchestration.
+State and UI orchestration.
 
-| File | Purpose |
+| Item | Purpose |
 |------|--------|
 | **`init.luau`** | UIController exports. |
 | **`GameStateMachine.luau`** | State machine (Menu, Lobby, InGame, Shop, etc.). |
-| **`UIManager.luau`** | UI component manager (show/hide based on state). |
-| **`run.luau`** | Entry point that wires everything together. |
+| **`UIManager.luau`** | Show/hide UI by state. |
+| **`run.luau`** | Entry; wires state machine and UI manager. |
 
----
+### `src/Workspace/`
 
-## `game/` — Legacy structure
+Place content.
 
-Kept for backwards compatibility during migration. All code has been migrated to `src/`.
-
-- **`game/shared/`** — Legacy shared code (migrated)
-- **`game/lobby/`** — Legacy lobby place (migrated)
-- **`game/match/`** — Legacy match place (migrated)
-
-All files have been migrated to `src/`. The legacy folders remain only as reference.
+| Folder | Purpose |
+|--------|--------|
+| **`DifficultyButtons/`** | Difficulty buttons (e.g. for lobby); used by LobbyMatchmaker. |
 
 ---
 
@@ -154,65 +146,32 @@ All files have been migrated to `src/`. The legacy folders remain only as refere
 | **Config/catalog (client + server)** | **`src/ReplicatedStorage/Shared/`** |
 | **Server-only shared** | **`src/ServerScriptService/Shared/`** |
 | **Client-only shared** | **`src/PlayerScriptService/SharedClient/`** |
-| **New UI components** | **`src/ui/UI/`** (React Luau) |
-| **UI controllers** | **`src/ui/UIController/`** |
-| **Client entry (new)** | **`src/PlayerScriptService/ClientEntry.luau`** |
+| **Match/Lobby server features** | **`src/ServerScriptService/Features/`** (Lobby, Core, Waves, Shop, …) |
+| **Match/Lobby client features** | **`src/PlayerScriptService/Features/`** |
+| **New UI views (React Luau)** | **`src/ui/UI/`** |
+| **UI state / orchestration** | **`src/ui/UIController/`** |
+| **Client entry** | **`src/PlayerScriptService/ClientEntry.luau`** (invoked by ClientMain.client.luau) |
 
 ---
 
-## Settings System Files
-
-| File | Location | Purpose |
-|------|----------|---------|
-| SettingsService | `src/ServerScriptService/Shared/Settings/` | Server-side; binds remotes, persists via PlayerDataService |
-| SettingsConfig | `src/ReplicatedStorage/Shared/Settings/` | Shared config (ranges, limits, HUD definitions) |
-| SettingsMenuController | `src/PlayerScriptService/SharedClient/Settings/` | Main client controller |
-
----
-
-## UI State System
+## Settings system
 
 | Component | Location | Purpose |
-|-----------|----------|---------|
-| GameStateMachine | `src/ui/UIController/GameStateMachine.luau` | State machine, tracks current state, allows transitions |
-| UIManager | `src/ui/UIController/UIManager.luau` | Manages UI components, shows/hides by state |
-| React Luau UI | `src/ui/UI/` | Declarative UI components |
-| Entry Point | `src/ui/UIController/run.luau` | Wires state machine and UI manager |
-| ClientEntry | `src/PlayerScriptService/ClientEntry.luau` | Client entry point using UI State System |
+|-----------|----------|--------|
+| SettingsService | `src/ServerScriptService/Shared/Settings/` | Server; remotes, persistence via PlayerDataService. |
+| Settings config | `src/ReplicatedStorage/Shared/Settings/` | Ranges, limits, HUD definitions. |
+| Settings client | `src/PlayerScriptService/SharedClient/Settings/` | Menu controller, audio, HUD layout, visibility, return-to-lobby. |
+
+---
+
+## UI state system
+
+| Component | Location | Purpose |
+|-----------|----------|--------|
+| GameStateMachine | `src/ui/UIController/GameStateMachine.luau` | States and transitions. |
+| UIManager | `src/ui/UIController/UIManager.luau` | Show/hide by state. |
+| Views | `src/ui/UI/` | React Luau components (e.g. ShopView). |
+| Entry | `src/ui/UIController/run.luau` | Wires state machine and UIManager. |
+| Client bootstrap | `ClientMain.client.luau` → `ClientEntry.run()` → `UIController.run()`. |
 
 See [UI_SYSTEM.md](UI_SYSTEM.md) for full documentation.
-
----
-
-## Migration Status
-
-| Component | Status | Notes |
-|-----------|--------|-------|
-| **Core Structure** | Done | New `src/` folder structure created |
-| **State System** | Done | GameStateMachine + UIManager implemented |
-| **Shared Code** | Done | Migrated from `game/shared/` to `src/ReplicatedStorage/Shared/` |
-| **Match Client** | Done | Migrated to `src/PlayerScriptService/Features/` |
-| **Match Server** | Done | Migrated to `src/ServerScriptService/Features/` |
-| **Lobby Client** | Done | Migrated to `src/PlayerScriptService/Features/LobbyClient/` |
-| **Lobby Server** | Done | Entry point at `src/ServerScriptService/Lobby/init.luau` |
-| **Lobby Matchmaking** | Done | `LobbyMatchmaker` creates ProximityPrompts on DifficultyButtons |
-| **UI Components** | Done | ShopView and all components registered |
-| **Entry Points** | Done | UIController.run, Lobby entry point created |
-| **Wally Packages** | Done | DataService dependency installed in root `Packages/` |
-
-**Migration completed.** The new `src/` structure is now active. Use `rojo serve default.project.json` to run the game.
-
----
-
----
-
-## Quick reference: where to put what
-
-| Kind of code | Prefer location |
-|--------------|-----------------|
-| **Config/catalog (client + server)** | **`src/ReplicatedStorage/Shared/`** |
-| **Server-only shared** | **`src/ServerScriptService/Shared/`** |
-| **Client-only shared** | **`src/PlayerScriptService/SharedClient/`** |
-| **New UI components** | **`src/ui/UI/`** (React Luau) |
-| **UI controllers** | **`src/ui/UIController/`** |
-| **Client entry (new)** | **`src/PlayerScriptService/ClientEntry.luau`** |

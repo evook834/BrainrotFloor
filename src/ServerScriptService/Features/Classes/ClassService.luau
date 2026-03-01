@@ -366,20 +366,26 @@ local function selectClass(player, classId)
 end
 
 local function bindPlayer(player)
+	local defaultClassId = getDefaultClassId()
 	local state = getOrCreatePlayerState(player)
 
 	if PlayerDataService.isReady() then
 		PlayerDataService.waitForData(player)
+		-- Only apply persisted state if in-memory state was not updated during the wait
+		-- (e.g. by ClassSelect), otherwise we would overwrite a fresh class selection with stale data.
 		local persistedState = PlayerDataService.get(player, { "classes" })
 		if type(persistedState) == "table" and (persistedState.selectedClassId or persistedState.progressByClassId) then
-			applyPersistedStateToPlayerState(state, persistedState)
-		else
-			state.selectedClassId = getDefaultClassId()
+			if state.selectedClassId == defaultClassId then
+				applyPersistedStateToPlayerState(state, persistedState)
+			end
+			-- else: state was already updated (e.g. ClassSelect ran while we waited); keep it
+		end
+		if state.selectedClassId == defaultClassId and (not persistedState or not persistedState.selectedClassId) then
 			getOrCreateClassProgress(state, state.selectedClassId)
 		end
 		writeClassStateToDataService(player, state)
 	else
-		state.selectedClassId = getDefaultClassId()
+		state.selectedClassId = defaultClassId
 		getOrCreateClassProgress(state, state.selectedClassId)
 	end
 
