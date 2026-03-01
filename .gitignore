@@ -4,13 +4,6 @@ BrainrotFloor.rojo.rbxlx
 local_saves/
 .backup_state/
 aftman.toml
-game/places/*/.cache/
-game/places/*/Packages/*
-!game/places/*/Packages/.gitkeep
-game/match/Packages/*
-!game/match/Packages/.gitkeep
-game/lobby/Packages/*
-!game/lobby/Packages/.gitkeep
 artifacts/
 release-artifacts/
 scripts/

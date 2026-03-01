@@ -192,9 +192,9 @@ local function getPlayerClassDefinition(player)
 		return classDef
 	end
 
-	local fallbackId = getDefaultClassId()
-	state.selectedClassId = fallbackId
-	return getClassDefinition(fallbackId)
+	-- Return default for this request only; do not overwrite state.selectedClassId.
+	-- Otherwise a transient lookup failure would reset the player's selection (e.g. shop would show wrong class).
+	return getClassDefinition(getDefaultClassId())
 end
 
 local function getPlayerSelectedClassProgress(player)

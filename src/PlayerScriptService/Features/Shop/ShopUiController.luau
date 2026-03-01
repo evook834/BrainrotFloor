@@ -12,6 +12,7 @@ local ShopUiConstants = require(script.Parent:WaitForChild("ShopUiConstants"))
 local ShopUiCatalogDisplay = require(script.Parent:WaitForChild("ShopUiCatalogDisplay"))
 local ShopUiMessages = require(script.Parent:WaitForChild("ShopUiMessages"))
 local Config = require(ReplicatedStorage.Shared.GameConfig)
+local ClassChangedClientEvent = require(ReplicatedStorage.Shared.Classes.ClassChangedClientEvent)
 
 local started = false
 
@@ -199,6 +200,13 @@ local function run()
 			connectClassStateRefresh(r)
 		end)
 	end
+
+	-- Refresh shop when class is changed in UI (does not rely on ClassState replication).
+	ClassChangedClientEvent.connect(function()
+		if panel.Visible then
+			refreshCatalog()
+		end
+	end)
 end
 
 return {

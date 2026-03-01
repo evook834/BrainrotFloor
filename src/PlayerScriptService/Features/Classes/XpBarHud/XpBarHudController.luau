@@ -7,6 +7,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local HudLayoutConfig = require(ReplicatedStorage.Shared.Settings.HudLayoutConfig)
 local SettingsConfig = require(ReplicatedStorage.Shared.Settings.SettingsConfig)
+local ClassChangedClientEvent = require(ReplicatedStorage.Shared.Classes.ClassChangedClientEvent)
 local XpBarHudPayloadUtil = require(script.Parent.XpBarHudPayloadUtil)
 local XpBarHudRemotes = require(script.Parent.XpBarHudRemotes)
 local XpBarHudView = require(script.Parent.XpBarHudView)
@@ -106,6 +107,8 @@ local function run(playerGui: PlayerGui)
 	if remotes.classState and remotes.classState:IsA("RemoteEvent") then
 		remotes.classState.OnClientEvent:Connect(applyClassPayload)
 	end
+
+	ClassChangedClientEvent.connect(applyClassPayload)
 
 	playerGui:GetAttributeChangedSignal(HudLayoutConfig.HUD_MOVE_MODE_ATTRIBUTE):Connect(function()
 		if lastPayload then

@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local ViewModule = require(script.Parent:WaitForChild("ClassUiView"))
 local ClassIconAssets = require(ReplicatedStorage.Shared.Classes.ClassIconAssets)
+local ClassChangedClientEvent = require(ReplicatedStorage.Shared.Classes.ClassChangedClientEvent)
 
 type ClassPayload = {
 	success: boolean?,
@@ -507,6 +508,7 @@ local function run(options: { isLobby: boolean? }?)
 						local statePayload = result.state
 						if type(statePayload) == "table" then
 							renderPayload(statePayload)
+							ClassChangedClientEvent.fire(statePayload)
 						end
 					else
 						setStatus((result and result.message) or "Class switch denied.", Color3.fromRGB(245, 150, 150))
