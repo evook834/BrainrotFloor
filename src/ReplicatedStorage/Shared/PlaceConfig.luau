@@ -11,6 +11,7 @@ PlaceConfig.MATCH_PLACE_IDS = {
 	124937386174828,
 	133374266851323,
 	121897811274933,
+	97177119169838,
 }
 
 -- Legacy single-place fallback (kept for compatibility).
