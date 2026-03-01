@@ -5,12 +5,13 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterPlayer = game:GetService("StarterPlayer")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
-local SharedClient = script.Parent.Parent.Parent:WaitForChild("SharedClient")
-local TeleportLoading = require(SharedClient:WaitForChild("TeleportLoading"):WaitForChild("TeleportLoading"))
+local SharedClient = StarterPlayer.StarterPlayerScripts.SharedClient
+local TeleportLoading = require(SharedClient.TeleportLoading.TeleportLoading)
 local WaveHudView = require(script.Parent.WaveHudView)
 local WaveHudRemotes = require(script.Parent.WaveHudRemotes)
 local CountdownToken = require(script.Parent.CountdownToken)

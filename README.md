@@ -2,58 +2,46 @@
 
 Co-op wave-based shooter on Roblox: players choose a difficulty in the **lobby**, get matched into a **match** server, then survive waves of enemies, buy weapons and ammo, level classes, and optionally return to lobby or vote for the next map after game over.
 
-This README is an **architecture overview**. For folder-by-folder layout see [PROJECT_MAP.md](PROJECT_MAP.md). For dependency rules see [DEPENDENCIES.md](DEPENDENCIES.md). For remotes see [REMOTES.md](REMOTES.md). For the new UI system see [UI_SYSTEM.md](UI_SYSTEM.md). For feature notes (sprint, stamina, difficulty, game over, etc.) see [doc.md](doc.md).
+This README is an **architecture overview**. For folder-by-folder layout see [PROJECT_MAP.md](PROJECT_MAP.md). For dependency rules see [DEPENDENCIES.md](DEPENDENCIES.md). For remotes see [REMOTES.md](REMOTES.md). For the UI system see [UI_SYSTEM.md](UI_SYSTEM.md).
 
 ---
 
-## New Project Structure (Migration Complete)
+## Project structure
 
-We're reorganizing the codebase into a unified structure with a **state-based UI system**:
+Single unified source tree with a **state-based UI system**:
 
 ```
 BrainrotFloor/
-├── src/                    # New unified source tree
+├── src/                    # Source tree
 │   ├── PlayerScriptService/   # Client scripts (StarterPlayerScripts)
-│   ├── ReplicatedStorage/     # Shared client+server code
-│   ├── ServerScriptService/   # Server scripts
-│   └── ui/                    # State-based UI system
-│       ├── UI/                # React Luau components
-│       └── UIController/      # State machine + UI manager
-├── game/                   # Legacy structure (migrated, kept for reference)
-│   ├── shared/
-│   ├── lobby/
-│   └── match/
-└── Packages/               # Centralized Wally packages
+│   ├── ReplicatedStorage/    # Shared client+server (config, remotes, catalogs)
+│   ├── ServerScriptService/   # Server (Shared + Features)
+│   ├── ui/                    # State-based UI
+│   │   ├── UI/                # React Luau components
+│   │   └── UIController/      # State machine + UI manager
+│   └── Workspace/             # Place content (e.g. DifficultyButtons)
+├── default.project.json   # Rojo project (single place)
+└── Packages/               # Wally packages (DataService, etc.)
 ```
 
-### Migration status
-
-- [x] New folder structure created
-- [x] State-based UI system (`src/ui/`) created
-- [x] Shared code migrated to `src/ReplicatedStorage/Shared/`
-- [x] Match client code migrated to `src/PlayerScriptService/Features/`
-- [x] Match server code migrated to `src/ServerScriptService/Features/`
-- [x] Lobby client code migrated to `src/PlayerScriptService/Features/LobbyClient/`
-- [x] Lobby server code migrated to `src/ServerScriptService/Features/Lobby/`
-- [x] Wally packages installed (DataService)
-- [ ] Legacy `game/` structure removed after migration complete
-
-See [PROJECT_MAP.md](PROJECT_MAP.md) for details.
+See [PROJECT_MAP.md](PROJECT_MAP.md) for folder-by-folder details.
 
 ---
 
 ## Architecture overview
 
-### Two places, one shared tree
+### Two logical places, one codebase
 
-- **Lobby place** (`default.project.json`) — Players pick difficulty (Easy / Normal / Hard). Server uses **MemoryStore** to find or create a match server and teleports the party there.
-- **Match place** — Wave loop, enemies, shop, classes, difficulty scaling, settings, ammo pickups. When all players die, game over triggers; players can return to lobby or vote for the next map.
+Runtime behavior is determined by **PlaceRole** (place ID): the same codebase runs as either **Lobby** or **Match**.
+
+- **Lobby** — Players pick difficulty (Easy / Normal / Hard). Server uses **MemoryStore** to find or create a match server and teleports the party there.
+- **Match** — Wave loop, enemies, shop, classes, difficulty scaling, settings, ammo pickups, spectator. When all players die, game over triggers; players can return to lobby or vote for the next map.
 
 ### Client / server boundary
 
 - **Clients** run under `StarterPlayer.StarterPlayerScripts` (SharedClient + LobbyClient or MatchClient). They **cannot** `require` anything under `ServerScriptService`; it does not exist on the client.
-- **Servers** run under `ServerScriptService` (Shared + Lobby or Match). They may `require` ReplicatedStorage.Shared and ServerScriptService (shared + features).
-- **All cross-boundary communication** is via **Remotes** only (RemoteEvent / RemoteFunction). Names and payloads are defined in [REMOTES.md](REMOTES.md) and `ReplicatedStorage.Shared.Remotes.RemoteNames`.
+- **Servers** run under `ServerScriptService` (Shared + Features). They may `require` ReplicatedStorage.Shared and ServerScriptService (Shared + Features).
+- **All cross-boundary communication** is via **Remotes** only (RemoteEvent / RemoteFunction). Names and payloads are in [REMOTES.md](REMOTES.md) and `ReplicatedStorage.Shared.Remotes.RemoteNames.luau`.
 
 ### Key systems (match)
 
@@ -66,10 +54,11 @@ See [PROJECT_MAP.md](PROJECT_MAP.md) for details.
 | **Combat** | Weapon fire/reload/aim handlers, damage, ammo | Crosshair, AmmoHud, DamageIndicators, DualWieldPose | WeaponAim, WeaponFire, WeaponReload (C→S), DamageIndicator (S→C) |
 | **Enemies** | EnemyService, EnemyAIService, EnemyVfxService, difficulty-scaled HP/damage | EnemyHealthBars, EnemyDeathCloud | — |
 | **Settings** | Shared SettingsService: get/save via DataService (audio, HUD) | SettingsUi (lobby + match) | SettingsGet (C→S), SettingsSave (C→S) |
+| **Spectator** | SpectatorService: spectator state, respawn timing, living players | SpectatorController, SpectatorView | SpectatorState (S→C), SpectatorRequest (C→S) |
 | **Ammo pickups** | AmmoPickupService: zones, spawn/respawn, pickup | — | — |
 | **Game over / map vote** | GameBootstrap: all-dead → GameOver, return-to-lobby teleport, map vote winner → reserve + teleport party | WaveHud: game-over overlay, return button, map vote panel | ReturnToLobby, MapVote (reserved) |
 
-Config (wave timing, enemy counts, wave director tables (WaveTotalTarget/AliveCap/composition), class catalog, weapon catalog, difficulty multipliers, etc.) lives in **ReplicatedStorage.Shared** (e.g. `GameConfig`, `WaveConfig`, `ClassCatalog`, `WeaponCatalog`). Server-only shared config (place IDs, MemoryStore name, difficulties) is in **ServerScriptService.Shared.Matchmaking**.
+Config (wave timing, enemy counts, wave director tables, class catalog, weapon catalog, difficulty multipliers, etc.) lives in **ReplicatedStorage.Shared** (e.g. `GameConfig`, `WaveConfig`, `WeaponCatalog`, `PlaceConfig`). Server-only shared config (place IDs, MemoryStore name, difficulties) is in **ServerScriptService.Shared.Matchmaking**.
 
 ### Lobby
 
@@ -82,59 +71,34 @@ Config (wave timing, enemy counts, wave director tables (WaveTotalTarget/AliveCa
 ## Repo layout (summary)
 
 ```
-game/                   # Legacy structure (migrated, kept for reference)
-├── shared/
-├── lobby/
-├── match/
-└── places/
-
-src/                    # New unified structure (active)
+src/
 ├── PlayerScriptService/
-│   ├── Core/
-│   ├── Features/       # Feature scripts
-│   └── SharedClient/
+│   ├── ClientEntry.luau, ClientMain.client.luau   # Client entry
+│   ├── Features/       # Match + Lobby client (Classes, Waves, Shop, LobbyClient, …)
+│   └── SharedClient/   # Shared client (Settings, Friends, Hud, …)
 ├── ReplicatedStorage/
-│   └── Shared/
+│   └── Shared/         # Config, Remotes, catalogs
 ├── ServerScriptService/
-│   ├── Shared/
-│   ├── Core/
-│   └── Features/
-└── ui/                 # State-based UI system
+│   ├── Shared/         # Matchmaking, PlaceRole, PlayerData, Settings, Friends
+│   └── Features/        # Lobby, Core (GameBootstrap), Waves, Shop, Enemies, …
+└── ui/
+    ├── UI/             # React Luau views
+    └── UIController/   # GameStateMachine, UIManager, run
 ```
 
 Detailed folder-by-folder breakdown: **[PROJECT_MAP.md](PROJECT_MAP.md)**.
-
-### Legacy path mappings
-
-| Legacy Path | New Path |
-|-------------|----------|
-| `game/shared/src/ReplicatedStorage/Shared/` | `src/ReplicatedStorage/Shared/` |
-| `game/shared/src/ServerScriptService/Shared/` | `src/ServerScriptService/Shared/` |
-| `game/shared/src/StarterPlayerScripts/SharedClient/` | `src/PlayerScriptService/SharedClient/` |
-| `game/lobby/src/ServerScriptService/Lobby/` | `src/ServerScriptService/Features/Lobby/` |
-| `game/match/src/StarterPlayer/StarterPlayerScripts/MatchClient/` | `src/PlayerScriptService/Features/` |
 
 ---
 
 ## Quick start
 
-1. **Toolchain** — `aftman` (see `aftman.toml`), `rojo`, `wally` for packages.
-2. **Serve** — `rojo serve default.project.json` for the new unified structure.
-3. **Studio** — Connect to the served port (e.g. `localhost:34872`), sync.
-4. **Matchmaking** — Set `LOBBY_PLACE_ID` and `MATCH_PLACE_IDS` in `src/ServerScriptService/Shared/Matchmaking/MatchmakingConfig.luau` for real place IDs.
-5. **Packages** — `wally install` in root directory (DataService installed).
+1. **Toolchain** — `aftman` (see `aftman.toml`) for `rojo` and `wally`.
+2. **Packages** — `wally install` in the repo root (installs DataService, etc.).
+3. **Serve** — `rojo serve default.project.json` (single Rojo project; serve port e.g. 34872).
+4. **Studio** — Connect to the served port and sync.
+5. **Matchmaking** — Configure `LOBBY_PLACE_ID` and `MATCH_PLACE_IDS` in `src/ServerScriptService/Shared/Matchmaking/MatchmakingConfig.luau` for real place IDs.
 
-### Using the new UI State System
-
-```lua
--- Client entry point using the new UI system
-local ClientEntry = require(ReplicatedStorage.Shared.PlayerScriptService.ClientEntry)
-ClientEntry.run()
-```
-
-The new UI system uses a centralized `GameStateMachine` and `UIManager` to manage UI visibility based on the current game state.
-
-See [UI_SYSTEM.md](UI_SYSTEM.md) for full documentation.
+**Client entry:** `ClientMain.client.luau` runs first and calls `ClientEntry.run(options)`, which uses `ReplicatedStorage.ui.UIController.run()` (state machine + UI manager). See [UI_SYSTEM.md](UI_SYSTEM.md).
 
 ---
 
@@ -146,7 +110,7 @@ See [UI_SYSTEM.md](UI_SYSTEM.md) for full documentation.
 | **[PROJECT_MAP.md](PROJECT_MAP.md)** | Folder-by-folder summary. |
 | **[DEPENDENCIES.md](DEPENDENCIES.md)** | Who may `require` what; client vs server; shared vs place. |
 | **[REMOTES.md](REMOTES.md)** | Remote names, direction, payloads. |
-| **[UI_SYSTEM.md](UI_SYSTEM.md)** | New state-based UI system. |
+| **[UI_SYSTEM.md](UI_SYSTEM.md)** | State-based UI system (GameStateMachine, UIManager). |
 | **[AGENTS.md](AGENTS.md)** | Agent instructions: command preference, placement rules, file organization, when to add/edit/split. |
 
 ---
@@ -159,7 +123,7 @@ These four files describe where code lives and how it connects. Keep them accura
 
 - **Prefer updating as part of the same change.** When you add, remove, or move a module, script, folder, or remote, update the affected doc(s) in that same task:
   - New or moved **script/folder** → [PROJECT_MAP.md](PROJECT_MAP.md) (and README key systems table if it’s a new system or major move).
-  - New or changed **remote** → [REMOTES.md](REMOTES.md) and `RemoteNames.luau`.
+  - New or changed **remote** → [REMOTES.md](REMOTES.md) and `src/ReplicatedStorage/Shared/Remotes/RemoteNames.luau`.
   - New **runtime surface** or dependency rule → [DEPENDENCIES.md](DEPENDENCIES.md) if the “who can require what” table or repo layout changes.
   - New **system** or major flow change → [README.md](README.md) architecture / key systems section.
 - **Optional:** A periodic or end-of-session pass (e.g. once a day) over the four docs can catch drift if something was missed during a change. The primary rule is still: update whenever you add/remove/move modules, remotes, or layout so the docs stay in sync.

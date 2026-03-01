@@ -26,7 +26,7 @@ local function resolveRemote(remotesFolder: Instance?, name: string, className: 
 	end
 	local candidate = remotesFolder:WaitForChild(name, REMOTE_WAIT_TIMEOUT)
 	if candidate and candidate:IsA(className) then
-		return candidate :: any
+		return candidate
 	end
 	return nil
 end
@@ -40,7 +40,7 @@ end
 
 function resolve(): ShopUiRemotesResult
 	local folderName = Config.Remotes and Config.Remotes.Folder or "Remotes"
-	local remotesFolder = ReplicatedStorage:WaitForChild(folderName, REMOTE_WAIT_TIMEOUT) :: Instance?
+	local remotesFolder = ReplicatedStorage:WaitForChild(folderName, REMOTE_WAIT_TIMEOUT)
 	if not remotesFolder then
 		warn("ShopUi could not find ReplicatedStorage/Remotes")
 		return {
@@ -55,16 +55,16 @@ function resolve(): ShopUiRemotesResult
 		}
 	end
 
-	local shopOpen = resolveRemote(remotesFolder, Config.Remotes.ShopOpen, "RemoteEvent") :: RemoteEvent?
-	local shopGetCatalog = resolveRemote(remotesFolder, Config.Remotes.ShopGetCatalog, "RemoteFunction") :: RemoteFunction?
-	local shopBuyWeapon = resolveRemote(remotesFolder, Config.Remotes.ShopBuyWeapon, "RemoteFunction") :: RemoteFunction?
-	local shopBuyAmmo = resolveRemote(remotesFolder, Config.Remotes.ShopBuyAmmo, "RemoteFunction") :: RemoteFunction?
+	local shopOpen = resolveRemote(remotesFolder, Config.Remotes.ShopOpen, "RemoteEvent")
+	local shopGetCatalog = resolveRemote(remotesFolder, Config.Remotes.ShopGetCatalog, "RemoteFunction")
+	local shopBuyWeapon = resolveRemote(remotesFolder, Config.Remotes.ShopBuyWeapon, "RemoteFunction")
+	local shopBuyAmmo = resolveRemote(remotesFolder, Config.Remotes.ShopBuyAmmo, "RemoteFunction")
 
 	local waveStateChild = findRemote(remotesFolder, Config.Remotes.WaveState)
-	local waveState = (waveStateChild and waveStateChild:IsA("RemoteEvent")) and waveStateChild :: RemoteEvent or nil
+	local waveState = (waveStateChild and waveStateChild:IsA("RemoteEvent")) and waveStateChild or nil
 
 	local classStateChild = findRemote(remotesFolder, Config.Remotes.ClassState)
-	local classState = (classStateChild and classStateChild:IsA("RemoteEvent")) and classStateChild :: RemoteEvent or nil
+	local classState = (classStateChild and classStateChild:IsA("RemoteEvent")) and classStateChild or nil
 
 	local allRequiredPresent = shopOpen ~= nil and shopGetCatalog ~= nil and shopBuyWeapon ~= nil and shopBuyAmmo ~= nil
 	if not allRequiredPresent then

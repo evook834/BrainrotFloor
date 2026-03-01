@@ -7,18 +7,25 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
+local StarterPlayer = game:GetService("StarterPlayer")
 
--- Import UI system
-local UI = require(ReplicatedStorage.Shared.ui)
-local GameState = UI.UIController.GameStateMachine
-local UIManager = UI.UIController.UIManager
+-- Import UI system (require submodules directly to avoid circular require with ui init)
+local GameState = require(ReplicatedStorage.ui.UIController.GameStateMachine)
+local UIManager = require(ReplicatedStorage.ui.UIController.UIManager)
+local UI = require(ReplicatedStorage.ui.UI)
 
 -- Import client feature modules
-local PlayerScriptService = ReplicatedStorage.Shared.PlayerScriptService
-local Features = PlayerScriptService.Features
+local Features = StarterPlayer.StarterPlayerScripts.Features
+local ShopUiController = require(Features.Shop.ShopUiController)
+local CrosshairController = require(Features.Combat.Crosshair.CrosshairController)
+local AmmoHudController = require(Features.Combat.AmmoHud.AmmoHudController)
+local WaveHudController = require(Features.Waves.WaveHudController)
+local XpBarHudController = require(Features.Classes.XpBarHud.XpBarHudController)
 
 -- Import shared client modules
-local SharedClient = PlayerScriptService.SharedClient
+local SharedClient = StarterPlayer.StarterPlayerScripts.SharedClient
+local ClassUi = require(SharedClient.Classes.ClassUi)
+local SettingsMenuController = require(SharedClient.Settings.SettingsMenuController)
 
 type RunOptions = {
 	hudMoveModeAttribute: string?,
@@ -44,50 +51,50 @@ local function run(options: RunOptions?)
 	-- Shop UI - available when in game or in shop state
 	uiManager:register("Shop", {
 		ui = UI.Shop.ShopView,
-		controller = Features.Shop.ShopUiController,
+		controller = ShopUiController,
 		states = { "InGame", "Shop" },
 		options = options,
 	})
 
 	-- Class UI - only in Lobby
 	uiManager:register("Classes", {
-		ui = SharedClient.Classes.ClassUiView,
-		controller = SharedClient.Classes.ClassUi,
+		ui = require(SharedClient.Classes.ClassUiView),
+		controller = ClassUi,
 		states = { "Lobby" },
 	})
 
 	-- Crosshair - only in InGame state
 	uiManager:register("Crosshair", {
-		ui = Features.Combat.Crosshair.CrosshairView,
-		controller = Features.Combat.Crosshair.CrosshairController,
+		ui = require(Features.Combat.Crosshair.CrosshairView),
+		controller = CrosshairController,
 		states = { "InGame" },
 	})
 
 	-- Ammo HUD - only in InGame state
 	uiManager:register("AmmoHud", {
-		ui = Features.Combat.AmmoHud.AmmoHudView,
-		controller = Features.Combat.AmmoHud.AmmoHudController,
+		ui = require(Features.Combat.AmmoHud.AmmoHudView),
+		controller = AmmoHudController,
 		states = { "InGame" },
 	})
 
 	-- Wave HUD - shows during waves and intermission
 	uiManager:register("WaveHud", {
-		ui = Features.Waves.WaveHudView,
-		controller = Features.Waves.WaveHudController,
+		ui = require(Features.Waves.WaveHudView),
+		controller = WaveHudController,
 		states = { "Wave", "Intermission", "GameOver" },
 	})
 
 	-- XpBar HUD - shows in Lobby and InGame
 	uiManager:register("XpBarHud", {
-		ui = Features.Classes.XpBarHud.XpBarHudView,
-		controller = Features.Classes.XpBarHud.XpBarHudController,
+		ui = require(Features.Classes.XpBarHud.XpBarHudView),
+		controller = XpBarHudController,
 		states = { "Lobby", "InGame" },
 	})
 
 	-- Settings UI - available from Menu, Lobby, InGame
 	uiManager:register("Settings", {
-		ui = SharedClient.Settings.SettingsMenuUi,
-		controller = SharedClient.Settings.SettingsMenuController,
+		ui = require(SharedClient.Settings.SettingsMenuUi),
+		controller = SettingsMenuController,
 		states = { "Menu", "Lobby", "InGame" },
 		options = options,
 	})

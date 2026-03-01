@@ -69,9 +69,9 @@ if brainrotHudIsPlaceholder then
 	nextWaveStroke.Parent = nextWaveTimer
 end
 
-local xpContainer = nil :: Frame?
+local xpContainer = nil
 if classXpGuiIsPlaceholder then
-	xpContainer = Instance.new("Frame") :: Frame
+	xpContainer = Instance.new("Frame")
 	xpContainer.Name = "XpContainer"
 	xpContainer.Size = UDim2.new(0.62, 0, 0, 76)
 	xpContainer.Position = UDim2.new(0.5, 0, 1, -84)

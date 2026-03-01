@@ -8,7 +8,7 @@
 	- State change events for cross-system communication
 
 	Usage:
-		local GameState = require(ReplicatedStorage.Shared.ui.UIController.GameStateMachine)
+		local GameState = require(ReplicatedStorage.ui.UIController.GameStateMachine)
 		local state = GameState.new()
 
 		state:setState("Lobby")
@@ -86,7 +86,7 @@ function GameState.new(): StateMachine
 		_currentState = nil,
 		_stateObject = nil,
 		_stateChangeSignal = Instance.new("BindableEvent"),
-		_allowList = {} :: { [string]: { [string]: boolean } },
+		_allowList = {},
 	}, GameState)
 
 	-- Initialize allow list from definitions
@@ -111,7 +111,8 @@ function GameState:setState(newStateName: string): boolean
 	end
 
 	-- Check if transition is allowed
-	if currentStateName and not self._allowList[currentStateName]?.[newStateName] then
+	local allowedFrom = currentStateName and self._allowList[currentStateName]
+	if currentStateName and not (allowedFrom and allowedFrom[newStateName]) then
 		warn((
 			"GameState: Transition '%s' -> '%s' not allowed. Allowed: %s"
 		):format(

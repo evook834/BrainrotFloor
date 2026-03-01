@@ -8,8 +8,8 @@
 	- Optional initialization options
 
 	Usage:
-		local UIManager = require(ReplicatedStorage.Shared.ui.UIController.UIManager)
-		local gameState = require(ReplicatedStorage.Shared.ui.UIController.GameStateMachine).new()
+		local UIManager = require(ReplicatedStorage.ui.UIController.UIManager)
+		local gameState = require(ReplicatedStorage.ui.UIController.GameStateMachine).new()
 
 		local uiManager = UIManager.new(gameState)
 
@@ -40,7 +40,7 @@ type UIComponent = {
 		destroy: (() -> ())?,
 	},
 	states: { string },
-	options?: any,
+	options: any?,
 }
 
 type UIManager = {
@@ -80,7 +80,7 @@ function UIManager.new(gameState: any): UIManager
 		-- Internal "connection tracker" component
 		name = "__stateListener__",
 		connections = { connection },
-	}) :: any
+	})
 
 	return self
 end
@@ -150,7 +150,7 @@ end
 
 function UIManager:destroy()
 	for name, component in pairs(self._components) do
-		if name ~= "__stateListener__" then
+		if name ~= "__stateListener__" and type(name) == "string" then
 			if component.active then
 				self:_destroyComponent(name, component)
 			end
@@ -169,7 +169,7 @@ function UIManager:_handleStateChange(newState: string)
 
 	-- Find components that need state changes
 	for name, component in pairs(self._components) do
-		if name == "__stateListener__" then
+		if name == "__stateListener__" or type(name) == "number" or not component.states then
 			continue
 		end
 

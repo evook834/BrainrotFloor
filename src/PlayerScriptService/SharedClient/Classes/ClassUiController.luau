@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local ViewModule = require(script.Parent:WaitForChild("ClassUiView"))
+local ClassIconAssets = require(ReplicatedStorage.Shared.Classes.ClassIconAssets)
 
 type ClassPayload = {
 	success: boolean?,
@@ -240,6 +241,21 @@ local function run(options: { isLobby: boolean? }?)
 			local content = classIconContentByKey[normalizedKey]
 			if normalizedKey ~= "" and content then
 				return content
+			end
+		end
+
+		-- Fallback: ReplicatedStorage ClassIconAssets (e.g. when Rojo doesn't sync PNGs into the ClassIcons folder)
+		local classId = type(classData.id) == "string" and normalizeIconKey(classData.id) or ""
+		if classId ~= "" then
+			local asset = ClassIconAssets[classId]
+			if type(asset) == "number" and asset > 0 then
+				return "rbxassetid://" .. tostring(asset)
+			end
+			if type(asset) == "string" and asset ~= "" then
+				if asset:find("^rbxassetid://") or asset:find("^rbxthumb://") then
+					return asset
+				end
+				return "rbxassetid://" .. tostring(asset):gsub("%D", "")
 			end
 		end
 
@@ -490,7 +506,7 @@ local function run(options: { isLobby: boolean? }?)
 						setStatus(result.message or "Class selected.", Color3.fromRGB(165, 230, 185))
 						local statePayload = result.state
 						if type(statePayload) == "table" then
-							renderPayload(statePayload :: ClassPayload)
+							renderPayload(statePayload)
 						end
 					else
 						setStatus((result and result.message) or "Class switch denied.", Color3.fromRGB(245, 150, 150))
@@ -516,7 +532,7 @@ local function run(options: { isLobby: boolean? }?)
 			return
 		end
 
-		renderPayload(payload :: ClassPayload)
+		renderPayload(payload)
 	end
 
 	local function openPanel()
@@ -538,23 +554,26 @@ local function run(options: { isLobby: boolean? }?)
 	end
 
 	if not getClassIconsFolder() then
-		ReplicatedStorage:WaitForChild(CLASS_ICONS_FOLDER_NAME, 2)
-		if not getClassIconsFolder() then
-			ReplicatedStorage:WaitForChild(CLASS_ICONS_ALT_FOLDER_NAME, 2)
+		-- Wait for icons folder with longer timeout (may not be mounted yet by Rojo)
+		local iconsFolder = ReplicatedStorage:FindFirstChild(CLASS_ICONS_FOLDER_NAME)
+			or ReplicatedStorage:FindFirstChild(CLASS_ICONS_ALT_FOLDER_NAME)
+		if not iconsFolder then
+			iconsFolder = ReplicatedStorage:WaitForChild(CLASS_ICONS_FOLDER_NAME, 5)
+				or ReplicatedStorage:WaitForChild(CLASS_ICONS_ALT_FOLDER_NAME, 5)
 		end
 		refreshClassIconCache()
 	end
 
-	classGetDataFunction = remotesFolder:WaitForChild(Config.Remotes.ClassGetData, REMOTE_WAIT) :: RemoteFunction?
-	classSelectFunction = remotesFolder:WaitForChild(Config.Remotes.ClassSelect, REMOTE_WAIT) :: RemoteFunction?
+	classGetDataFunction = remotesFolder:WaitForChild(Config.Remotes.ClassGetData, REMOTE_WAIT)
+	classSelectFunction = remotesFolder:WaitForChild(Config.Remotes.ClassSelect, REMOTE_WAIT)
 	if not classGetDataFunction or not classSelectFunction then
 		warn("ClassUi is missing ClassGetData or ClassSelect remote")
 		return
 	end
 
 	if not isLobby then
-		classStateRemote = remotesFolder:FindFirstChild(Config.Remotes.ClassState) :: RemoteEvent?
-		waveStateRemote = remotesFolder:FindFirstChild(Config.Remotes.WaveState) :: RemoteEvent?
+		classStateRemote = remotesFolder:FindFirstChild(Config.Remotes.ClassState)
+		waveStateRemote = remotesFolder:FindFirstChild(Config.Remotes.WaveState)
 	end
 
 	view.openButton.Activated:Connect(function()

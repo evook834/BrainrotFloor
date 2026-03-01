@@ -39,6 +39,21 @@ if not PlaceRole.shouldRunMatchSystems() then
 	return
 end
 
+-- On match place, disable any difficulty buttons (e.g. from leftover scripts or shared place content)
+do
+	local buttonsFolder = Workspace:FindFirstChild(MatchmakingConfig.BUTTONS_FOLDER_NAME or "DifficultyButtons")
+	if buttonsFolder then
+		for _, child in ipairs(buttonsFolder:GetChildren()) do
+			if child:IsA("BasePart") then
+				local prompt = child:FindFirstChildOfClass("ProximityPrompt")
+				if prompt then
+					prompt:Destroy()
+				end
+			end
+		end
+	end
+end
+
 local gameOverTriggered = false
 local winTriggered = false
 

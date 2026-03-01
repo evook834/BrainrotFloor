@@ -971,13 +971,13 @@ end
 local function refreshRemoteRefs(currentSession: Session)
 	local remotesFolder = getRemotesFolder()
 	if not currentSession.friendGetStateFunction then
-		currentSession.friendGetStateFunction = resolveRemote(remotesFolder, Config.Remotes.FriendGetState, "RemoteFunction") :: RemoteFunction?
+		currentSession.friendGetStateFunction = resolveRemote(remotesFolder, Config.Remotes.FriendGetState, "RemoteFunction")
 	end
 	if not currentSession.friendActionFunction then
-		currentSession.friendActionFunction = resolveRemote(remotesFolder, Config.Remotes.FriendAction, "RemoteFunction") :: RemoteFunction?
+		currentSession.friendActionFunction = resolveRemote(remotesFolder, Config.Remotes.FriendAction, "RemoteFunction")
 	end
 	if not currentSession.friendStateRemote then
-		currentSession.friendStateRemote = resolveRemote(remotesFolder, Config.Remotes.FriendState, "RemoteEvent") :: RemoteEvent?
+		currentSession.friendStateRemote = resolveRemote(remotesFolder, Config.Remotes.FriendState, "RemoteEvent")
 	end
 
 	bindStateRemote(currentSession)
@@ -1059,9 +1059,9 @@ local function ensureStarted()
 		connections = {},
 		renderConnections = {},
 		nearbyConnections = {},
-		friendGetStateFunction = resolveRemote(remotesFolder, Config.Remotes.FriendGetState, "RemoteFunction") :: RemoteFunction?,
-		friendActionFunction = resolveRemote(remotesFolder, Config.Remotes.FriendAction, "RemoteFunction") :: RemoteFunction?,
-		friendStateRemote = resolveRemote(remotesFolder, Config.Remotes.FriendState, "RemoteEvent") :: RemoteEvent?,
+		friendGetStateFunction = resolveRemote(remotesFolder, Config.Remotes.FriendGetState, "RemoteFunction"),
+		friendActionFunction = resolveRemote(remotesFolder, Config.Remotes.FriendAction, "RemoteFunction"),
+		friendStateRemote = resolveRemote(remotesFolder, Config.Remotes.FriendState, "RemoteEvent"),
 		hasBoundStateRemote = false,
 		state = defaultState(),
 		selectedUserId = nil,

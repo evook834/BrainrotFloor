@@ -1,5 +1,6 @@
-local SharedClient = script.Parent.Parent.Parent:WaitForChild("SharedClient")
-local PlayerNameplates = require(SharedClient:WaitForChild("Friends"):WaitForChild("PlayerNameplates"))
+local StarterPlayer = game:GetService("StarterPlayer")
+local SharedClient = StarterPlayer.StarterPlayerScripts.SharedClient
+local PlayerNameplates = require(SharedClient.Friends.PlayerNameplates)
 
 PlayerNameplates.run({
 	interactive = true,

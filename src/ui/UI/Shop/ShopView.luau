@@ -6,12 +6,13 @@
 ]]
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local ShopUiConstants = require(script.Parent.Parent.Features.Shop.ShopUiConstants)
-local ShopUiMessages = require(script.Parent.Parent.Features.Shop.ShopUiMessages)
+local ShopUiConstants = require(ReplicatedStorage.Shared.Shop.ShopUiConstants)
+local ShopUiMessages = require(ReplicatedStorage.Shared.Shop.ShopUiMessages)
 
 export type WeaponRowRefs = {
 	row: Frame,

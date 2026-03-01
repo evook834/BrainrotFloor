@@ -1,5 +1,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+local PlaceConfig = require(ReplicatedStorage.Shared.PlaceConfig)
 
 local Config = {}
 
@@ -7,22 +8,9 @@ local Config = {}
 -- Set to "Lobby" or "Match" only when you need to force behavior during testing.
 Config.FORCE_PLACE_ROLE = nil
 
--- Public lobby place where players choose difficulty before teleport.
-Config.LOBBY_PLACE_ID = 72744824144957
-
--- Shared map place IDs used by all difficulties.
--- If no suitable server is already running for a chosen difficulty,
--- the lobby creates a reserved server on a random place from this list.
-Config.MATCH_PLACE_IDS = {
-	124937386174828,
-	133374266851323,
-	--93216049725715,
-	--85990388071078,
-	--117569264354652
-}
-
--- Legacy single-place fallback (kept for compatibility).
-Config.MATCH_PLACE_ID = 117308283626623
+Config.LOBBY_PLACE_ID = PlaceConfig.LOBBY_PLACE_ID
+Config.MATCH_PLACE_IDS = PlaceConfig.MATCH_PLACE_IDS
+Config.MATCH_PLACE_ID = PlaceConfig.MATCH_PLACE_ID
 
 -- Shared MemoryStore key used by all lobby and match servers.
 Config.MEMORYSTORE_MAP_NAME = "KF_MatchServers_v1"

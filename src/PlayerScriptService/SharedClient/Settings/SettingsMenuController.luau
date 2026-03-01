@@ -128,8 +128,8 @@ local function loadSettingsFromServer(session: Session)
 
 	local loadedAudio = loadedSettings.audio
 	if loadedAudio then
-		if audioController and type((audioController :: any).applyLoadedAudioSettings) == "function" then
-			(audioController :: any).applyLoadedAudioSettings(loadedAudio)
+		if audioController and type(audioController.applyLoadedAudioSettings) == "function" then
+			audioController.applyLoadedAudioSettings(loadedAudio)
 		else
 			session.settingsState.musicVolume = math.clamp(tonumber(loadedAudio.musicVolume) or session.settingsState.musicVolume, SettingsConfig.Audio.MusicVolume.Min, SettingsConfig.Audio.MusicVolume.Max)
 			session.settingsState.musicMuted = loadedAudio.musicMuted == true
@@ -140,8 +140,8 @@ local function loadSettingsFromServer(session: Session)
 
 	local loadedHud = loadedSettings.hud
 	if loadedHud then
-		if hudController and type((hudController :: any).applyLoadedHudSettings) == "function" then
-			(hudController :: any).applyLoadedHudSettings(loadedHud)
+		if hudController and type(hudController.applyLoadedHudSettings) == "function" then
+			hudController.applyLoadedHudSettings(loadedHud)
 		else
 			session.settingsState.hudScale = math.clamp(tonumber(loadedHud.scale) or session.settingsState.hudScale, SettingsConfig.Hud.Scale.Min, SettingsConfig.Hud.Scale.Max)
 			if type(loadedHud.positions) == "table" then
@@ -164,7 +164,7 @@ local function teardownSession(session: Session)
 end
 
 local function run(options: RunOptions?)
-	local resolvedOptions: RunOptions = (options or {}) :: any
+	local resolvedOptions: RunOptions = (options or {})
 
 	if activeSession then
 		teardownSession(activeSession)

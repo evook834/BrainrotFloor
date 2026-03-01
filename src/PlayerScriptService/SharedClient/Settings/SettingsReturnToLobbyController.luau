@@ -91,7 +91,7 @@ function SettingsReturnToLobbyController:resolveReturnToLobbyRemoteAsync()
 	-- Try to find the remote immediately (non-blocking)
 	local candidate = remotesFolder:FindFirstChild(returnToLobbyName)
 	if candidate and candidate:IsA("RemoteEvent") then
-		self.returnToLobbyRemote = candidate :: RemoteEvent
+		self.returnToLobbyRemote = candidate
 		self:updateReturnToLobbyControls()
 		return
 	end
@@ -128,7 +128,7 @@ function SettingsReturnToLobbyController.new(init: InitOptions): Controller
 		canReturnToLobby = canReturnToLobby,
 		returnToLobbyRemote = nil,
 		returnToLobbyRequestInFlight = false,
-	}, SettingsReturnToLobbyController) :: Controller
+	}, SettingsReturnToLobbyController)
 
 	-- Resolve remote asynchronously
 	self:resolveReturnToLobbyRemoteAsync()

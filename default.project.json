@@ -26,10 +26,6 @@
     "ServerScriptService": {
       "$className": "ServerScriptService",
       "$ignoreUnknownInstances": true,
-      "Lobby": {
-        "$path": "src/ServerScriptService/Features/Lobby",
-        "$ignoreUnknownInstances": true
-      },
       "Shared": {
         "$path": "src/ServerScriptService/Shared",
         "$ignoreUnknownInstances": true
@@ -45,6 +41,14 @@
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
         "$ignoreUnknownInstances": true,
+        "ClientEntry": {
+          "$path": "src/PlayerScriptService/ClientEntry.luau",
+          "$ignoreUnknownInstances": true
+        },
+        "ClientMain": {
+          "$path": "src/PlayerScriptService/ClientMain.client.luau",
+          "$ignoreUnknownInstances": true
+        },
         "SharedClient": {
           "$path": "src/PlayerScriptService/SharedClient",
           "$ignoreUnknownInstances": true

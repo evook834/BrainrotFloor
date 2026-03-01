@@ -4,7 +4,7 @@ local AmmoZoneLayoutGenerator = {}
 
 local GENERATED_BY = "AmmoZoneLayoutGeneratorV1"
 -- Studio Command Bar:
--- require(game.ServerScriptService.Match.Tools.AmmoZoneLayoutGenerator).createDefaults()
+-- require(ServerScriptService.Features.Tools.AmmoZoneLayoutGenerator).createDefaults()
 
 local DEFAULT_LAYOUTS = {
 	{

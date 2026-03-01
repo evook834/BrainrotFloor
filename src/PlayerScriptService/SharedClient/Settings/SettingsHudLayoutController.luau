@@ -508,7 +508,7 @@ function SettingsHudLayoutController.new(init: InitOptions): Controller
 		hudMoveModeAttribute = options.hudMoveModeAttribute,
 		highlightStroke = nil,
 		pendingTouch = nil,
-	}, SettingsHudLayoutController) :: any) :: Controller
+	}, SettingsHudLayoutController))
 
 	ensureDefaults(self.settingsState)
 

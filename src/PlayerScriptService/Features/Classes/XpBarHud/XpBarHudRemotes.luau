@@ -20,14 +20,14 @@ local function resolveRemote(remotesFolder: Instance?, name: string, className: 
 	end
 	local candidate = remotesFolder:WaitForChild(name, REMOTE_WAIT_TIMEOUT)
 	if candidate and candidate:IsA(className) then
-		return candidate :: any
+		return candidate
 	end
 	return nil
 end
 
 function resolve(): XpBarHudRemotesResult
 	local folderName = Config.Remotes and Config.Remotes.Folder or "Remotes"
-	local remotesFolder = ReplicatedStorage:WaitForChild(folderName, REMOTE_WAIT_TIMEOUT) :: Instance?
+	local remotesFolder = ReplicatedStorage:WaitForChild(folderName, REMOTE_WAIT_TIMEOUT)
 	if not remotesFolder then
 		warn("XpBarHud could not find ReplicatedStorage/Remotes")
 		return { classGetData = nil, classState = nil }
@@ -44,8 +44,8 @@ function resolve(): XpBarHudRemotesResult
 	end
 
 	return {
-		classGetData = classGetData :: RemoteFunction?,
-		classState = classState :: RemoteEvent?,
+		classGetData = classGetData,
+		classState = classState,
 	}
 end
 

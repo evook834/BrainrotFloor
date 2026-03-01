@@ -6,24 +6,25 @@ This document describes where code lives, how places are built, and **dependency
 
 ## Repo layout
 
-### New unified source (`src/`)
+Single Rojo project: **`default.project.json`** at repo root. Runtime mapping:
+
+| Runtime path | Source path |
+|--------------|-------------|
+| **ReplicatedStorage.Shared** | `src/ReplicatedStorage/Shared/` |
+| **ReplicatedStorage.ui** | `src/ui/` |
+| **ReplicatedStorage.Packages** | `Packages/` |
+| **ServerScriptService.Shared** | `src/ServerScriptService/Shared/` |
+| **ServerScriptService.Features** | `src/ServerScriptService/Features/` |
+| **StarterPlayer.StarterPlayerScripts** (ClientEntry, ClientMain, SharedClient, LobbyClient, Features) | `src/PlayerScriptService/` |
+| **Workspace.DifficultyButtons** | `src/Workspace/DifficultyButtons/` |
+
+### Source tree (`src/`)
 
 - **`src/ReplicatedStorage/Shared/`** — Replicated to client and server (config, catalogs, remote names).
-- **`src/ServerScriptService/Shared/`** — Server-only shared (e.g. matchmaking config, place role).
-- **`src/ServerScriptService/Lobby/`** — Lobby place server scripts (entry point for lobby systems).
-- **`src/PlayerScriptService/SharedClient/`** — Client-only shared (e.g. sprint, settings, friends).
-- **`src/ui/`** — New UI system with State-based management.
-
-### Legacy structure (`game/`)
-
-- **`game/shared/`** — Legacy shared (migrating to `src/`).
-- **`game/lobby/`** — Legacy lobby place.
-- **`game/match/`** — Legacy match place.
-
-Each place has a **`default.project.json`** that mounts **`../shared`** into the same DataModel, so at runtime:
-- **ReplicatedStorage.Shared** ← `src/ReplicatedStorage/Shared` or `game/shared/src/ReplicatedStorage/Shared`
-- **ServerScriptService.Shared** ← `src/ServerScriptService/Shared` or `game/shared/src/ServerScriptService/Shared`
-- **StarterPlayer.SharedClient** ← `src/PlayerScriptService/SharedClient` or `game/shared/src/StarterPlayerScripts/SharedClient`
+- **`src/ReplicatedStorage/` + `src/ui/`** — UI tree mounted at **ReplicatedStorage.ui** (GameStateMachine, UIManager, React Luau views); client entry requires it.
+- **`src/ServerScriptService/Shared/`** — Server-only shared (matchmaking, PlaceRole, PlayerData, Settings, Friends).
+- **`src/ServerScriptService/Features/`** — Place-specific server: Lobby (matchmaker, lobby settings, class remotes), Core (GameBootstrap, remotes, match systems), Waves, Shop, Enemies, Classes, etc. PlaceRole determines which run (Lobby vs Match).
+- **`src/PlayerScriptService/`** — Client scripts: ClientEntry, ClientMain, SharedClient (settings, friends, movement, HUD), Features (match + LobbyClient).
 
 ---
 
@@ -34,12 +35,12 @@ Each place has a **`default.project.json`** that mounts **`../shared`** into the
 - Scripts that run on the **client** (under **StarterPlayer.StarterPlayerScripts**, i.e. `*Client*` or **SharedClient**) **must not** `require` any module that lives under **ServerScriptService**.
 - On the client, **ServerScriptService** is not available; requiring it would error. All client–server interaction goes through **Remotes** (see [REMOTES.md](REMOTES.md)).
 
-### 2. Server can require shared and place server
+### 2. Server can require shared and Features
 
-- Scripts under **ServerScriptService** (Shared, Lobby, Match) **may** `require`:
+- Scripts under **ServerScriptService** (Shared, Features) **may** `require`:
   - **ReplicatedStorage.Shared** (e.g. `GameConfig`, `RemoteNames`),
-  - **ServerScriptService.Shared** (e.g. `MatchmakingConfig`, `PlaceRole`),
-  - Sibling or child modules in the same place (e.g. Match services requiring each other).
+  - **ServerScriptService.Shared** (e.g. `MatchmakingConfig`, `PlaceRole`, `PlayerDataService`),
+  - **ServerScriptService.Features** (sibling or child modules, e.g. Features.Lobby, Features.Core.Bootstrap).
 
 ### 3. ReplicatedStorage.Shared is shared-only
 
@@ -50,15 +51,15 @@ Each place has a **`default.project.json`** that mounts **`../shared`** into the
 ### 4. ServerScriptService.Shared is server-only shared
 
 - Modules under **ServerScriptService.Shared** may `require` **ReplicatedStorage.Shared** and other **ServerScriptService.Shared** modules.
-- They **must not** `require` place-specific server code (Lobby/Match); place code may require Shared, not the other way around if you want to keep Shared place-agnostic.
+- They **must not** `require` **ServerScriptService.Features**; Features may require Shared, not the other way around (Shared stays place-agnostic).
 
-### 5. Place-specific server
+### 5. ServerScriptService.Features (place-specific server)
 
-- **ServerScriptService.Lobby** may `require` **ReplicatedStorage.Shared**, **ServerScriptService.Shared**, and sibling Lobby modules. It **must not** require Match code (place-specific code may require shared, not vice versa).
+- **ServerScriptService.Features** (Lobby, Core, Waves, Shop, Enemies, etc.) may `require` **ReplicatedStorage.Shared**, **ServerScriptService.Shared**, and sibling Features modules. PlaceRole (place ID) controls which systems run (e.g. Lobby vs match).
 
-### 6. Place-specific client
+### 6. Client scripts
 
-- **SharedClient** scripts may `require` **ReplicatedStorage.Shared** and sibling/client shared code. They **must not** `require` **ServerScriptService** or **ServerStorage**.
+- Scripts under **StarterPlayerScripts** (ClientEntry, ClientMain, SharedClient, LobbyClient, Features) may `require` **ReplicatedStorage.Shared**, **ReplicatedStorage.ui**, and sibling client modules. They **must not** `require` **ServerScriptService** or **ServerStorage**.
 
 ### 7. Communication across client–server boundary
 
@@ -72,13 +73,15 @@ Each place has a **`default.project.json`** that mounts **`../shared`** into the
 |---------------------------|-------------|
 | **ReplicatedStorage.Shared** | Only **ReplicatedStorage.Shared** |
 | **ServerScriptService.Shared** | **ReplicatedStorage.Shared**, **ServerScriptService.Shared** |
-| **ServerScriptService.Lobby / Match** | **ReplicatedStorage.Shared**, **ServerScriptService.Shared**, same place (e.g. Match services) |
-| **StarterPlayerScripts** (any client) | **ReplicatedStorage.Shared**, same-place client modules only. **Never** ServerScriptService / ServerStorage |
+| **ServerScriptService.Features** | **ReplicatedStorage.Shared**, **ServerScriptService.Shared**, **ServerScriptService.Features** (siblings) |
+| **StarterPlayerScripts** (any client) | **ReplicatedStorage.Shared**, **ReplicatedStorage.ui**, same-place client modules. **Never** ServerScriptService / ServerStorage |
 
 ---
 
 ## Related docs
 
-- **[REMOTES.md](REMOTES.md)** — Remote names, direction (C→S / S→C), and payloads (including `WaveState` / `WaveEnemiesRemaining` from the wave director).
+- **[REMOTES.md](REMOTES.md)** — Remote names, direction (C→S / S→C), and payloads.
+- **[README.md](README.md)** — Architecture overview, key systems, quick start.
+- **[PROJECT_MAP.md](PROJECT_MAP.md)** — Folder-by-folder layout.
 - **[AGENTS.md](AGENTS.md)** — File organization and when to add or edit files.
-- **[UI_SYSTEM.md](UI_SYSTEM.md)** — New state-based UI system documentation.
+- **[UI_SYSTEM.md](UI_SYSTEM.md)** — State-based UI system (GameStateMachine, UIManager).

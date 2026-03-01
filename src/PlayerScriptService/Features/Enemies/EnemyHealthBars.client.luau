@@ -98,8 +98,8 @@ local function trackEnemy(enemyModel: Model)
 
 	local state = {
 		connections = {},
-		gui = nil :: BillboardGui?,
-		fill = nil :: Frame?,
+		gui = nil,
+		fill = nil,
 	}
 	ENEMY_TRACKING[enemyModel] = state
 

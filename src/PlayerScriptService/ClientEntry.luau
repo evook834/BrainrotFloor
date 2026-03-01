@@ -9,7 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 
 -- Import UI system entry point
-local UIController = require(ReplicatedStorage.Shared.ui.UIController)
+local UIController = require(ReplicatedStorage.ui.UIController)
 
 type RunOptions = {
 	hudMoveModeAttribute: string?,

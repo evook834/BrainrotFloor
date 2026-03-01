@@ -16,9 +16,9 @@ local EnemyDefinitions = {
 	},
 	Entries = {
 		{
-			Id = "ramar",
-			TemplateName = "Ramar",
-			DisplayName = "Ramar",
+			Id = "1x1x1x1",
+			TemplateName = "1x1x1x1",
+			DisplayName = "1x1x1x1",
 			MinWave = 1,
 			MaxWave = nil,
 			Weight = 1,
@@ -35,9 +35,9 @@ local EnemyDefinitions = {
 			},
 		},
 		{
-			Id = "bombardiro_crocodilo",
-			TemplateName = "Bombardiro_Crocodilo",
-			DisplayName = "Bombardiro Crocodilo",
+			Id = "Agarrini La Pallini",
+			TemplateName = "Agarrini La Pallini",
+			DisplayName = "Agarrini La Pallini",
 			MinWave = 1,
 			MaxWave = nil,
 			Weight = 1,
@@ -49,9 +49,9 @@ local EnemyDefinitions = {
 			},
 		},
 		{
-			Id = "karkerkar_tries",
-			TemplateName = "KarKerKar_Tries",
-			DisplayName = "KarKerKar Tries",
+			Id = "Avocadini Guffo",
+			TemplateName = "Avocadini Guffo",
+			DisplayName = "Avocadini Guffo",
 			MinWave = 1,
 			MaxWave = nil,
 			Weight = 1,
@@ -59,15 +59,6 @@ local EnemyDefinitions = {
 			Profile = {
 				FacingPitchOffsetDegrees = 90,
 			},
-		},
-		{
-			Id = "boss",
-			TemplateName = "Boss",
-			DisplayName = "Boss",
-			MinWave = 11,
-			MaxWave = 11,
-			Weight = 1,
-			IsBoss = true,
 		},
 	},
 }

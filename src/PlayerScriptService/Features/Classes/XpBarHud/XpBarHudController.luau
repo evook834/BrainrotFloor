@@ -39,7 +39,7 @@ local function run(playerGui: PlayerGui)
 	local lastPayload: XpBarHudPayloadUtil.ClassPayload? = nil
 
 	local function applyDisplay(refs: XpBarHudView.ViewRefs, d: { string | number })
-		XpBarHudView.setHudDisplay(refs, d[1] :: string, d[2] :: string, d[3] :: string, d[4] :: string, d[5] :: number)
+		XpBarHudView.setHudDisplay(refs, d[1], d[2], d[3], d[4], d[5])
 	end
 
 	local function updateSpectatorVisibility()

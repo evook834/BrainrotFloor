@@ -119,7 +119,7 @@ function SettingsVisibilityController.new(init: InitOptions): Controller
 		uiHidden = false,
 		uiHiddenNoticeToken = 0,
 		hiddenScreenGuiEnabledStates = {},
-	}, SettingsVisibilityController) :: Controller
+	}, SettingsVisibilityController)
 
 	table.insert(self.connections, self.view.fullHideButton.Activated:Connect(function()
 		self:setUiHidden(not self.uiHidden)

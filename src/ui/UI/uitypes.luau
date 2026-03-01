@@ -29,8 +29,8 @@ export type UIData = {
 }
 
 export type UIComponentProps = {
-	key?: string,
-	style?: { [string]: any },
+	key: string?,
+	style: { [string]: any }?,
 	-- Add more as needed
 }
 
@@ -39,3 +39,5 @@ export type UIComponent = {
 	children: { UIComponent }?,
 	render: (self: UIComponent) -> any,
 }
+
+return {}
