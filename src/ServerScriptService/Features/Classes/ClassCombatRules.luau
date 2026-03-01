@@ -201,6 +201,34 @@ function ClassCombatRules.new(config)
 		return math.max(0.1, bonuses.bulletRangeMultiplier or 1)
 	end
 
+	function api.getWeaponGroundFireRadius(player, weaponDef)
+		local baseRadius = tonumber(weaponDef and weaponDef.GroundFireRadius)
+		if type(baseRadius) ~= "number" then
+			return nil
+		end
+
+		local bonuses = getPlayerWeaponBonuses(player, weaponDef)
+		if not bonuses then
+			return baseRadius
+		end
+
+		return math.max(0, baseRadius + math.max(0, tonumber(bonuses.groundFireRadiusBonus) or 0))
+	end
+
+	function api.getWeaponGroundFireDurationSeconds(player, weaponDef)
+		local baseDurationSeconds = tonumber(weaponDef and weaponDef.GroundFireDurationSeconds)
+		if type(baseDurationSeconds) ~= "number" then
+			return nil
+		end
+
+		local bonuses = getPlayerWeaponBonuses(player, weaponDef)
+		if not bonuses then
+			return baseDurationSeconds
+		end
+
+		return math.max(0, baseDurationSeconds + math.max(0, tonumber(bonuses.groundFireDurationSecondsBonus) or 0))
+	end
+
 	function api.getBurnOnHitConfig(player, weaponDef)
 		local bonuses = getPlayerWeaponBonuses(player, weaponDef)
 		if not bonuses then
@@ -208,15 +236,35 @@ function ClassCombatRules.new(config)
 		end
 
 		local chance = math.clamp(tonumber(bonuses.burnChance) or 0, 0, 1)
+		local burnOnHitChanceBonus = math.clamp(tonumber(bonuses.burnOnHitChance) or 0, 0, 1)
 		local damageFractionPerSecond = math.max(0, tonumber(bonuses.burnDamageFractionPerSecond) or 0)
+		local weaponBurnChance = math.clamp(tonumber(weaponDef and weaponDef.BurnOnHitChance) or 0, 0, 1)
+		local weaponBurnDamageFractionPerSecond = math.max(
+			0,
+			tonumber(weaponDef and weaponDef.BurnOnHitDamageFractionPerSecond) or 0
+		)
+		if weaponBurnDamageFractionPerSecond > 0 and (weaponBurnChance > 0 or burnOnHitChanceBonus > 0) then
+			chance = math.clamp(chance + weaponBurnChance + burnOnHitChanceBonus, 0, 1)
+			damageFractionPerSecond += weaponBurnDamageFractionPerSecond
+		end
 		if chance <= 0 or damageFractionPerSecond <= 0 then
 			return nil
 		end
 
+		local durationSeconds = math.max(0.1, tonumber(bonuses.burnDurationSeconds) or 3)
+		local tickIntervalSeconds = math.max(0.1, tonumber(bonuses.burnTickIntervalSeconds) or 0.5)
+		if weaponBurnDamageFractionPerSecond > 0 and (weaponBurnChance > 0 or burnOnHitChanceBonus > 0) then
+			durationSeconds = math.max(0.1, tonumber(weaponDef and weaponDef.BurnOnHitDurationSeconds) or durationSeconds)
+			tickIntervalSeconds = math.max(
+				0.1,
+				tonumber(weaponDef and weaponDef.BurnOnHitTickIntervalSeconds) or tickIntervalSeconds
+			)
+		end
+
 		return {
 			chance = chance,
-			durationSeconds = math.max(0.1, tonumber(bonuses.burnDurationSeconds) or 3),
-			tickIntervalSeconds = math.max(0.1, tonumber(bonuses.burnTickIntervalSeconds) or 0.5),
+			durationSeconds = durationSeconds,
+			tickIntervalSeconds = tickIntervalSeconds,
 			damageFractionPerSecond = damageFractionPerSecond,
 		}
 	end

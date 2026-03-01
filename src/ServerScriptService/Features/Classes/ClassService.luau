@@ -64,7 +64,7 @@ local function writeClassStateToDataService(player, state)
 		return
 	end
 
-	PlayerDataService.set(player, { "classes" }, ClassStateHelpers.copyStateForPersistence(state))
+	PlayerDataService.set(player, { "classes" }, ClassStateHelpers.copyStateForPersistence(state), true)
 end
 
 getDefaultClassId = function()
@@ -471,6 +471,14 @@ end
 
 function ClassService.getWeaponBulletRangeMultiplier(player, weaponDef)
 	return classCombatRules.getWeaponBulletRangeMultiplier(player, weaponDef)
+end
+
+function ClassService.getWeaponGroundFireRadius(player, weaponDef)
+	return classCombatRules.getWeaponGroundFireRadius(player, weaponDef)
+end
+
+function ClassService.getWeaponGroundFireDurationSeconds(player, weaponDef)
+	return classCombatRules.getWeaponGroundFireDurationSeconds(player, weaponDef)
 end
 
 function ClassService.getBurnOnHitConfig(player, weaponDef)

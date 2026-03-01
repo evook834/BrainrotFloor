@@ -154,6 +154,41 @@ local function createCenterHandleForModel(model, tool)
 	return handle
 end
 
+local function stripLegacyToolScripts(tool)
+	for _, descendant in ipairs(tool:GetDescendants()) do
+		if descendant:IsA("Script") or descendant:IsA("LocalScript") then
+			descendant:Destroy()
+		end
+	end
+end
+
+local function ensureDirectToolHandle(tool)
+	stripLegacyToolScripts(tool)
+
+	local directHandle = tool:FindFirstChild("Handle")
+	if directHandle and directHandle:IsA("BasePart") then
+		return directHandle
+	end
+	if directHandle then
+		directHandle.Name = "VisualHandle"
+	end
+
+	local nestedHandle = tool:FindFirstChild("Handle", true)
+	if nestedHandle and nestedHandle:IsA("BasePart") then
+		nestedHandle.Parent = tool
+		return nestedHandle
+	end
+
+	local firstPart = tool:FindFirstChildWhichIsA("BasePart", true)
+	if firstPart then
+		firstPart.Name = "Handle"
+		firstPart.Parent = tool
+		return firstPart
+	end
+
+	return nil
+end
+
 function WeaponTemplateResolver.findShopItemTemplate(weaponDef)
 	local shopItemsFolder = ServerStorage:FindFirstChild("ShopItems")
 	if not shopItemsFolder then
@@ -217,7 +252,14 @@ function WeaponTemplateResolver.createToolFromTemplate(weaponDef)
 	end
 
 	if template:IsA("Tool") then
-		return template:Clone()
+		local tool = template:Clone()
+		if ensureDirectToolHandle(tool) then
+			return tool
+		end
+
+		tool:Destroy()
+		warn(string.format("Shop item template '%s' has no usable BasePart handle", template.Name))
+		return nil
 	end
 
 	local tool = Instance.new("Tool")

@@ -88,6 +88,36 @@ local attachTurretHealthBar = SentryHealthBar.attachTurretHealthBar
 local pickTurretTargetCandidate = sentryTargeting.pickTurretTargetCandidate
 local findTurretTarget = sentryTargeting.findTurretTarget
 
+local function resolveTurretMuzzleOrigin(rootPart, weaponDef)
+	local muzzleLocalOffset = Vector3.new(0, rootPart.Size.Y * MUZZLE_HEIGHT_RATIO, 0)
+	local configuredOffset = weaponDef and weaponDef.TurretMuzzleOffset
+	if typeof(configuredOffset) == "Vector3" then
+		muzzleLocalOffset += configuredOffset
+	end
+
+	return rootPart.CFrame:PointToWorldSpace(muzzleLocalOffset)
+end
+
+local function aimTurretModel(record, rootPart, lookDirection)
+	local flatLook = Vector3.new(lookDirection.X, 0, lookDirection.Z)
+	if flatLook.Magnitude <= 0.01 then
+		return
+	end
+
+	local referencePart = SentryPlacement.resolveSentryPlacementReferencePart(record.model)
+	if referencePart then
+		local desiredReferencePlacementCFrame = CFrame.lookAt(referencePart.Position, referencePart.Position + flatLook.Unit)
+		desiredReferencePlacementCFrame =
+			SentryPlacement.resolveUprightSentryReferencePlacementCFrame(record.model, desiredReferencePlacementCFrame, flatLook)
+		desiredReferencePlacementCFrame =
+			SentryPlacement.applySentryPlacementRotationOffset(desiredReferencePlacementCFrame, record.weaponDef)
+		record.model:PivotTo(SentryPlacement.resolveSentryPlacementPivotCFrame(record.model, desiredReferencePlacementCFrame))
+	else
+		local currentPivot = record.model:GetPivot()
+		record.model:PivotTo(SentryPlacement.alignPivotYawToDirection(currentPivot, flatLook, rootPart.Position))
+	end
+end
+
 local function getTurretBurstRocketDirection(baseDirection, rocketIndex, rocketCount, spreadDegrees)
 	local normalizedDirection = baseDirection
 	if typeof(normalizedDirection) ~= "Vector3" or normalizedDirection.Magnitude <= 0.001 then
@@ -142,6 +172,7 @@ local function fireTurretRocketBurst(record, muzzleOrigin, lookDirection, turret
 		applyClassMultiplier = false,
 		allowBurnOnHit = false,
 		allowCriticalHits = false,
+		ignorePlayerCharacters = true,
 	}
 
 	for rocketIndex = 1, rocketsToFire do
@@ -176,11 +207,16 @@ local function startTurretCombatLoop(record)
 			local modelMaxAmmo = if record.model and record.model:IsA("Model") then record.model:GetAttribute(SentryConstants.ATTR_TURRET_MAX_AMMO) else nil
 			local modelAmmo = if record.model and record.model:IsA("Model") then record.model:GetAttribute(SentryConstants.ATTR_TURRET_AMMO) else nil
 			local fallbackMaxAmmo = sentryRuntime.resolveTurretMaxAmmo(record.weaponDef)
-			local ammo, maxAmmo = SentryStatResolver.resolveAmmoStateFromCandidates(
-				{ record.maxAmmo, modelMaxAmmo, fallbackMaxAmmo },
-				{ record.ammo, modelAmmo },
-				fallbackMaxAmmo
-			)
+			local ammo, maxAmmo
+			if type(sentryRuntime.resolveRecordAmmoState) == "function" then
+				ammo, maxAmmo = sentryRuntime.resolveRecordAmmoState(record, fallbackMaxAmmo)
+			else
+				ammo, maxAmmo = SentryStatResolver.resolveAmmoStateFromCandidates(
+					{ modelMaxAmmo, record.maxAmmo, fallbackMaxAmmo },
+					{ modelAmmo, record.ammo },
+					fallbackMaxAmmo
+				)
+			end
 			record.maxAmmo = maxAmmo
 			record.ammo = ammo
 			if record.ammo <= 0 then
@@ -193,14 +229,13 @@ local function startTurretCombatLoop(record)
 				continue
 			end
 
-			local muzzleOrigin = rootPart.Position + Vector3.new(0, rootPart.Size.Y * MUZZLE_HEIGHT_RATIO, 0)
-			local enemyModel, enemyRoot = findTurretTarget(record, muzzleOrigin)
+			local targetingOrigin = resolveTurretMuzzleOrigin(rootPart, record.weaponDef)
+			local enemyModel, enemyRoot = findTurretTarget(record, targetingOrigin)
 			if not enemyModel or not enemyRoot then
 				continue
 			end
 
-			record.lastFireAt = now
-			local toEnemy = enemyRoot.Position - muzzleOrigin
+			local toEnemy = enemyRoot.Position - targetingOrigin
 			local lookDirection = if toEnemy.Magnitude > 0.01 then toEnemy.Unit else rootPart.CFrame.LookVector
 			local turretDamageMultiplier = 1
 			if record.owner and record.owner:IsA("Player") then
@@ -211,6 +246,13 @@ local function startTurretCombatLoop(record)
 				continue
 			end
 
+			aimTurretModel(record, rootPart, lookDirection)
+			rootPart = ModelRootResolver.resolveRootPart(record.model) or rootPart
+			local muzzleOrigin = resolveTurretMuzzleOrigin(rootPart, record.weaponDef)
+			toEnemy = enemyRoot.Position - muzzleOrigin
+			lookDirection = if toEnemy.Magnitude > 0.01 then toEnemy.Unit else rootPart.CFrame.LookVector
+
+			record.lastFireAt = now
 			local shotsConsumed = 1
 			if normalizeWeaponToken(record.turretAttackMode) == TURRET_ROCKET_BURST_MODE_TOKEN then
 				WeaponVfx.createMuzzleFlash(muzzleOrigin, Color3.fromRGB(255, 190, 120), 0.26, 0.06)
@@ -230,20 +272,6 @@ local function startTurretCombatLoop(record)
 
 			record.ammo = math.max(0, record.ammo - shotsConsumed)
 			sentryRuntime.syncSentryAmmoAttributes(record)
-
-			local flatLook = Vector3.new(lookDirection.X, 0, lookDirection.Z)
-			if flatLook.Magnitude > 0.01 then
-				local referencePart = resolveSentryPlacementReferencePart(record.model)
-				if referencePart then
-					local desiredReferencePlacementCFrame = CFrame.lookAt(referencePart.Position, referencePart.Position + flatLook.Unit)
-					desiredReferencePlacementCFrame = resolveUprightSentryReferencePlacementCFrame(record.model, desiredReferencePlacementCFrame, flatLook)
-					desiredReferencePlacementCFrame = applySentryPlacementRotationOffset(desiredReferencePlacementCFrame, record.weaponDef)
-					record.model:PivotTo(resolveSentryPlacementPivotCFrame(record.model, desiredReferencePlacementCFrame))
-				else
-					local currentPivot = record.model:GetPivot()
-					record.model:PivotTo(alignPivotYawToDirection(currentPivot, flatLook, rootPart.Position))
-				end
-			end
 		end
 
 		if record.model and record.model.Parent then
@@ -418,6 +446,7 @@ local function deploySentryTurret(player, character, rootPart, weaponDef, explic
 	sentryModel:SetAttribute(SentryConstants.ATTR_IS_SENTRY_TURRET, true)
 	sentryModel:SetAttribute(SentryConstants.ATTR_SENTRY_OWNER_USER_ID, player.UserId)
 	sentryModel:SetAttribute(SentryConstants.ATTR_SENTRY_OWNER_NAME, player.Name)
+	sentryModel:SetAttribute(SentryConstants.ATTR_SENTRY_WEAPON_ID, tostring(weaponDef.Id or ""))
 	sentryModel:SetAttribute(SentryConstants.ATTR_TURRET_MAX_HEALTH, turretMaxHealth)
 	sentryModel:SetAttribute(SentryConstants.ATTR_TURRET_HEALTH, turretMaxHealth)
 	sentryModel:SetAttribute(SentryConstants.ATTR_TURRET_LAST_DAMAGED_AT, -1)

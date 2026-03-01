@@ -18,7 +18,7 @@ local function isPlayerInstance(player)
 end
 
 local function canUsePlayerData(player)
-	return isPlayerInstance(player) and PlayerDataService.isReady()
+	return isPlayerInstance(player) and PlayerDataService.isReady() and PlayerDataService.hasProfile(player)
 end
 
 local function getMoneyAmount(player)
@@ -57,7 +57,7 @@ local function trySpendMoney(player, amount)
 
 			didSpend = true
 			return currentMoney - spendAmount
-		end)
+		end, true)
 		return didSpend
 	end
 
@@ -83,7 +83,7 @@ local function refundMoney(player, amount)
 	if canUsePlayerData(player) then
 		PlayerDataService.update(player, { "money" }, function(m)
 			return normalizeMoneyAmount(m) + refundAmount
-		end)
+		end, true)
 		return
 	end
 

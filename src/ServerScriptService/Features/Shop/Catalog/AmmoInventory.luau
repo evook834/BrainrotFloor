@@ -36,17 +36,19 @@ function AmmoInventory.buildToolQuote(player, weaponDef, tool, pricingConfig, co
 		}
 	end
 
-	local refillCost, canRefill = context.calculateRefillCost and context.calculateRefillCost(
-		player, weaponDef, ammoSnapshot, pricingConfig, context
-	) or (function()
+	local refillCost, canRefill
+	if context.calculateRefillCost then
+		refillCost, canRefill = context.calculateRefillCost(player, weaponDef, ammoSnapshot, pricingConfig, context)
+	else
 		-- Fallback if calculateRefillCost not in context
 		local maxTotalAmmo = ammoSnapshot.maxTotalAmmo
 		local missingAmmo = ammoSnapshot.missingAmmo
 		if maxTotalAmmo <= 0 or missingAmmo <= 0 then
-			return 0, false
+			refillCost, canRefill = 0, false
+		else
+			refillCost, canRefill = math.max(0, math.floor((missingAmmo / maxTotalAmmo) * 50) + 1), true
 		end
-		return math.max(0, math.floor((missingAmmo / maxTotalAmmo) * 50) + 1), true
-	end)()
+	end
 
 	return {
 		weaponId = weaponDef.Id,
@@ -78,16 +80,18 @@ function AmmoInventory.buildSentryQuote(player, weaponDef, sentryRecords, pricin
 		return nil
 	end
 
-	local refillCost, canRefill = context.calculateRefillCost and context.calculateRefillCost(
-		player, weaponDef, ammoSnapshot, pricingConfig, context
-	) or (function()
+	local refillCost, canRefill
+	if context.calculateRefillCost then
+		refillCost, canRefill = context.calculateRefillCost(player, weaponDef, ammoSnapshot, pricingConfig, context)
+	else
 		local maxTotalAmmo = ammoSnapshot.maxTotalAmmo
 		local missingAmmo = ammoSnapshot.missingAmmo
 		if maxTotalAmmo <= 0 or missingAmmo <= 0 then
-			return 0, false
+			refillCost, canRefill = 0, false
+		else
+			refillCost, canRefill = math.max(0, math.floor((missingAmmo / maxTotalAmmo) * 50) + 1), true
 		end
-		return math.max(0, math.floor((missingAmmo / maxTotalAmmo) * 50) + 1), true
-	end)()
+	end
 
 	return {
 		weaponId = weaponDef.Id,
@@ -113,19 +117,7 @@ function AmmoInventory.collectQuotes(player, context)
 	local quotesByWeaponId = {}
 	local ownedWeaponIds = {}
 
-	-- Process tool weapons
-	for weaponId, tool in pairs(toolsByWeaponId) do
-		local weaponDef = context.weaponById and context.weaponById[weaponId]
-		if weaponDef and context.canPlayerUseWeapon and context.canPlayerUseWeapon(player, weaponDef) then
-			ownedWeaponIds[weaponId] = true
-			local quote = AmmoInventory.buildToolQuote(player, weaponDef, tool, pricingConfig, context)
-			if quote then
-				quotesByWeaponId[weaponId] = quote
-			end
-		end
-	end
-
-	-- Process sentry turrets
+	-- Process active sentries first so deployed sentries own the refill row for their weapon.
 	for weaponId, sentryRecords in pairs(sentryRecordsByWeaponId) do
 		local weaponDef = context.weaponById and context.weaponById[weaponId]
 		if weaponDef and context.canPlayerUseWeapon and context.canPlayerUseWeapon(player, weaponDef) then
@@ -133,6 +125,22 @@ function AmmoInventory.collectQuotes(player, context)
 			local sentryQuote = AmmoInventory.buildSentryQuote(player, weaponDef, sentryRecords, pricingConfig, context)
 			if sentryQuote then
 				quotesByWeaponId[weaponId] = sentryQuote
+			end
+		end
+	end
+
+	-- Process tool weapons after sentries. If a live sentry exists, keep the sentry quote.
+	for weaponId, tool in pairs(toolsByWeaponId) do
+		if quotesByWeaponId[weaponId] ~= nil then
+			continue
+		end
+
+		local weaponDef = context.weaponById and context.weaponById[weaponId]
+		if weaponDef and context.canPlayerUseWeapon and context.canPlayerUseWeapon(player, weaponDef) then
+			ownedWeaponIds[weaponId] = true
+			local quote = AmmoInventory.buildToolQuote(player, weaponDef, tool, pricingConfig, context)
+			if quote then
+				quotesByWeaponId[weaponId] = quote
 			end
 		end
 	end

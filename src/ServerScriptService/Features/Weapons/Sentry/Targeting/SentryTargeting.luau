@@ -4,8 +4,18 @@
 ]]
 
 local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
 
 local SentryTargeting = {}
+
+local function appendLivePlayerCharacters(exclusions)
+	for _, player in ipairs(Players:GetPlayers()) do
+		local character = player.Character
+		if character then
+			table.insert(exclusions, character)
+		end
+	end
+end
 
 function SentryTargeting.new(options)
 	local opts = options or {}
@@ -118,7 +128,13 @@ function SentryTargeting.new(options)
 
 		local raycastParams = RaycastParams.new()
 		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-		raycastParams.FilterDescendantsInstances = { record.model, if type(getEffectsFolder) == "function" then getEffectsFolder() else nil }
+		local exclusions = { record.model }
+		local effectsFolder = if type(getEffectsFolder) == "function" then getEffectsFolder() else nil
+		if effectsFolder then
+			table.insert(exclusions, effectsFolder)
+		end
+		appendLivePlayerCharacters(exclusions)
+		raycastParams.FilterDescendantsInstances = exclusions
 		raycastParams.IgnoreWater = true
 
 		local function buildCandidate(enemyModel)

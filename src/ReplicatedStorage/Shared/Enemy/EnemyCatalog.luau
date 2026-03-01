@@ -20,6 +20,8 @@ for _, entry in ipairs(EnemyDefinitions.Entries) do
 		MaxWave = entry.MaxWave,
 		Weight = entry.Weight,
 		IsBoss = entry.IsBoss,
+		Danger = entry.Danger,
+		Tier = entry.Tier,
 	})
 end
 

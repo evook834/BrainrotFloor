@@ -76,8 +76,11 @@ local ClassCatalog = {
 			BulletSpreadReductionPerLevel = 0.0055,
 			BurnChance = 0.005,
 			BurnChancePerLevel = 0.0008,
+			BurnOnHitChancePerLevel = 0.001,
 			BurnDurationSeconds = 2,
 			BurnDamageFractionPerSecond = 0.1,
+			GroundFireRadiusPerLevel = 0.05,
+			GroundFireDurationSecondsPerLevel = 0.03,
 		},
 	},
 	{

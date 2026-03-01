@@ -64,6 +64,22 @@ local function formatSignedPercent(value: number?): string
 	return formatPercent(number)
 end
 
+local function formatNumber(value: number?): string
+	local text = string.format("%.2f", tonumber(value) or 0)
+	text = text:gsub("(%..-)0+$", "%1")
+	text = text:gsub("%.$", "")
+	return text
+end
+
+local function formatSignedFlatValue(value: number?, suffix: string?): string
+	local number = tonumber(value) or 0
+	local prefix = ""
+	if number >= 0 then
+		prefix = "+"
+	end
+	return string.format("%s%s%s", prefix, formatNumber(number), suffix or "")
+end
+
 local bonusKeyOrder = {
 	{ key = "damagePct", label = "Damage" },
 	{ key = "maxHealthPct", label = "Max Health" },
@@ -78,6 +94,9 @@ local bonusKeyOrder = {
 	{ key = "bulletRangePct", label = "Weapon Range" },
 	{ key = "bulletSpreadReductionPct", label = "Spread Reduction" },
 	{ key = "burnChancePct", label = "Burn Chance" },
+	{ key = "burnOnHitChancePct", label = "Burn-On-Hit Chance" },
+	{ key = "groundFireRadiusStuds", label = "Ground Fire Radius", style = "flat", suffix = " studs" },
+	{ key = "groundFireDurationSeconds", label = "Ground Fire Duration", style = "flat", suffix = "s" },
 	{ key = "criticalHitChancePct", label = "Critical Hit Chance" },
 	{ key = "superCriticalHitChancePct", label = "Super Critical Hit Chance" },
 }
@@ -106,7 +125,15 @@ local function buildBonusInfoText(classData: any): string
 	local perLevelBonuses = classData.perLevelBonuses or {}
 	local lines = {}
 
-	local function appendLine(label: string, totalValue: number?, perLevelValue: number?)
+	local function formatBonusValue(entry: any, value: number?): string
+		if type(entry) == "table" and entry.style == "flat" then
+			return formatSignedFlatValue(value, entry.suffix)
+		end
+		return formatSignedPercent(value)
+	end
+
+	local function appendLine(entry: any, totalValue: number?, perLevelValue: number?)
+		local label = tostring(entry and entry.label or "Bonus")
 		local hasTotal = type(totalValue) == "number"
 		local hasPerLevel = type(perLevelValue) == "number"
 		if not hasTotal and not hasPerLevel then
@@ -122,15 +149,15 @@ local function buildBonusInfoText(classData: any): string
 		if hasPerLevel then
 			table.insert(
 				lines,
-				string.format("%s: %s total (%s/lv)", label, formatSignedPercent(total), formatSignedPercent(perLevel))
+				string.format("%s: %s total (%s/lv)", label, formatBonusValue(entry, total), formatBonusValue(entry, perLevel))
 			)
 		else
-			table.insert(lines, string.format("%s: %s", label, formatSignedPercent(total)))
+			table.insert(lines, string.format("%s: %s", label, formatBonusValue(entry, total)))
 		end
 	end
 
 	for _, entry in ipairs(bonusKeyOrder) do
-		appendLine(entry.label, currentBonuses[entry.key], perLevelBonuses[entry.key])
+		appendLine(entry, currentBonuses[entry.key], perLevelBonuses[entry.key])
 	end
 
 	local extraKeys = {}

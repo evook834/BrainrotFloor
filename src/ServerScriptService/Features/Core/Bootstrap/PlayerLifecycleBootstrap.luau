@@ -61,9 +61,14 @@ local function ensureLeaderstats(player, configPlayer, playerDataService, starti
 				playerDataService.waitForData(player)
 			end)
 			if not ok or not player.Parent or not leaderstats.Parent then return end
-			playerDataService.set(player, { "money" }, startingMoney)
-			if leaderstats:FindFirstChild("Money") then
-				leaderstats.Money.Value = startingMoney
+			local syncedMoney = startingMoney
+			local moneyValue = leaderstats:FindFirstChild("Money")
+			if moneyValue then
+				syncedMoney = math.max(0, math.floor((tonumber(moneyValue.Value) or startingMoney) + 0.5))
+			end
+			playerDataService.set(player, { "money" }, syncedMoney, true)
+			if moneyValue then
+				moneyValue.Value = syncedMoney
 			end
 			local changedSignal = playerDataService.getChangedSignal(player, { "money" })
 			if changedSignal then

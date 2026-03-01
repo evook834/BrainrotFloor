@@ -76,6 +76,29 @@ function SentryRuntime.new(options)
 		table.clear(connections)
 	end
 
+	local function ensurePlayerModelIndex(player, model)
+		if not (player and player:IsA("Player")) then
+			return
+		end
+		if not (model and model:IsA("Model")) then
+			return
+		end
+
+		local records = sentryTurretsByPlayer[player]
+		if not records then
+			records = {}
+			sentryTurretsByPlayer[player] = records
+		end
+
+		for _, existingModel in ipairs(records) do
+			if existingModel == model then
+				return
+			end
+		end
+
+		table.insert(records, model)
+	end
+
 	local function removeRecord(model)
 		local record = sentryRecordByModel[model]
 		if not record then
@@ -263,7 +286,131 @@ function SentryRuntime.new(options)
 		return SentryStatResolver.resolveTurretInitialAmmo(weaponDef, turretMaxAmmo)
 	end
 
-	local function syncSentryAmmoAttributes(record)
+	local syncSentryAmmoAttributes
+
+	local function resolveRecordAmmoState(record, fallbackMaxAmmo)
+		if type(record) ~= "table" then
+			return 0, math.max(1, math.floor((tonumber(fallbackMaxAmmo) or 1) + 0.5))
+		end
+
+		local model = record.model
+		local ammoLabel = record.ammoLabel
+		local labelAmmo = nil
+		local labelMaxAmmo = nil
+		if not (ammoLabel and ammoLabel:IsA("TextLabel") and ammoLabel.Parent) then
+			local billboard = model and model:IsA("Model") and model:FindFirstChild(SentryConstants.TURRET_BILLBOARD_NAME) or nil
+			local resolvedLabel = billboard and billboard:IsA("BillboardGui")
+					and billboard:FindFirstChild(SentryConstants.TURRET_AMMO_LABEL_NAME)
+				or nil
+			if resolvedLabel and resolvedLabel:IsA("TextLabel") then
+				ammoLabel = resolvedLabel
+				record.ammoLabel = ammoLabel
+			end
+		end
+		if ammoLabel and ammoLabel:IsA("TextLabel") then
+			local parsedAmmo, parsedMaxAmmo = string.match(ammoLabel.Text or "", "Ammo%s+(%d+)%s*/%s*(%d+)")
+			labelAmmo = tonumber(parsedAmmo)
+			labelMaxAmmo = tonumber(parsedMaxAmmo)
+		end
+
+		local modelMaxAmmo = nil
+		local modelAmmo = nil
+		if model and model:IsA("Model") then
+			modelMaxAmmo = model:GetAttribute(SentryConstants.ATTR_TURRET_MAX_AMMO)
+			modelAmmo = model:GetAttribute(SentryConstants.ATTR_TURRET_AMMO)
+		end
+
+		local maxAmmo = math.max(1, math.floor((tonumber(fallbackMaxAmmo) or 1) + 0.5))
+		for _, candidate in ipairs({ labelMaxAmmo, modelMaxAmmo, record.maxAmmo }) do
+			local candidateNumber = tonumber(candidate)
+			if type(candidateNumber) == "number" then
+				maxAmmo = math.max(maxAmmo, math.floor(candidateNumber + 0.5))
+			end
+		end
+
+		local ammo = nil
+		for _, candidate in ipairs({ labelAmmo, modelAmmo, record.ammo }) do
+			local candidateNumber = tonumber(candidate)
+			if type(candidateNumber) == "number" then
+				local clampedAmmo = math.clamp(math.floor(candidateNumber + 0.5), 0, maxAmmo)
+				if ammo == nil or clampedAmmo < ammo then
+					ammo = clampedAmmo
+				end
+			end
+		end
+		if ammo == nil then
+			ammo = maxAmmo
+		end
+
+		record.maxAmmo = maxAmmo
+		record.ammo = ammo
+		return ammo, maxAmmo
+	end
+
+	local function hydrateLiveOwnedSentryRecord(player, model)
+		if not (player and player:IsA("Player")) then
+			return nil, nil
+		end
+		if not (model and model:IsA("Model") and model.Parent) then
+			return nil, nil
+		end
+
+		local ownerUserId = tonumber(model:GetAttribute(SentryConstants.ATTR_SENTRY_OWNER_USER_ID))
+		if ownerUserId ~= player.UserId then
+			return nil, nil
+		end
+
+		local record = sentryRecordByModel[model]
+		local humanoid = if record and record.humanoid then record.humanoid else model:FindFirstChildOfClass("Humanoid")
+		if not (humanoid and humanoid:IsA("Humanoid") and humanoid.Health > 0) then
+			if record then
+				removeRecord(model)
+			end
+			return nil, nil
+		end
+
+		local weaponId = if record and type(record.kindId) == "string" and record.kindId ~= "" then record.kindId else nil
+		if not weaponId then
+			local attrWeaponId = model:GetAttribute(SentryConstants.ATTR_SENTRY_WEAPON_ID)
+			if type(attrWeaponId) == "string" and attrWeaponId ~= "" then
+				weaponId = attrWeaponId
+			end
+		end
+		if not weaponId then
+			return nil, nil
+		end
+
+		if not record then
+			record = {
+				owner = player,
+				kindId = weaponId,
+				model = model,
+				humanoid = humanoid,
+				maxAmmo = model:GetAttribute(SentryConstants.ATTR_TURRET_MAX_AMMO),
+				ammo = model:GetAttribute(SentryConstants.ATTR_TURRET_AMMO),
+				connections = {},
+			}
+			sentryRecordByModel[model] = record
+		else
+			record.owner = player
+			record.kindId = weaponId
+			record.model = model
+			record.humanoid = humanoid
+			if model:GetAttribute(SentryConstants.ATTR_TURRET_MAX_AMMO) ~= nil then
+				record.maxAmmo = model:GetAttribute(SentryConstants.ATTR_TURRET_MAX_AMMO)
+			end
+			if model:GetAttribute(SentryConstants.ATTR_TURRET_AMMO) ~= nil then
+				record.ammo = model:GetAttribute(SentryConstants.ATTR_TURRET_AMMO)
+			end
+		end
+
+		ensurePlayerModelIndex(player, model)
+		resolveRecordAmmoState(record, defaultSentryMaxAmmo)
+		syncSentryAmmoAttributes(record)
+		return weaponId, record
+	end
+
+	syncSentryAmmoAttributes = function(record)
 		if type(record) ~= "table" then
 			return
 		end
@@ -274,6 +421,9 @@ function SentryRuntime.new(options)
 
 		local model = record.model
 		if model and model:IsA("Model") then
+			if type(record.kindId) == "string" and record.kindId ~= "" then
+				model:SetAttribute(SentryConstants.ATTR_SENTRY_WEAPON_ID, record.kindId)
+			end
 			model:SetAttribute(SentryConstants.ATTR_TURRET_MAX_AMMO, maxAmmo)
 			model:SetAttribute(SentryConstants.ATTR_TURRET_AMMO, ammo)
 			model:SetAttribute(SentryConstants.ATTR_TURRET_OUT_OF_AMMO, ammo <= 0)
@@ -297,25 +447,35 @@ function SentryRuntime.new(options)
 		end
 	end
 
-	local function collectOwnedSentryRecordsByWeaponId(player)
-		local recordsByWeaponId = {}
-		local records = sentryTurretsByPlayer[player]
-		if not records or #records == 0 then
-			return recordsByWeaponId
+	local function forEachLiveOwnedSentryRecord(player, callback)
+		if not (player and player:IsA("Player")) then
+			return
+		end
+		if type(callback) ~= "function" then
+			return
 		end
 
-		for _, model in ipairs(records) do
-			local record = model and sentryRecordByModel[model]
-			local weaponId = if record and type(record.kindId) == "string" then record.kindId else nil
-			if weaponId and weaponId ~= "" and model and model.Parent and record.humanoid and record.humanoid.Health > 0 then
-				local weaponRecords = recordsByWeaponId[weaponId]
-				if not weaponRecords then
-					weaponRecords = {}
-					recordsByWeaponId[weaponId] = weaponRecords
+		local folder = getSentryTurretFolder()
+		for _, child in ipairs(folder:GetChildren()) do
+			if child and child:IsA("Model") then
+				local weaponId, record = hydrateLiveOwnedSentryRecord(player, child)
+				if weaponId and record then
+					callback(weaponId, record)
 				end
-				table.insert(weaponRecords, record)
 			end
 		end
+	end
+
+	local function collectOwnedSentryRecordsByWeaponId(player)
+		local recordsByWeaponId = {}
+		forEachLiveOwnedSentryRecord(player, function(weaponId, record)
+			local weaponRecords = recordsByWeaponId[weaponId]
+			if not weaponRecords then
+				weaponRecords = {}
+				recordsByWeaponId[weaponId] = weaponRecords
+			end
+			table.insert(weaponRecords, record)
+		end)
 
 		return recordsByWeaponId
 	end
@@ -325,27 +485,23 @@ function SentryRuntime.new(options)
 		if normalizedWeaponId == "" then
 			return false
 		end
-		local records = sentryTurretsByPlayer[player]
-		if not records then
-			return false
-		end
-		for _, model in ipairs(records) do
-			local record = model and sentryRecordByModel[model]
-			if record and record.kindId == normalizedWeaponId and model and model.Parent and record.humanoid and record.humanoid.Health > 0 then
-				return true
+
+		local ownsWeapon = false
+		forEachLiveOwnedSentryRecord(player, function(liveWeaponId, _record)
+			if liveWeaponId == normalizedWeaponId then
+				ownsWeapon = true
 			end
+		end)
+		if ownsWeapon then
+			return true
 		end
+
 		return false
 	end
 
 	local function registerRecord(player, model, record)
 		sentryRecordByModel[model] = record
-		local records = sentryTurretsByPlayer[player]
-		if not records then
-			records = {}
-			sentryTurretsByPlayer[player] = records
-		end
-		table.insert(records, model)
+		ensurePlayerModelIndex(player, model)
 	end
 
 	local function getRecord(model)
@@ -356,6 +512,64 @@ function SentryRuntime.new(options)
 		return sentryTurretsByPlayer[player]
 	end
 
+	local function resolveLiveAmmoRecord(candidateRecord)
+		if type(candidateRecord) ~= "table" then
+			return nil
+		end
+
+		local model = candidateRecord.model
+		if not (model and model:IsA("Model") and model.Parent) then
+			return nil
+		end
+
+		local liveRecord = sentryRecordByModel[model] or candidateRecord
+		liveRecord.model = model
+
+		local humanoid = liveRecord.humanoid
+		if not (humanoid and humanoid:IsA("Humanoid") and humanoid.Parent) then
+			humanoid = model:FindFirstChildOfClass("Humanoid")
+		end
+		if not (humanoid and humanoid:IsA("Humanoid") and humanoid.Health > 0) then
+			if sentryRecordByModel[model] then
+				removeRecord(model)
+			end
+			return nil
+		end
+
+		liveRecord.humanoid = humanoid
+
+		local modelMaxAmmo = model:GetAttribute(SentryConstants.ATTR_TURRET_MAX_AMMO)
+		if modelMaxAmmo ~= nil then
+			liveRecord.maxAmmo = modelMaxAmmo
+		end
+
+		local modelAmmo = model:GetAttribute(SentryConstants.ATTR_TURRET_AMMO)
+		if modelAmmo ~= nil then
+			liveRecord.ammo = modelAmmo
+		end
+
+		local ammoLabel = liveRecord.ammoLabel
+		if not (ammoLabel and ammoLabel:IsA("TextLabel") and ammoLabel.Parent) then
+			local billboard = model:FindFirstChild(SentryConstants.TURRET_BILLBOARD_NAME)
+			if billboard and billboard:IsA("BillboardGui") then
+				local resolvedLabel = billboard:FindFirstChild(SentryConstants.TURRET_AMMO_LABEL_NAME)
+				if resolvedLabel and resolvedLabel:IsA("TextLabel") then
+					ammoLabel = resolvedLabel
+					liveRecord.ammoLabel = ammoLabel
+				end
+			end
+		end
+
+		if liveRecord ~= candidateRecord then
+			candidateRecord.humanoid = humanoid
+			candidateRecord.maxAmmo = liveRecord.maxAmmo
+			candidateRecord.ammo = liveRecord.ammo
+			candidateRecord.ammoLabel = liveRecord.ammoLabel
+		end
+
+		return liveRecord
+	end
+
 	local function refillAmmoForSentryRecords(sentryRecords, weaponDef)
 		if type(sentryRecords) ~= "table" then
 			return false
@@ -363,15 +577,11 @@ function SentryRuntime.new(options)
 		local didRefill = false
 		local fallbackMaxAmmo = resolveTurretMaxAmmo(weaponDef)
 		for _, record in ipairs(sentryRecords) do
-			if record and record.model and record.model.Parent and record.humanoid and record.humanoid.Health > 0 then
-				local ammoBefore, turretMaxAmmo = SentryStatResolver.resolveAmmoStateFromCandidates(
-					{ record.maxAmmo, record.model:GetAttribute(SentryConstants.ATTR_TURRET_MAX_AMMO), fallbackMaxAmmo },
-					{ record.ammo, record.model:GetAttribute(SentryConstants.ATTR_TURRET_AMMO) },
-					fallbackMaxAmmo
-				)
-				record.maxAmmo = turretMaxAmmo
-				record.ammo = turretMaxAmmo
-				syncSentryAmmoAttributes(record)
+			local liveRecord = resolveLiveAmmoRecord(record)
+			if liveRecord then
+				local ammoBefore, turretMaxAmmo = resolveRecordAmmoState(liveRecord, fallbackMaxAmmo)
+				liveRecord.ammo = turretMaxAmmo
+				syncSentryAmmoAttributes(liveRecord)
 				if ammoBefore < turretMaxAmmo then
 					didRefill = true
 				end
@@ -386,23 +596,20 @@ function SentryRuntime.new(options)
 		end
 		local totalCurrentAmmo = 0
 		local totalMaxAmmo = 0
+		local liveRecordCount = 0
 		local fallbackMaxAmmo = resolveTurretMaxAmmo(weaponDef)
 		for _, record in ipairs(sentryRecords) do
-			if type(record) == "table" and record.humanoid and record.humanoid.Health > 0 then
-				local model = record.model
-				local modelMaxAmmo = if model and model:IsA("Model") then model:GetAttribute(SentryConstants.ATTR_TURRET_MAX_AMMO) else nil
-				local modelAmmo = if model and model:IsA("Model") then model:GetAttribute(SentryConstants.ATTR_TURRET_AMMO) else nil
-				local turretAmmo, turretMaxAmmo = SentryStatResolver.resolveAmmoStateFromCandidates(
-					{ record.maxAmmo, modelMaxAmmo, fallbackMaxAmmo },
-					{ record.ammo, modelAmmo },
-					fallbackMaxAmmo
-				)
-				record.maxAmmo = turretMaxAmmo
-				record.ammo = turretAmmo
-				syncSentryAmmoAttributes(record)
+			local liveRecord = resolveLiveAmmoRecord(record)
+			if liveRecord then
+				liveRecordCount += 1
+				local turretAmmo, turretMaxAmmo = resolveRecordAmmoState(liveRecord, fallbackMaxAmmo)
+				syncSentryAmmoAttributes(liveRecord)
 				totalCurrentAmmo += turretAmmo
 				totalMaxAmmo += turretMaxAmmo
 			end
+		end
+		if liveRecordCount <= 0 then
+			return nil
 		end
 		local missingAmmo = math.max(0, totalMaxAmmo - totalCurrentAmmo)
 		return {
@@ -425,6 +632,7 @@ function SentryRuntime.new(options)
 		countPlayerSentriesByKind = countPlayerSentriesByKind,
 		resolveTurretMaxAmmo = resolveTurretMaxAmmo,
 		resolveTurretInitialAmmo = resolveTurretInitialAmmo,
+		resolveRecordAmmoState = resolveRecordAmmoState,
 		syncSentryAmmoAttributes = syncSentryAmmoAttributes,
 		collectOwnedSentryRecordsByWeaponId = collectOwnedSentryRecordsByWeaponId,
 		playerOwnsWeaponId = playerOwnsWeaponId,
