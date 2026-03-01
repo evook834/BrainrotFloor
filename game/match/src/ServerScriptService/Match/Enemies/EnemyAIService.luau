@@ -9,6 +9,7 @@ local Match = script.Parent.Parent
 local ClassService = require(Match.Classes.ClassService)
 local DifficultyService = require(Match.Difficulty.DifficultyService)
 local EnemyRegistry = require(Match.Enemies.EnemyRegistry)
+local EnemyMotionAnimator = require(Match.Enemies.EnemyMotionAnimator)
 local ModelRootResolver = require(script.Parent.ModelRootResolver)
 
 local EnemyAIService = {}
@@ -39,7 +40,8 @@ local function mergeProfile(templateName)
 	)
 
 	local templateProfiles = Config.Enemy.TemplateProfiles or {}
-	local templateProfile = templateProfiles[templateName]
+	local resolvedTemplateName = SharedEnemyDefinitions.resolveBaseTemplateName(templateName)
+	local templateProfile = templateProfiles[resolvedTemplateName]
 	if templateProfile then
 		for key, value in templateProfile do
 			profile[key] = value
@@ -161,19 +163,20 @@ local function pivotEnemyModelToRoot(enemyModel, desiredRootCFrame, pivotToRootO
 	enemyModel:PivotTo(desiredPivotCFrame)
 end
 
-local function setMovementState(enemyModel, rootPart, targetPosition, speed, deltaTime, turnSpeed, facingOffsetCFrame, hasFacingOffset, pivotToRootOffset)
-	local planarTarget = Vector3.new(targetPosition.X, rootPart.Position.Y, targetPosition.Z)
-	local direction = planarTarget - rootPart.Position
+local function setMovementState(enemyModel, referenceRootCFrame, targetPosition, speed, deltaTime, turnSpeed, facingOffsetCFrame, hasFacingOffset, pivotToRootOffset, motionOffsetCFrame)
+	local rootPosition = referenceRootCFrame.Position
+	local planarTarget = Vector3.new(targetPosition.X, rootPosition.Y, targetPosition.Z)
+	local direction = planarTarget - rootPosition
 	local directionMagnitude = direction.Magnitude
 	if directionMagnitude <= 0.01 then
 		return
 	end
 
-	local destination = rootPart.Position
+	local destination = rootPosition
 	local stepSize = math.min(speed * deltaTime, directionMagnitude)
 	destination += direction.Unit * stepSize
 
-	local resolvedHeadingFrame = rootPart.CFrame
+	local resolvedHeadingFrame = referenceRootCFrame
 	if hasFacingOffset then
 		resolvedHeadingFrame *= facingOffsetCFrame:Inverse()
 	end
@@ -206,18 +209,22 @@ local function setMovementState(enemyModel, rootPart, targetPosition, speed, del
 	if hasFacingOffset then
 		targetCFrame *= facingOffsetCFrame
 	end
+	if motionOffsetCFrame then
+		targetCFrame *= motionOffsetCFrame
+	end
 
 	pivotEnemyModelToRoot(enemyModel, targetCFrame, pivotToRootOffset)
 end
 
-local function faceTarget(enemyModel, rootPart, targetPosition, turnSpeed, deltaTime, facingOffsetCFrame, hasFacingOffset, pivotToRootOffset)
-	local planarTarget = Vector3.new(targetPosition.X, rootPart.Position.Y, targetPosition.Z)
-	local direction = planarTarget - rootPart.Position
+local function faceTarget(enemyModel, referenceRootCFrame, targetPosition, turnSpeed, deltaTime, facingOffsetCFrame, hasFacingOffset, pivotToRootOffset, motionOffsetCFrame)
+	local rootPosition = referenceRootCFrame.Position
+	local planarTarget = Vector3.new(targetPosition.X, rootPosition.Y, targetPosition.Z)
+	local direction = planarTarget - rootPosition
 	if direction.Magnitude <= 0.001 then
 		return
 	end
 
-	local resolvedHeadingFrame = rootPart.CFrame
+	local resolvedHeadingFrame = referenceRootCFrame
 	if hasFacingOffset then
 		resolvedHeadingFrame *= facingOffsetCFrame:Inverse()
 	end
@@ -233,9 +240,12 @@ local function faceTarget(enemyModel, rootPart, targetPosition, turnSpeed, delta
 		blendedLook = direction.Unit
 	end
 
-	local targetCFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + blendedLook.Unit)
+	local targetCFrame = CFrame.lookAt(rootPosition, rootPosition + blendedLook.Unit)
 	if hasFacingOffset then
 		targetCFrame *= facingOffsetCFrame
+	end
+	if motionOffsetCFrame then
+		targetCFrame *= motionOffsetCFrame
 	end
 
 	pivotEnemyModelToRoot(enemyModel, targetCFrame, pivotToRootOffset)
@@ -293,6 +303,7 @@ function EnemyAIService.start(enemyModel, templateName)
 	local enemyDamageMultiplier = getEnemyDamageMultiplier(enemyModel)
 	local facingOffsetCFrame = getFacingOffsetCFrame(profile)
 	local hasFacingOffset = facingOffsetCFrame ~= CFrame.new()
+	local motionState = EnemyMotionAnimator.createState(enemyModel, templateName, rootPart)
 
 	prepareModelForMovement(enemyModel)
 
@@ -328,25 +339,17 @@ function EnemyAIService.start(enemyModel, templateName)
 				break
 			end
 			pivotToRootOffset = getPivotToRootOffset(enemyModel, rootPart)
+			local referenceRootCFrame = EnemyMotionAnimator.getReferenceRootCFrame(motionState, rootPart.CFrame)
 
-			local targetHumanoid, targetRootPart, distance, targetPlayer = getNearestTarget(rootPart.Position, profile.AcquireRange)
+			local targetHumanoid, targetRootPart, distance, targetPlayer = getNearestTarget(referenceRootCFrame.Position, profile.AcquireRange)
 			if targetHumanoid and targetRootPart then
 				if distance <= profile.AttackRange then
 					stopTrack(chaseTrack)
-					faceTarget(
-						enemyModel,
-						rootPart,
-						targetRootPart.Position,
-						profile.TurnSpeed,
-						deltaTime,
-						facingOffsetCFrame,
-						hasFacingOffset,
-						pivotToRootOffset
-					)
-
+					EnemyMotionAnimator.setMoving(motionState, false)
 					local now = os.clock()
 					if now - lastAttackAt >= profile.AttackCooldown then
 						lastAttackAt = now
+						EnemyMotionAnimator.triggerAttack(motionState)
 
 						if attackTrack then
 							attackTrack:Play(0.05, 1, 1)
@@ -374,28 +377,51 @@ function EnemyAIService.start(enemyModel, templateName)
 							end
 						end)
 					end
+
+					local attackMotionOffset = EnemyMotionAnimator.getRootMotionOffset(motionState, false)
+					faceTarget(
+						enemyModel,
+						referenceRootCFrame,
+						targetRootPart.Position,
+						profile.TurnSpeed,
+						deltaTime,
+						facingOffsetCFrame,
+						hasFacingOffset,
+						pivotToRootOffset,
+						attackMotionOffset
+					)
+					EnemyMotionAnimator.commitOffset(motionState, attackMotionOffset)
 				else
 					if chaseTrack and not chaseTrack.IsPlaying then
 						chaseTrack:Play(0.15, 1, 1)
 					end
+					EnemyMotionAnimator.setMoving(motionState, true)
+					local movementMotionOffset = EnemyMotionAnimator.getRootMotionOffset(motionState, true)
 
 					setMovementState(
 						enemyModel,
-						rootPart,
+						referenceRootCFrame,
 						targetRootPart.Position,
 						profile.MoveSpeed,
 						deltaTime,
 						profile.TurnSpeed,
 						facingOffsetCFrame,
 						hasFacingOffset,
-						pivotToRootOffset
+						pivotToRootOffset,
+						movementMotionOffset
 					)
+					EnemyMotionAnimator.commitOffset(motionState, movementMotionOffset)
 				end
 			else
 				stopTrack(chaseTrack)
+				EnemyMotionAnimator.setMoving(motionState, false)
+				pivotEnemyModelToRoot(enemyModel, referenceRootCFrame, pivotToRootOffset)
+				EnemyMotionAnimator.clearOffset(motionState)
 			end
 		end
 
+		EnemyMotionAnimator.setMoving(motionState, false)
+		EnemyMotionAnimator.destroy(motionState)
 		stopTrack(chaseTrack)
 		stopTrack(attackTrack)
 	end)
