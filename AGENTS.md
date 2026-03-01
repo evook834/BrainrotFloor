@@ -1,10 +1,14 @@
 # Repository agent instructions
 
+Guidance for AI and human contributors. Treat as **orientation** — follow unless context clearly suggests otherwise.
+
+---
+
 ## Command execution preference
 
-- Do not run validation/build/test commands unless the user explicitly asks for them.
-- This includes CI scripts (for example `scripts/ci/build_and_validate_places.sh`) and ad-hoc validation commands (for example `rojo sourcemap`, `rojo build`, or test suites).
-- Default behavior: implement requested code changes first, then stop.
+- Do not run validation/build/test commands unless the user explicitly asks for them (e.g. “run tests”, “make sure it builds”, “validate”).
+- When the user does ask, run the relevant command (e.g. `rojo build`, `rojo sourcemap`, CI script, test suite).
+- This includes CI scripts (e.g. `scripts/ci/build_and_validate_places.sh`) and ad-hoc validation. Default: implement requested code changes first, then stop.
 
 ---
 
@@ -18,27 +22,29 @@
 
 ## Placement: use the layout docs
 
-**Do not** put new features or modules in a single unrelated file, or scatter multiple single files in the wrong place. **Do** create a new script (and folder if needed) in the **correct** location.
+Prefer putting new features or modules in the **right** location (new script and folder if needed) rather than in an unrelated file or scattered single files.
 
 Before adding or moving code:
 
 1. **Consult [DEPENDENCIES.md](DEPENDENCIES.md)** — Client cannot require server; ReplicatedStorage.Shared only requires shared; etc. Put code in a tree that is allowed to depend on what it needs.
 2. **Consult [PROJECT_MAP.md](PROJECT_MAP.md)** — Read each folder’s description and **decide** where the new code belongs by matching its responsibility to that folder. Place by logical fit; the map is a guide, not a strict list of allowed files.
 3. **Consult [README.md](README.md)** — For high-level system ownership (which system owns waves, shop, classes, etc.) and where remotes are used.
-4. **For new remotes** — Define names in `RemoteNames.luau`, document in [REMOTES.md](REMOTES.md), and create/bind in the appropriate server bootstrap.
+4. **For new remotes** — Define names in `RemoteNames.luau`, document in [REMOTES.md](REMOTES.md) (payloads, directions), and create/bind in the appropriate server bootstrap.
 
-When in doubt: create a **new** script (and folder if it's a new subsystem) in the location that matches the runtime (client vs server), place (lobby vs match vs shared), and dependency rules, then wire it (e.g. `require`, bootstrap, remotes). Do not dump new behavior into an existing file that belongs to a different feature or place.
+When in doubt: create a **new** script (and folder if it's a new subsystem) in the location that matches the runtime (client vs server), place (lobby vs match vs shared), and dependency rules, then wire it (e.g. `require`, bootstrap, remotes). Do not dump new behavior into an existing file that belongs to a different feature or place. If two folders could fit, choose one and stay consistent.
+
+When you add, move, or remove modules, folders, or remotes, update the relevant docs (see [README § Maintaining the docs](README.md#maintaining-the-docs)).
 
 ---
 
 ## Shared vs place-specific code
 
-When code is needed in **both** Lobby and Match, put the implementation in **Shared** and use thin place-specific entry scripts that require and run it (with options if behavior differs by place). When code is needed in **only one** place, keep it in that place.
+When code is needed in **both** Lobby and Match, put the implementation in a **shared** tree and use thin place-specific entry scripts that require and run it (with options if behavior differs by place). When code is needed in **only one** place, keep it in the place-specific area.
 
-- **Used in both places** → Implement once under `game/shared/` (e.g. `ServerScriptService.Shared`, `StarterPlayerScripts.SharedClient`). Each place has a small script that requires the shared module and invokes it (e.g. `Service.start()`, or `ClassUi.run({ isLobby = true })`). Pass options or config for place-specific behavior (subtitle, which remotes to use, etc.) instead of duplicating the logic.
-- **Used in one place only** → Keep the module and any launcher in that place (`Lobby/` or `Match/`). No shared module required.
+- **Used in both places** → Implement once under a shared tree: `src/ServerScriptService/Shared/`, `src/PlayerScriptService/SharedClient/`, or `src/ReplicatedStorage/Shared/` as appropriate. Each place has a small script that requires the shared module and invokes it (e.g. `Service.start()`, or `ClassUi.run({ isLobby = true })`). Pass options or config for place-specific behavior instead of duplicating logic.
+- **Used in one place only** → Keep the module and launcher in the place-specific area (e.g. `Features/LobbyClient/` for lobby-only, or other `Features/` subfolders for match). No shared module required.
 
-This applies to UI, client logic, and server logic. Avoid duplicating the same implementation in Lobby and Match; prefer one shared module plus thin launchers.
+Applies to UI, client logic, and server logic. Prefer one shared module plus thin launchers over duplicating implementation.
 
 ---
 
@@ -65,7 +71,7 @@ When implementing a change, decide whether to:
   - separation improves testability or avoids circular dependencies,
   - the existing file is already hard to navigate, and there is a clear responsibility boundary for extraction.
   - at least one concrete reuse signal exists (used by a second caller now, or highly likely to be reused in near-term follow-up work).
-  - avoid extracting tiny one-off modules (roughly 20-40 lines) unless they remove duplication or isolate high-volatility logic.
+  - Only extract small one-off modules (e.g. 20–40 lines) when they remove duplication or isolate high-volatility logic.
 
 - Prefer doing both (new file + edits) when:
   - new logic belongs in a new module but must be wired into existing entry points (`require` wiring, bootstrapping, remotes, registries),
@@ -85,15 +91,17 @@ When implementing a change, decide whether to:
 - Follow existing folder structure and naming conventions.
 - Keep changes minimal and localized (avoid broad rewrites unless required).
 - If a new file is created, also add/adjust required `require` wiring, exports, and references accordingly.
-- Do not do repo-wide "find files to split" passes unless explicitly requested.
+- Avoid repo-wide "find files to split" or refactor-everything passes unless the user requests them.
 
 ---
 
 ## UI: view vs controller (front vs back)
+
+Some UI is built with **React Luau** under `src/ui/UI/` (e.g. ShopView); the rest uses the pattern below. See [UI_SYSTEM.md](UI_SYSTEM.md) for GameStateMachine, UIManager, and state-driven visibility.
 
 For client UI that builds instances and has non-trivial logic (remotes, state, payload handling), prefer splitting into:
 
 - **View (front)** — One module that only builds the UI tree (`Instance.new` for ScreenGui, frames, buttons, labels, etc.). Expose a single builder (e.g. `build()`) that returns a view table: refs to key instances (panel, buttons, list container, status label, etc.) and optional helpers that only touch instances (e.g. `showPanel()`, `hidePanel()`, `setStatus(text, color)`). No remotes, no game logic, no payload parsing.
 - **Controller (back)** — A module that requires the view, calls the builder to get refs, then handles all behavior: remotes, event wiring, payload handling, rendering list rows, open/close flow. The controller updates the view via the refs and helpers.
 
-Keep a single public entry (e.g. `ClassUi.luau`) that requires the controller and re-exports `run(options)` so existing launchers stay unchanged. When adding or refactoring UI, put instance construction in the view and all logic in the controller.
+Keep a single public entry (e.g. `ClassUi.luau`) that requires the controller and re-exports `run(options)` so existing launchers stay unchanged. When adding or refactoring UI, put instance construction in the view and all logic in the controller. See [UI_SYSTEM.md](UI_SYSTEM.md) for state machine, UIManager, and GameState.

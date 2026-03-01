@@ -1,8 +1,8 @@
 # Project map — folder-by-folder summary
 
-High-level map of the repo for humans and AI. This map describes **where code should live by logical concern**. Use each folder's description to **decide** where to put new or moved code: match the script's responsibility to the folder that fits. Not a strict checklist — place by logical fit.
+High-level map of the repo for humans and AI. This map describes **where code tends to live by logical concern**. Use each folder's description as **orientation**: decide where to put new or moved code by matching the script's responsibility to the folder that fits. **Not a strict checklist** — place by logical fit; exceptions are fine when the fit is clearer elsewhere.
 
-For dependency rules (who may `require` what), see [DEPENDENCIES.md](DEPENDENCIES.md). For remotes, see [REMOTES.md](REMOTES.md). For UI system, see [UI_SYSTEM.md](UI_SYSTEM.md). When you add, remove, or move scripts/folders, update this file as needed.
+For dependency rules (who may `require` what), see [DEPENDENCIES.md](DEPENDENCIES.md). For remotes, see [REMOTES.md](REMOTES.md). For UI system, see [UI_SYSTEM.md](UI_SYSTEM.md). Update this file when you add, remove, or move **folders or major subsystems** (not necessarily for every new file).
 
 ---
 
@@ -25,7 +25,7 @@ For dependency rules (who may `require` what), see [DEPENDENCIES.md](DEPENDENCIE
 
 ## `src/` — Source tree
 
-Single Rojo project; runtime mapping in [DEPENDENCIES.md](DEPENDENCIES.md).
+Single Rojo project; runtime mapping in [DEPENDENCIES.md](DEPENDENCIES.md). **Shared** trees (SharedClient, ServerScriptService.Shared, ReplicatedStorage.Shared) are used in both Lobby and Match; **Features** and **LobbyClient** are place-specific (Match-only vs Lobby-only) as indicated per folder.
 
 ### `src/PlayerScriptService/`
 
@@ -41,7 +41,7 @@ Client scripts; run under `StarterPlayer.StarterPlayerScripts`. Rojo mounts: **C
 | **`Features/Classes/`** | Class UI, XpBarHud (view, controller, remotes). |
 | **`Features/Combat/`** | Crosshair, AmmoHud, DamageIndicators, DualWieldPose, SentryPlacementPreview. |
 | **`Features/Enemies/`** | EnemyHealthBars, EnemyDeathCloud, EnemyModelUtils. |
-| **`Features/Settings/`** | Match settings UI. |
+| **`Features/Settings/`** | Match-only settings UI (in-match menu). |
 | **`Features/Shop/`** | Shop UI (controller, view, remotes, catalog display, messages). |
 | **`Features/Social/`** | MatchFriendNameplates. |
 | **`Features/Spectator/`** | Spectator controller and view. |
@@ -99,7 +99,7 @@ Place-specific server; PlaceRole controls which systems run (Lobby vs Match).
 | **`Classes/`** | ClassService, ClassStateSync, ClassRuntimeEffects, ClassCombatRules. |
 | **`Shop/`** | ShopService, Catalog (CatalogBuilder, PricingEngine, AmmoInventory), PurchaseFlow, CurrencyService, TraderAccess, Inventory. |
 | **`Weapons/`** | Tools (WeaponToolFactory, WeaponTemplateResolver, ammo, fire handlers), Combat (AimResolver, EnemyDamageService, WeaponFireHandlers, handlers: Bullet, Melee, Projectile, Flamethrower, WeaponVfx, WeaponRemoteBindings), Sentry (Registry, Placement, Targeting, Stats, UI, SentryTurretController). |
-| **`Combat/`** | AimResolver, EnemyDamageService (weapon damage lives under Weapons). |
+| **`Combat/`** | Shared combat services: AimResolver, EnemyDamageService (weapon-specific damage/handlers live under Weapons). |
 | **`Difficulty/`** | DifficultyService. |
 | **`Pickups/`** | AmmoPickupService. |
 | **`Spectator/`** | SpectatorService. |
@@ -151,10 +151,15 @@ Place content.
 | **New UI views (React Luau)** | **`src/ui/UI/`** |
 | **UI state / orchestration** | **`src/ui/UIController/`** |
 | **Client entry** | **`src/PlayerScriptService/ClientEntry.luau`** (invoked by ClientMain.client.luau) |
+| **Unclear?** | Choose by responsibility/domain; if two folders fit, either is acceptable. |
 
 ---
 
-## Settings system
+## Cross-cutting summaries (quick lookup)
+
+The sections below summarize a few systems that span multiple folders — for orientation only, not additional rules.
+
+### Settings system
 
 | Component | Location | Purpose |
 |-----------|----------|--------|
@@ -162,9 +167,7 @@ Place content.
 | Settings config | `src/ReplicatedStorage/Shared/Settings/` | Ranges, limits, HUD definitions. |
 | Settings client | `src/PlayerScriptService/SharedClient/Settings/` | Menu controller, audio, HUD layout, visibility, return-to-lobby. |
 
----
-
-## UI state system
+### UI state system
 
 | Component | Location | Purpose |
 |-----------|----------|--------|
