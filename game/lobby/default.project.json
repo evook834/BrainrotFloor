@@ -11,7 +11,7 @@
         "$ignoreUnknownInstances": true
       },
       "Shared": {
-        "$path": "../shared/src/ReplicatedStorage/Shared",
+        "$path": "../src/ReplicatedStorage/Shared",
         "$ignoreUnknownInstances": true
       },
       "ClassIcons": {
@@ -23,7 +23,7 @@
       "$className": "ServerScriptService",
       "$ignoreUnknownInstances": true,
       "Shared": {
-        "$path": "../shared/src/ServerScriptService/Shared",
+        "$path": "../src/ServerScriptService/Shared",
         "$ignoreUnknownInstances": true
       },
       "Lobby": {
@@ -38,7 +38,7 @@
         "$className": "StarterPlayerScripts",
         "$ignoreUnknownInstances": true,
         "SharedClient": {
-          "$path": "../shared/src/StarterPlayerScripts/SharedClient",
+          "$path": "../src/PlayerScriptService/SharedClient",
           "$ignoreUnknownInstances": true
         },
         "LobbyClient": {

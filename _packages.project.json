@@ -1,0 +1,15 @@
+{
+  "name": "Brainrot Floor Packages",
+  "servePort": 34873,
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "$ignoreUnknownInstances": true,
+      "Packages": {
+        "$path": "Packages/_Index",
+        "$ignoreUnknownInstances": true
+      }
+    }
+  }
+}

@@ -1,0 +1,340 @@
+--[[
+	SentryPlacementPreview — Builds and updates the sentry placement preview model (ghost + highlight).
+	Used when holding the sentry deployer tool; validates placement and shows valid/invalid color.
+]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.GameConfig)
+local SentryConstants = require(ReplicatedStorage.Shared.SentryConstants)
+
+local Constants = require(script.Parent.CrosshairConstants)
+
+local SENTRY_TURRET_FOLDER_NAME = SentryConstants.SENTRY_TURRET_FOLDER_NAME
+local WEAPON_EFFECTS_FOLDER_NAME = Constants.WEAPON_EFFECTS_FOLDER_NAME
+local SENTRY_PREVIEW_VALID_COLOR = Constants.SENTRY_PREVIEW_VALID_COLOR
+local SENTRY_PREVIEW_INVALID_COLOR = Constants.SENTRY_PREVIEW_INVALID_COLOR
+local SENTRY_PREVIEW_PADDING = Constants.SENTRY_PREVIEW_PADDING
+local SENTRY_PLACEMENT_DEFAULT_MAX_DISTANCE = Constants.SENTRY_PLACEMENT_DEFAULT_MAX_DISTANCE
+local AIM_RAYCAST_MAX_DISTANCE = Constants.AIM_RAYCAST_MAX_DISTANCE
+
+local function getPlacementMaxDistance(tool)
+	if not tool then
+		return SENTRY_PLACEMENT_DEFAULT_MAX_DISTANCE
+	end
+	local placementDistance = tonumber(tool:GetAttribute("TurretPlacementDistance"))
+	if type(placementDistance) == "number" and placementDistance > 0 then
+		return placementDistance
+	end
+	local range = tonumber(tool:GetAttribute("Range"))
+	if type(range) == "number" and range > 0 then
+		return range
+	end
+	return SENTRY_PLACEMENT_DEFAULT_MAX_DISTANCE
+end
+
+local function isSentryPreviewSourcePart(part)
+	if not part or not part:IsA("BasePart") then
+		return false
+	end
+	if part.Name == "Handle" then
+		return false
+	end
+	return part.Transparency < 0.995
+end
+
+local function buildExclusionList(character, previewModel)
+	local exclusions = {}
+	if character then
+		table.insert(exclusions, character)
+	end
+	local enemyContainerName = Config.Enemy and Config.Enemy.ContainerName
+	if type(enemyContainerName) == "string" and enemyContainerName ~= "" then
+		local enemyContainer = workspace:FindFirstChild(enemyContainerName)
+		if enemyContainer then
+			table.insert(exclusions, enemyContainer)
+		end
+	end
+	local sentryFolder = workspace:FindFirstChild(SENTRY_TURRET_FOLDER_NAME)
+	if sentryFolder then
+		table.insert(exclusions, sentryFolder)
+	end
+	local effectsFolder = workspace:FindFirstChild(WEAPON_EFFECTS_FOLDER_NAME)
+	if effectsFolder then
+		table.insert(exclusions, effectsFolder)
+	end
+	if previewModel then
+		table.insert(exclusions, previewModel)
+	end
+	return exclusions
+end
+
+local function create()
+	local previewModel = nil
+	local previewParts = {}
+	local previewHighlight = nil
+	local sourceTool = nil
+	local boundsSize = nil
+
+	local function clear()
+		if previewModel then
+			previewModel:Destroy()
+		end
+		previewModel = nil
+		previewHighlight = nil
+		sourceTool = nil
+		boundsSize = nil
+		table.clear(previewParts)
+	end
+
+	local function setVisible(visible)
+		local shouldShow = visible == true
+		for _, entry in ipairs(previewParts) do
+			local part = entry.part
+			if part and part.Parent then
+				part.Transparency = if shouldShow then entry.displayTransparency else 1
+			end
+		end
+		if previewHighlight then
+			previewHighlight.Enabled = shouldShow
+		end
+	end
+
+	local function setColor(color)
+		for _, entry in ipairs(previewParts) do
+			local part = entry.part
+			if part and part.Parent then
+				part.Color = color
+			end
+		end
+		if previewHighlight then
+			previewHighlight.FillColor = color
+			previewHighlight.OutlineColor = color
+		end
+	end
+
+	local function ensurePreviewModel(tool)
+		if not tool then
+			clear()
+			return false
+		end
+		if previewModel and previewModel.Parent and sourceTool == tool then
+			return true
+		end
+
+		clear()
+
+		local sourceParts = {}
+		local fallbackPart = nil
+		local handle = tool:FindFirstChild("Handle", true)
+		if handle and handle:IsA("BasePart") then
+			fallbackPart = handle
+		end
+
+		for _, descendant in ipairs(tool:GetDescendants()) do
+			if isSentryPreviewSourcePart(descendant) then
+				table.insert(sourceParts, descendant)
+			elseif not fallbackPart and descendant:IsA("BasePart") then
+				fallbackPart = descendant
+			end
+		end
+
+		if #sourceParts == 0 then
+			if not fallbackPart then
+				return false
+			end
+			table.insert(sourceParts, fallbackPart)
+		end
+
+		local sourceRoot = fallbackPart or sourceParts[1]
+		if not sourceRoot then
+			return false
+		end
+
+		local model = Instance.new("Model")
+		model.Name = "SentryPlacementPreview"
+		model.Parent = workspace
+
+		for _, sourcePart in ipairs(sourceParts) do
+			local clonePart = sourcePart:Clone()
+			for _, descendant in ipairs(clonePart:GetDescendants()) do
+				if descendant:IsA("JointInstance") or descendant:IsA("Constraint") or descendant:IsA("Script") or descendant:IsA("LocalScript") then
+					descendant:Destroy()
+				end
+			end
+
+			clonePart.Anchored = true
+			clonePart.CanCollide = false
+			clonePart.CanTouch = false
+			clonePart.CanQuery = false
+			clonePart.CastShadow = false
+			clonePart.Transparency = math.clamp(tonumber(sourcePart.Transparency) or 0, 0.2, 0.85)
+			clonePart.Parent = model
+
+			table.insert(previewParts, {
+				part = clonePart,
+				relativeCFrame = sourceRoot.CFrame:ToObjectSpace(sourcePart.CFrame),
+				displayTransparency = clonePart.Transparency,
+			})
+		end
+
+		local ok, _, size = pcall(function()
+			return model:GetBoundingBox()
+		end)
+		if ok and size then
+			boundsSize = Vector3.new(
+				math.max(0.2, size.X),
+				math.max(0.2, size.Y),
+				math.max(0.2, size.Z)
+			)
+		else
+			boundsSize = Vector3.new(3, 3, 3)
+		end
+
+		local highlight = Instance.new("Highlight")
+		highlight.Name = "PlacementHighlight"
+		highlight.Adornee = model
+		highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+		highlight.FillTransparency = 0.62
+		highlight.OutlineTransparency = 0.22
+		highlight.Enabled = false
+		highlight.Parent = model
+
+		previewModel = model
+		previewHighlight = highlight
+		sourceTool = tool
+		return true
+	end
+
+	local function getPlacementRotationOffset(tool)
+		if not tool then
+			return CFrame.new()
+		end
+		local rotationDeg = tool:GetAttribute("TurretPlacementRotationDeg")
+		if typeof(rotationDeg) ~= "Vector3" then
+			return CFrame.new()
+		end
+		return CFrame.Angles(
+			math.rad(rotationDeg.X),
+			math.rad(rotationDeg.Y),
+			math.rad(rotationDeg.Z)
+		)
+	end
+
+	-- Returns hitPosition, hitNormal, placementDirection (or nils)
+	function getPlacementData(viewportX, viewportY, character, tool)
+		local camera = workspace.CurrentCamera
+		if not camera then
+			return nil, nil, nil
+		end
+		local viewportSize = camera.ViewportSize
+		if viewportSize.X <= 0 or viewportSize.Y <= 0 then
+			return nil, nil, nil
+		end
+
+		local cameraRay = camera:ViewportPointToRay(viewportX, viewportY)
+		local cameraDirection = cameraRay.Direction.Unit
+		local maxDistance = getPlacementMaxDistance(tool)
+		local exclusions = buildExclusionList(character, previewModel)
+
+		local raycastParams = RaycastParams.new()
+		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+		raycastParams.FilterDescendantsInstances = exclusions
+		raycastParams.IgnoreWater = true
+
+		local cameraHitResult = workspace:Raycast(cameraRay.Origin, cameraDirection * AIM_RAYCAST_MAX_DISTANCE, raycastParams)
+		local targetPosition = cameraRay.Origin + cameraDirection * AIM_RAYCAST_MAX_DISTANCE
+		if cameraHitResult then
+			targetPosition = cameraHitResult.Position
+		end
+
+		local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+		local placementOrigin = if rootPart and rootPart:IsA("BasePart")
+			then (rootPart.Position + Vector3.new(0, 1.5, 0))
+			else cameraRay.Origin
+		local toTarget = targetPosition - placementOrigin
+		local placementDirection = cameraDirection
+		if toTarget.Magnitude > 0.01 then
+			placementDirection = toTarget.Unit
+		end
+
+		local raycastResult = workspace:Raycast(placementOrigin, placementDirection * maxDistance, raycastParams)
+		if not raycastResult then
+			return nil, nil, placementDirection
+		end
+
+		return raycastResult.Position, raycastResult.Normal, placementDirection
+	end
+
+	function updatePreview(show, hitPosition, hitNormal, lookDirection, character, tool)
+		if not show then
+			setVisible(false)
+			return
+		end
+
+		if not ensurePreviewModel(tool) then
+			return
+		end
+
+		if typeof(hitPosition) ~= "Vector3" or typeof(hitNormal) ~= "Vector3" then
+			setVisible(false)
+			return
+		end
+
+		local flatLook = nil
+		if typeof(lookDirection) == "Vector3" and lookDirection.Magnitude > 0.001 then
+			flatLook = Vector3.new(lookDirection.X, 0, lookDirection.Z)
+		end
+		if not flatLook or flatLook.Magnitude <= 0.001 then
+			local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+			if rootPart then
+				flatLook = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
+			else
+				flatLook = Vector3.new(0, 0, -1)
+			end
+		end
+		if flatLook.Magnitude <= 0.001 then
+			flatLook = Vector3.new(0, 0, -1)
+		end
+
+		local size = boundsSize or Vector3.new(3, 3, 3)
+		local placementPosition = hitPosition + Vector3.new(0, (size.Y * 0.5) + 0.05, 0)
+		local placementCFrame = CFrame.lookAt(placementPosition, placementPosition + flatLook.Unit)
+		placementCFrame *= getPlacementRotationOffset(tool)
+
+		for _, entry in ipairs(previewParts) do
+			local part = entry.part
+			if part and part.Parent then
+				part.CFrame = placementCFrame * entry.relativeCFrame
+			end
+		end
+
+		local overlapExclusions = buildExclusionList(character, previewModel)
+		local overlapParams = OverlapParams.new()
+		overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+		overlapParams.FilterDescendantsInstances = overlapExclusions
+		local overlaps = workspace:GetPartBoundsInBox(placementCFrame, size + SENTRY_PREVIEW_PADDING, overlapParams)
+
+		local blocked = false
+		for _, part in ipairs(overlaps) do
+			if part and part.Parent and part.CanCollide then
+				blocked = true
+				break
+			end
+		end
+
+		local isPlaceable = hitNormal.Y >= 0.55 and not blocked
+		setColor(if isPlaceable then SENTRY_PREVIEW_VALID_COLOR else SENTRY_PREVIEW_INVALID_COLOR)
+		setVisible(true)
+	end
+
+	return {
+		getPlacementData = getPlacementData,
+		updatePreview = updatePreview,
+		clear = clear,
+	}
+end
+
+return {
+	create = create,
+}

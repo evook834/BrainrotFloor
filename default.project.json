@@ -1,0 +1,71 @@
+{
+  "name": "Brainrot Floor",
+  "servePort": 34872,
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "$ignoreUnknownInstances": true,
+      "Packages": {
+        "$path": "Packages",
+        "$ignoreUnknownInstances": true
+      },
+      "Shared": {
+        "$path": "src/ReplicatedStorage/Shared",
+        "$ignoreUnknownInstances": true
+      },
+      "ClassIcons": {
+        "$path": "/home/haon/Documents/P/BrainrotFloor/Class Icons",
+        "$ignoreUnknownInstances": true
+      },
+      "ui": {
+        "$path": "src/ui",
+        "$ignoreUnknownInstances": true
+      }
+    },
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "$ignoreUnknownInstances": true,
+      "Lobby": {
+        "$path": "src/ServerScriptService/Features/Lobby",
+        "$ignoreUnknownInstances": true
+      },
+      "Shared": {
+        "$path": "src/ServerScriptService/Shared",
+        "$ignoreUnknownInstances": true
+      },
+      "Features": {
+        "$path": "src/ServerScriptService/Features",
+        "$ignoreUnknownInstances": true
+      }
+    },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "$ignoreUnknownInstances": true,
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "$ignoreUnknownInstances": true,
+        "SharedClient": {
+          "$path": "src/PlayerScriptService/SharedClient",
+          "$ignoreUnknownInstances": true
+        },
+        "LobbyClient": {
+          "$path": "src/PlayerScriptService/Features/LobbyClient",
+          "$ignoreUnknownInstances": true
+        },
+        "Features": {
+          "$path": "src/PlayerScriptService/Features",
+          "$ignoreUnknownInstances": true
+        }
+      }
+    },
+    "Workspace": {
+      "$className": "Workspace",
+      "$ignoreUnknownInstances": true,
+      "DifficultyButtons": {
+        "$path": "src/Workspace/DifficultyButtons",
+        "$ignoreUnknownInstances": true
+      }
+    }
+  }
+}

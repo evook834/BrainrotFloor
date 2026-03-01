@@ -6,19 +6,24 @@ This document describes where code lives, how places are built, and **dependency
 
 ## Repo layout
 
-- **`game/shared/`** — Shared code used by multiple places. Split by runtime:
-  - **`src/ReplicatedStorage/Shared/`** — Replicated to client and server (config, catalogs, remote names).
-  - **`src/ServerScriptService/Shared/`** — Server-only shared (e.g. matchmaking config, place role).
-  - **`src/StarterPlayerScripts/SharedClient/`** — Client-only shared (e.g. sprint).
-- **`game/lobby/`** — Lobby place. Place-specific server under **`src/ServerScriptService/Lobby/`**, client under **`src/StarterPlayer/StarterPlayerScripts/LobbyClient/`**.
-- **`game/match/`** — Match place. Place-specific server under **`src/ServerScriptService/Match/`**, client under **`src/StarterPlayer/StarterPlayerScripts/MatchClient/`**.
-- **`game/places/`** — Legacy/copy of place-specific code; see repo structure for current locations.
+### New unified source (`src/`)
+
+- **`src/ReplicatedStorage/Shared/`** — Replicated to client and server (config, catalogs, remote names).
+- **`src/ServerScriptService/Shared/`** — Server-only shared (e.g. matchmaking config, place role).
+- **`src/ServerScriptService/Lobby/`** — Lobby place server scripts (entry point for lobby systems).
+- **`src/PlayerScriptService/SharedClient/`** — Client-only shared (e.g. sprint, settings, friends).
+- **`src/ui/`** — New UI system with State-based management.
+
+### Legacy structure (`game/`)
+
+- **`game/shared/`** — Legacy shared (migrating to `src/`).
+- **`game/lobby/`** — Legacy lobby place.
+- **`game/match/`** — Legacy match place.
 
 Each place has a **`default.project.json`** that mounts **`../shared`** into the same DataModel, so at runtime:
-- **ReplicatedStorage.Shared** ← `game/shared/src/ReplicatedStorage/Shared`
-- **ServerScriptService.Shared** ← `game/shared/src/ServerScriptService/Shared`
-- **StarterPlayer.StarterPlayerScripts.SharedClient** ← `game/shared/src/StarterPlayerScripts/SharedClient`
-- **ServerScriptService.Lobby** / **Match** and **LobbyClient** / **MatchClient** come from the place project (lobby or match).
+- **ReplicatedStorage.Shared** ← `src/ReplicatedStorage/Shared` or `game/shared/src/ReplicatedStorage/Shared`
+- **ServerScriptService.Shared** ← `src/ServerScriptService/Shared` or `game/shared/src/ServerScriptService/Shared`
+- **StarterPlayer.SharedClient** ← `src/PlayerScriptService/SharedClient` or `game/shared/src/StarterPlayerScripts/SharedClient`
 
 ---
 
@@ -47,11 +52,15 @@ Each place has a **`default.project.json`** that mounts **`../shared`** into the
 - Modules under **ServerScriptService.Shared** may `require` **ReplicatedStorage.Shared** and other **ServerScriptService.Shared** modules.
 - They **must not** `require` place-specific server code (Lobby/Match); place code may require Shared, not the other way around if you want to keep Shared place-agnostic.
 
-### 5. Place-specific client
+### 5. Place-specific server
 
-- **LobbyClient** / **MatchClient** scripts may `require` **ReplicatedStorage.Shared** and sibling/client shared code. They **must not** `require` **ServerScriptService** or **ServerStorage**.
+- **ServerScriptService.Lobby** may `require` **ReplicatedStorage.Shared**, **ServerScriptService.Shared**, and sibling Lobby modules. It **must not** require Match code (place-specific code may require shared, not vice versa).
 
-### 6. Communication across client–server boundary
+### 6. Place-specific client
+
+- **SharedClient** scripts may `require` **ReplicatedStorage.Shared** and sibling/client shared code. They **must not** `require` **ServerScriptService** or **ServerStorage**.
+
+### 7. Communication across client–server boundary
 
 - **Only via Remotes.** No cross-boundary `require`. Remote names and payloads are documented in [REMOTES.md](REMOTES.md).
 
@@ -72,3 +81,4 @@ Each place has a **`default.project.json`** that mounts **`../shared`** into the
 
 - **[REMOTES.md](REMOTES.md)** — Remote names, direction (C→S / S→C), and payloads (including `WaveState` / `WaveEnemiesRemaining` from the wave director).
 - **[AGENTS.md](AGENTS.md)** — File organization and when to add or edit files.
+- **[UI_SYSTEM.md](UI_SYSTEM.md)** — New state-based UI system documentation.

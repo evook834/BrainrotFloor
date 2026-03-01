@@ -2,7 +2,43 @@
 
 Co-op wave-based shooter on Roblox: players choose a difficulty in the **lobby**, get matched into a **match** server, then survive waves of enemies, buy weapons and ammo, level classes, and optionally return to lobby or vote for the next map after game over.
 
-This README is an **architecture overview**. For folder-by-folder layout see [PROJECT_MAP.md](PROJECT_MAP.md). For dependency rules see [DEPENDENCIES.md](DEPENDENCIES.md). For remotes see [REMOTES.md](REMOTES.md). For feature notes (sprint, stamina, difficulty, game over, etc.) see [doc.md](doc.md).
+This README is an **architecture overview**. For folder-by-folder layout see [PROJECT_MAP.md](PROJECT_MAP.md). For dependency rules see [DEPENDENCIES.md](DEPENDENCIES.md). For remotes see [REMOTES.md](REMOTES.md). For the new UI system see [UI_SYSTEM.md](UI_SYSTEM.md). For feature notes (sprint, stamina, difficulty, game over, etc.) see [doc.md](doc.md).
+
+---
+
+## New Project Structure (Migration Complete)
+
+We're reorganizing the codebase into a unified structure with a **state-based UI system**:
+
+```
+BrainrotFloor/
+├── src/                    # New unified source tree
+│   ├── PlayerScriptService/   # Client scripts (StarterPlayerScripts)
+│   ├── ReplicatedStorage/     # Shared client+server code
+│   ├── ServerScriptService/   # Server scripts
+│   └── ui/                    # State-based UI system
+│       ├── UI/                # React Luau components
+│       └── UIController/      # State machine + UI manager
+├── game/                   # Legacy structure (migrated, kept for reference)
+│   ├── shared/
+│   ├── lobby/
+│   └── match/
+└── Packages/               # Centralized Wally packages
+```
+
+### Migration status
+
+- [x] New folder structure created
+- [x] State-based UI system (`src/ui/`) created
+- [x] Shared code migrated to `src/ReplicatedStorage/Shared/`
+- [x] Match client code migrated to `src/PlayerScriptService/Features/`
+- [x] Match server code migrated to `src/ServerScriptService/Features/`
+- [x] Lobby client code migrated to `src/PlayerScriptService/Features/LobbyClient/`
+- [x] Lobby server code migrated to `src/ServerScriptService/Features/Lobby/`
+- [x] Wally packages installed (DataService)
+- [ ] Legacy `game/` structure removed after migration complete
+
+See [PROJECT_MAP.md](PROJECT_MAP.md) for details.
 
 ---
 
@@ -10,19 +46,13 @@ This README is an **architecture overview**. For folder-by-folder layout see [PR
 
 ### Two places, one shared tree
 
-- **Lobby place** (`game/lobby/`) — Players pick difficulty (Easy / Normal / Hard). Server uses **MemoryStore** to find or create a match server and teleports the party there.
-- **Match place** (`game/match/`) — Wave loop, enemies, shop, classes, difficulty scaling, settings, ammo pickups. When all players die, game over triggers; players can return to lobby or vote for the next map.
-- **Shared** (`game/shared/`) — Code used by both places, split by runtime:
-  - **ReplicatedStorage.Shared** — Config and catalogs (waves, enemies, classes, shop, player, remotes). Replicated to client and server; may only `require` within this tree.
-  - **ServerScriptService.Shared** — Server-only shared (matchmaking config, place role detection).
-  - **StarterPlayerScripts.SharedClient** — Client-only shared (e.g. sprint/stamina).
-
-Each place has a Rojo **`default.project.json`** that mounts **`../shared`** into the same DataModel, so at runtime one place = one game tree with both place-specific and shared scripts.
+- **Lobby place** (`default.project.json`) — Players pick difficulty (Easy / Normal / Hard). Server uses **MemoryStore** to find or create a match server and teleports the party there.
+- **Match place** — Wave loop, enemies, shop, classes, difficulty scaling, settings, ammo pickups. When all players die, game over triggers; players can return to lobby or vote for the next map.
 
 ### Client / server boundary
 
 - **Clients** run under `StarterPlayer.StarterPlayerScripts` (SharedClient + LobbyClient or MatchClient). They **cannot** `require` anything under `ServerScriptService`; it does not exist on the client.
-- **Servers** run under `ServerScriptService` (Shared + Lobby or Match). They may `require` ReplicatedStorage.Shared and ServerScriptService (shared + place).
+- **Servers** run under `ServerScriptService` (Shared + Lobby or Match). They may `require` ReplicatedStorage.Shared and ServerScriptService (shared + features).
 - **All cross-boundary communication** is via **Remotes** only (RemoteEvent / RemoteFunction). Names and payloads are defined in [REMOTES.md](REMOTES.md) and `ReplicatedStorage.Shared.Remotes.RemoteNames`.
 
 ### Key systems (match)
@@ -52,24 +82,59 @@ Config (wave timing, enemy counts, wave director tables (WaveTotalTarget/AliveCa
 ## Repo layout (summary)
 
 ```
-game/
-├── shared/          # ReplicatedStorage.Shared, ServerScriptService.Shared, SharedClient
-├── lobby/           # Lobby place (ServerScriptService.Lobby, LobbyClient)
-├── match/           # Match place (ServerScriptService.Match, MatchClient)
-└── places/          # Legacy; prefer lobby/ and match/ for current code
+game/                   # Legacy structure (migrated, kept for reference)
+├── shared/
+├── lobby/
+├── match/
+└── places/
+
+src/                    # New unified structure (active)
+├── PlayerScriptService/
+│   ├── Core/
+│   ├── Features/       # Feature scripts
+│   └── SharedClient/
+├── ReplicatedStorage/
+│   └── Shared/
+├── ServerScriptService/
+│   ├── Shared/
+│   ├── Core/
+│   └── Features/
+└── ui/                 # State-based UI system
 ```
 
 Detailed folder-by-folder breakdown: **[PROJECT_MAP.md](PROJECT_MAP.md)**.
+
+### Legacy path mappings
+
+| Legacy Path | New Path |
+|-------------|----------|
+| `game/shared/src/ReplicatedStorage/Shared/` | `src/ReplicatedStorage/Shared/` |
+| `game/shared/src/ServerScriptService/Shared/` | `src/ServerScriptService/Shared/` |
+| `game/shared/src/StarterPlayerScripts/SharedClient/` | `src/PlayerScriptService/SharedClient/` |
+| `game/lobby/src/ServerScriptService/Lobby/` | `src/ServerScriptService/Features/Lobby/` |
+| `game/match/src/StarterPlayer/StarterPlayerScripts/MatchClient/` | `src/PlayerScriptService/Features/` |
 
 ---
 
 ## Quick start
 
 1. **Toolchain** — `aftman` (see `aftman.toml`), `rojo`, `wally` for packages.
-2. **Serve a place** — e.g. `rojo serve game/lobby/default.project.json` or `rojo serve game/match/default.project.json`.
-3. **Studio** — Install Rojo plugin, connect to the served port (e.g. `localhost:34872`), sync.
-4. **Matchmaking** — Set `LOBBY_PLACE_ID` and `MATCH_PLACE_IDS` in `game/shared/src/ServerScriptService/Shared/Matchmaking/MatchmakingConfig.luau` for real place IDs.
-5. **Packages** — Per-place: `cd game/lobby && wally install`, `cd game/match && wally install` (if needed).
+2. **Serve** — `rojo serve default.project.json` for the new unified structure.
+3. **Studio** — Connect to the served port (e.g. `localhost:34872`), sync.
+4. **Matchmaking** — Set `LOBBY_PLACE_ID` and `MATCH_PLACE_IDS` in `src/ServerScriptService/Shared/Matchmaking/MatchmakingConfig.luau` for real place IDs.
+5. **Packages** — `wally install` in root directory (DataService installed).
+
+### Using the new UI State System
+
+```lua
+-- Client entry point using the new UI system
+local ClientEntry = require(ReplicatedStorage.Shared.PlayerScriptService.ClientEntry)
+ClientEntry.run()
+```
+
+The new UI system uses a centralized `GameStateMachine` and `UIManager` to manage UI visibility based on the current game state.
+
+See [UI_SYSTEM.md](UI_SYSTEM.md) for full documentation.
 
 ---
 
@@ -81,6 +146,7 @@ Detailed folder-by-folder breakdown: **[PROJECT_MAP.md](PROJECT_MAP.md)**.
 | **[PROJECT_MAP.md](PROJECT_MAP.md)** | Folder-by-folder summary. |
 | **[DEPENDENCIES.md](DEPENDENCIES.md)** | Who may `require` what; client vs server; shared vs place. |
 | **[REMOTES.md](REMOTES.md)** | Remote names, direction, payloads. |
+| **[UI_SYSTEM.md](UI_SYSTEM.md)** | New state-based UI system. |
 | **[AGENTS.md](AGENTS.md)** | Agent instructions: command preference, placement rules, file organization, when to add/edit/split. |
 
 ---
