@@ -3,6 +3,7 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
+local SharedEnemyDefinitions = require(ReplicatedStorage.Shared.Enemy.EnemyDefinitions)
 local ModelRootResolver = require(script.Parent.ModelRootResolver)
 
 local EnemySpawnResolver = {}
@@ -27,7 +28,8 @@ local function isSpawnDefined(templateName)
 end
 
 local function getTemplateProfile(templateName)
-	local templateProfile = (Config.Enemy.TemplateProfiles or {})[templateName]
+	local resolvedTemplateName = SharedEnemyDefinitions.resolveBaseTemplateName(templateName)
+	local templateProfile = (Config.Enemy.TemplateProfiles or {})[resolvedTemplateName]
 	if type(templateProfile) == "table" then
 		return templateProfile
 	end

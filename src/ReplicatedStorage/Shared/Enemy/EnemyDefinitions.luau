@@ -1,4 +1,12 @@
 local EnemyDefinitions = {}
+local KNOWN_VARIANT_PREFIXES = {
+	"diamond",
+	"galaxy",
+	"gold",
+	"hacker",
+	"lava",
+	"rainbow",
+}
 
 EnemyDefinitions.DefaultProfile = {
 	MoveSpeed = 12,
@@ -48,6 +56,18 @@ local function normalizeDanger(value)
 
 	local defaultData = DANGER_ALIAS_TO_DATA[string.lower(EnemyDefinitions.DefaultDanger)]
 	return defaultData.danger, defaultData.tier
+end
+
+local function normalizeTemplateLookupKey(value)
+	if type(value) ~= "string" then
+		return nil
+	end
+
+	local normalizedKey = string.lower(value)
+	normalizedKey = normalizedKey:gsub("[%s_%-]+", " ")
+	normalizedKey = normalizedKey:gsub("^%s+", "")
+	normalizedKey = normalizedKey:gsub("%s+$", "")
+	return normalizedKey
 end
 
 -- Add one entry per model in ServerStorage/EnemyTemplates using the exact model name as the key.
@@ -755,7 +775,61 @@ EnemyDefinitions.TemplateSettings = {
 	},
 }
 
+local NORMALIZED_TEMPLATE_NAME_TO_BASE = {}
+
+for templateName in pairs(EnemyDefinitions.TemplateSettings) do
+	local normalizedKey = normalizeTemplateLookupKey(templateName)
+	if normalizedKey and normalizedKey ~= "" then
+		NORMALIZED_TEMPLATE_NAME_TO_BASE[normalizedKey] = templateName
+	end
+end
+
+local function resolveBaseTemplateName(templateName)
+	if type(templateName) ~= "string" or templateName == "" then
+		return templateName
+	end
+
+	if EnemyDefinitions.TemplateSettings[templateName] then
+		return templateName
+	end
+
+	local normalizedKey = normalizeTemplateLookupKey(templateName)
+	if not normalizedKey or normalizedKey == "" then
+		return templateName
+	end
+
+	local directMatch = NORMALIZED_TEMPLATE_NAME_TO_BASE[normalizedKey]
+	if directMatch then
+		return directMatch
+	end
+
+	while true do
+		local strippedPrefix = false
+
+		for _, prefix in ipairs(KNOWN_VARIANT_PREFIXES) do
+			local prefixToken = prefix .. " "
+			if string.sub(normalizedKey, 1, #prefixToken) == prefixToken then
+				normalizedKey = string.sub(normalizedKey, #prefixToken + 1)
+				strippedPrefix = true
+				break
+			end
+		end
+
+		if not strippedPrefix then
+			break
+		end
+
+		local resolvedBaseName = NORMALIZED_TEMPLATE_NAME_TO_BASE[normalizedKey]
+		if resolvedBaseName then
+			return resolvedBaseName
+		end
+	end
+
+	return templateName
+end
+
 EnemyDefinitions.normalizeDanger = normalizeDanger
+EnemyDefinitions.resolveBaseTemplateName = resolveBaseTemplateName
 
 local function buildEntries()
 	local entries = {}
