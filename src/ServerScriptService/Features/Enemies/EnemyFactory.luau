@@ -1,3 +1,4 @@
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
@@ -8,6 +9,8 @@ local EnemyVfxService = require(script.Parent.EnemyVfxService)
 local ModelRootResolver = require(script.Parent.ModelRootResolver)
 
 local EnemyFactory = {}
+local SPAWN_SEARCH_RINGS = { 0, 1, 2, 3 }
+local SPAWN_COLLISION_PADDING = 0.5
 
 local function getPivotToRootOffset(enemyModel, rootPart)
 	if not enemyModel or not rootPart then
@@ -20,6 +23,97 @@ end
 
 local function getDesiredPivotFromRoot(desiredRootCFrame, pivotToRootOffset)
 	return desiredRootCFrame * pivotToRootOffset:Inverse()
+end
+
+local function getCollisionBoxSize(enemyModel, rootPart)
+	local ok, size = pcall(function()
+		return enemyModel:GetExtentsSize()
+	end)
+
+	if ok and size then
+		return Vector3.new(
+			math.max(rootPart.Size.X, size.X + SPAWN_COLLISION_PADDING),
+			math.max(rootPart.Size.Y, size.Y),
+			math.max(rootPart.Size.Z, size.Z + SPAWN_COLLISION_PADDING)
+		)
+	end
+
+	return rootPart.Size + Vector3.new(SPAWN_COLLISION_PADDING, 0, SPAWN_COLLISION_PADDING)
+end
+
+local function getCollisionRadius(enemyModel, rootPart)
+	local collisionSize = getCollisionBoxSize(enemyModel, rootPart)
+	return math.max(collisionSize.X, collisionSize.Z) * 0.5
+end
+
+local function isSpawnSpaceBlocked(container, enemyModel, rootPart, candidateRootCFrame)
+	local candidatePosition = candidateRootCFrame.Position
+	local candidateRadius = getCollisionRadius(enemyModel, rootPart)
+
+	if container then
+		for _, child in ipairs(container:GetChildren()) do
+			if child:IsA("Model") then
+				local otherRoot = EnemyRegistry.getRootPart(child)
+				if otherRoot then
+					local otherRadius = getCollisionRadius(child, otherRoot)
+					local planarDelta = otherRoot.Position - candidatePosition
+					local planarDistance = Vector3.new(planarDelta.X, 0, planarDelta.Z).Magnitude
+					if planarDistance < candidateRadius + otherRadius then
+						return true
+					end
+				end
+			end
+		end
+	end
+
+	for _, player in Players:GetPlayers() do
+		local character = player.Character
+		if character then
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			local playerRoot = character:FindFirstChild("HumanoidRootPart")
+			if humanoid and playerRoot and humanoid.Health > 0 then
+				local playerRadius = math.max(playerRoot.Size.X, playerRoot.Size.Z) * 0.5
+				local planarDelta = playerRoot.Position - candidatePosition
+				local planarDistance = Vector3.new(planarDelta.X, 0, planarDelta.Z).Magnitude
+				if planarDistance < candidateRadius + playerRadius then
+					return true
+				end
+			end
+		end
+	end
+
+	return false
+end
+
+local function resolveSpawnRootCFrame(enemyModel, rootPart, spawnPoint, spawnOffsetY, container)
+	local desiredRootCFrame = spawnPoint.CFrame + Vector3.new(0, spawnOffsetY, 0)
+	local collisionSize = getCollisionBoxSize(enemyModel, rootPart)
+	local horizontalStep = math.max(collisionSize.X, collisionSize.Z) + SPAWN_COLLISION_PADDING
+	local rightVector = spawnPoint.CFrame.RightVector
+	local forwardVector = spawnPoint.CFrame.LookVector
+	local candidateOffsets = {
+		Vector3.zero,
+		Vector3.new(1, 0, 0),
+		Vector3.new(-1, 0, 0),
+		Vector3.new(0, 0, 1),
+		Vector3.new(0, 0, -1),
+		Vector3.new(1, 0, 1),
+		Vector3.new(1, 0, -1),
+		Vector3.new(-1, 0, 1),
+		Vector3.new(-1, 0, -1),
+	}
+
+	for _, ring in ipairs(SPAWN_SEARCH_RINGS) do
+		for _, offset in ipairs(candidateOffsets) do
+			local worldOffset = (rightVector * offset.X + forwardVector * offset.Z) * horizontalStep * ring
+			local candidateRootCFrame = desiredRootCFrame + worldOffset
+			if not isSpawnSpaceBlocked(container, enemyModel, rootPart, candidateRootCFrame) then
+				return candidateRootCFrame
+			end
+		end
+	end
+
+	return desiredRootCFrame
 end
 
 function EnemyFactory.spawnFromTemplate(template, spawnPoint, container, waveContext, options)
@@ -46,7 +140,7 @@ function EnemyFactory.spawnFromTemplate(template, spawnPoint, container, waveCon
 	EnemySpawnResolver.addTemplateHitboxProxy(enemy, templateName, root)
 	local spawnOffsetY = EnemySpawnResolver.getSpawnOffsetY(enemy, templateName, spawnPoint)
 	local pivotToRootOffset = getPivotToRootOffset(enemy, root)
-	local desiredRootCFrame = spawnPoint.CFrame + Vector3.new(0, spawnOffsetY, 0)
+	local desiredRootCFrame = resolveSpawnRootCFrame(enemy, root, spawnPoint, spawnOffsetY, container)
 	enemy:PivotTo(getDesiredPivotFromRoot(desiredRootCFrame, pivotToRootOffset))
 	enemy.Parent = container
 
