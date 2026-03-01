@@ -193,6 +193,21 @@ local function getPlayerCollisionRadius(rootPart)
 	return math.max(rootPart.Size.X, rootPart.Size.Z) * 0.5 + PLAYER_COLLISION_PADDING
 end
 
+local function getRootPartRadius(rootPart)
+	return math.max(rootPart.Size.X, rootPart.Size.Z) * 0.5
+end
+
+local function getAttackSeparationDistance(enemyModel, enemyRootPart, targetRootPart, targetPlayer)
+	if not (enemyRootPart and targetRootPart) then
+		return math.huge
+	end
+
+	local centerDistance = (targetRootPart.Position - enemyRootPart.Position).Magnitude
+	local targetRadius = if targetPlayer then getPlayerCollisionRadius(targetRootPart) else getRootPartRadius(targetRootPart)
+	local surfaceDistance = centerDistance - (getCollisionRadius(enemyModel, enemyRootPart) + targetRadius)
+	return math.max(0, surfaceDistance)
+end
+
 local function getEnemyOverlapData(enemyModel, rootPart, rootPosition)
 	local overlaps = {}
 	local selfRadius = getCollisionRadius(enemyModel, rootPart)
@@ -647,7 +662,13 @@ function EnemyAIService.start(enemyModel, templateName)
 			end
 
 			if currentTargetHumanoid and liveTargetRootPart and distance then
-				if distance <= profile.AttackRange then
+				local attackSeparation = getAttackSeparationDistance(
+					enemyModel,
+					rootPart,
+					liveTargetRootPart,
+					currentTargetPlayer
+				)
+				if attackSeparation <= profile.AttackRange then
 					stopTrack(chaseTrack)
 					EnemyMotionAnimator.setMoving(motionState, false)
 					local now = os.clock()
@@ -673,8 +694,13 @@ function EnemyAIService.start(enemyModel, templateName)
 								return
 							end
 
-							local attackDistance = (liveTargetRoot.Position - liveRootPart.Position).Magnitude
-							if attackDistance <= profile.AttackRange + 1.5 and attackTargetHumanoid.Health > 0 then
+							local attackSeparationAtHit = getAttackSeparationDistance(
+								enemyModel,
+								liveRootPart,
+								liveTargetRoot,
+								attackTargetPlayer
+							)
+							if attackSeparationAtHit <= profile.AttackRange + 1.5 and attackTargetHumanoid.Health > 0 then
 								local damageMultiplier = attackTargetPlayer and ClassService.getIncomingDamageMultiplier(attackTargetPlayer) or 1
 								local baseDamage = (tonumber(profile.AttackDamage) or 0) * enemyDamageMultiplier
 								local finalDamage = math.max(0, baseDamage * damageMultiplier)
