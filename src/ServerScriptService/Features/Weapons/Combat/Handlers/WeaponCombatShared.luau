@@ -16,8 +16,8 @@ function WeaponCombatShared.resolveShotRay(origin, direction, shotOrigin, shotDi
 	return rayOrigin, rayDirection
 end
 
-function WeaponCombatShared.resolveAimTargetPosition(character, rayOrigin, rayDirection, range)
-	local raycastParams = WeaponCombatShared.buildWeaponRaycastParams(character, {})
+function WeaponCombatShared.resolveAimTargetPosition(character, rayOrigin, rayDirection, range, additionalExclusions)
+	local raycastParams = WeaponCombatShared.buildWeaponRaycastParams(character, additionalExclusions or {})
 	local raycastResult = Workspace:Raycast(rayOrigin, rayDirection * range, raycastParams)
 	local targetPosition = rayOrigin + rayDirection * range
 	if raycastResult then

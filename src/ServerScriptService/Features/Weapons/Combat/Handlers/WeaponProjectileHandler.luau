@@ -4,9 +4,11 @@
 
 local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
+local SentryConstants = require(ReplicatedStorage.Shared.SentryConstants)
 local Match = script.Parent.Parent.Parent.Parent
 local ClassService = require(Match.Classes.ClassService)
 local EnemyTargeting = require(Match.Enemies.EnemyTargeting)
@@ -24,6 +26,8 @@ local resolveShotRay = WeaponCombatShared.resolveShotRay
 local resolveAimTargetPosition = WeaponCombatShared.resolveAimTargetPosition
 local retargetDirectionToward = WeaponCombatShared.retargetDirectionToward
 local buildWeaponRaycastParams = WeaponCombatShared.buildWeaponRaycastParams
+local SENTRY_TURRET_FOLDER_NAME = SentryConstants.SENTRY_TURRET_FOLDER_NAME
+local SENTRY_ATTR_IS_TURRET = SentryConstants.ATTR_IS_SENTRY_TURRET
 
 local function appendLivePlayerCharacters(exclusions)
 	for _, player in ipairs(Players:GetPlayers()) do
@@ -32,6 +36,21 @@ local function appendLivePlayerCharacters(exclusions)
 			table.insert(exclusions, playerCharacter)
 		end
 	end
+end
+
+local function appendSentryTurretFolder(exclusions)
+	local sentryFolder = Workspace:FindFirstChild(SENTRY_TURRET_FOLDER_NAME)
+	if sentryFolder then
+		table.insert(exclusions, sentryFolder)
+	end
+end
+
+local function shouldIgnoreSentryTurrets(character, damageContext)
+	if type(damageContext) == "table" and damageContext.ignoreSentryTurrets == true then
+		return true
+	end
+
+	return character and character:IsA("Model") and character:GetAttribute(SENTRY_ATTR_IS_TURRET) == true
 end
 
 local function cloneDamageContext(damageContext)
@@ -259,8 +278,13 @@ local function fireRocket(player, character, origin, direction, weaponDef, shotO
 	local blastRadius = math.max(4, tonumber(weaponDef.BlastRadius) or 16)
 	local blastDamage = tonumber(weaponDef.Damage) or 100
 	local hasIncendiaryPayload = hasExplosionBurnConfig(weaponDef) or hasGroundFireConfig(weaponDef)
+	local ignoreSentryTurrets = shouldIgnoreSentryTurrets(character, damageContext)
 	local aimRayOrigin, aimRayDirection = resolveShotRay(origin, direction, shotOrigin, shotDirection)
-	local aimTargetPosition = resolveAimTargetPosition(character, aimRayOrigin, aimRayDirection, range)
+	local aimRaycastExclusions = {}
+	if ignoreSentryTurrets then
+		appendSentryTurretFolder(aimRaycastExclusions)
+	end
+	local aimTargetPosition = resolveAimTargetPosition(character, aimRayOrigin, aimRayDirection, range, aimRaycastExclusions)
 	direction = retargetDirectionToward(origin, direction, aimTargetPosition)
 
 	local rocket = Instance.new("Part")
@@ -366,6 +390,9 @@ local function fireRocket(player, character, origin, direction, weaponDef, shotO
 		local raycastExclusions = { rocket }
 		if type(damageContext) == "table" and damageContext.ignorePlayerCharacters then
 			appendLivePlayerCharacters(raycastExclusions)
+		end
+		if ignoreSentryTurrets then
+			appendSentryTurretFolder(raycastExclusions)
 		end
 		local raycastParams = buildWeaponRaycastParams(character, raycastExclusions)
 

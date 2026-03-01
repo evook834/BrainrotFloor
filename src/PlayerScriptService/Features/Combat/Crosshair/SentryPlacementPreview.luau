@@ -17,6 +17,7 @@ local SENTRY_PREVIEW_INVALID_COLOR = Constants.SENTRY_PREVIEW_INVALID_COLOR
 local SENTRY_PREVIEW_PADDING = Constants.SENTRY_PREVIEW_PADDING
 local SENTRY_PLACEMENT_DEFAULT_MAX_DISTANCE = Constants.SENTRY_PLACEMENT_DEFAULT_MAX_DISTANCE
 local AIM_RAYCAST_MAX_DISTANCE = Constants.AIM_RAYCAST_MAX_DISTANCE
+local PREVIEW_TRANSPARENCY_ATTR = "PreviewTransparency"
 
 local function getPlacementMaxDistance(tool)
 	if not tool then
@@ -40,7 +41,18 @@ local function isSentryPreviewSourcePart(part)
 	if part.Name == "Handle" then
 		return false
 	end
+	if type(part:GetAttribute(PREVIEW_TRANSPARENCY_ATTR)) == "number" then
+		return true
+	end
 	return part.Transparency < 0.995
+end
+
+local function resolvePreviewPartTransparency(part)
+	local storedTransparency = part and part:GetAttribute(PREVIEW_TRANSPARENCY_ATTR)
+	if type(storedTransparency) == "number" then
+		return storedTransparency
+	end
+	return tonumber(part and part.Transparency) or 0
 end
 
 local function buildExclusionList(character, previewModel)
@@ -75,6 +87,7 @@ local function create()
 	local previewHighlight = nil
 	local sourceTool = nil
 	local boundsSize = nil
+	local referenceToPivot = nil
 
 	local function clear()
 		if previewModel then
@@ -84,6 +97,7 @@ local function create()
 		previewHighlight = nil
 		sourceTool = nil
 		boundsSize = nil
+		referenceToPivot = nil
 		table.clear(previewParts)
 	end
 
@@ -126,6 +140,7 @@ local function create()
 
 		local sourceParts = {}
 		local fallbackPart = nil
+		local useBoundsCenterReference = tool:GetAttribute("TurretPlacementReferenceMode") == "BoundsCenter"
 		local handle = tool:FindFirstChild("Handle", true)
 		if handle and handle:IsA("BasePart") then
 			fallbackPart = handle
@@ -168,7 +183,7 @@ local function create()
 			clonePart.CanTouch = false
 			clonePart.CanQuery = false
 			clonePart.CastShadow = false
-			clonePart.Transparency = math.clamp(tonumber(sourcePart.Transparency) or 0, 0.2, 0.85)
+			clonePart.Transparency = math.clamp(resolvePreviewPartTransparency(sourcePart), 0.2, 0.85)
 			clonePart.Parent = model
 
 			table.insert(previewParts, {
@@ -178,17 +193,38 @@ local function create()
 			})
 		end
 
-		local ok, _, size = pcall(function()
+		local ok, boundsCFrame, size = pcall(function()
 			return model:GetBoundingBox()
 		end)
-		if ok and size then
+		if ok and boundsCFrame and size then
 			boundsSize = Vector3.new(
 				math.max(0.2, size.X),
 				math.max(0.2, size.Y),
 				math.max(0.2, size.Z)
 			)
+			if useBoundsCenterReference then
+				for _, entry in ipairs(previewParts) do
+					local part = entry.part
+					if part and part.Parent then
+						entry.relativeCFrame = boundsCFrame:ToObjectSpace(part.CFrame)
+					end
+				end
+			end
 		else
 			boundsSize = Vector3.new(3, 3, 3)
+		end
+
+		local pivotOk, currentPivot = pcall(function()
+			return model:GetPivot()
+		end)
+		if pivotOk and currentPivot then
+			if useBoundsCenterReference and ok and boundsCFrame then
+				referenceToPivot = boundsCFrame:ToObjectSpace(currentPivot)
+			else
+				referenceToPivot = sourceRoot.CFrame:ToObjectSpace(currentPivot)
+			end
+		else
+			referenceToPivot = nil
 		end
 
 		local highlight = Instance.new("Highlight")
@@ -214,11 +250,91 @@ local function create()
 		if typeof(rotationDeg) ~= "Vector3" then
 			return CFrame.new()
 		end
-		return CFrame.Angles(
-			math.rad(rotationDeg.X),
-			math.rad(rotationDeg.Y),
-			math.rad(rotationDeg.Z)
-		)
+		local yaw = CFrame.fromAxisAngle(Vector3.yAxis, math.rad(rotationDeg.Y))
+		local pitch = CFrame.fromAxisAngle(Vector3.xAxis, math.rad(rotationDeg.X))
+		local roll = CFrame.fromAxisAngle(Vector3.zAxis, math.rad(rotationDeg.Z))
+		return yaw * pitch * roll
+	end
+
+	local function getPlacementFacingOffset(tool)
+		if not tool then
+			return CFrame.new()
+		end
+		local facingYawDeg = tonumber(tool:GetAttribute("TurretPlacementFacingYawDeg"))
+		if type(facingYawDeg) ~= "number" then
+			return CFrame.new()
+		end
+		return CFrame.fromAxisAngle(Vector3.yAxis, math.rad(facingYawDeg))
+	end
+
+	local function getPlacementPositionOffset(tool)
+		if not tool then
+			return CFrame.new()
+		end
+		local positionOffset = tool:GetAttribute("TurretPlacementPositionOffset")
+		if typeof(positionOffset) ~= "Vector3" then
+			return CFrame.new()
+		end
+		return CFrame.new(positionOffset)
+	end
+
+	local function getHorizontalUnitDirection(vector)
+		if typeof(vector) ~= "Vector3" then
+			return nil
+		end
+
+		local horizontal = Vector3.new(vector.X, 0, vector.Z)
+		if horizontal.Magnitude <= 0.001 then
+			return nil
+		end
+
+		return horizontal.Unit
+	end
+
+	local function resolveUprightReferencePlacementCFrame(referencePlacementCFrame, desiredLookDirection, tool)
+		local forwardAxis = referencePlacementCFrame.LookVector
+		local rightAxis = referencePlacementCFrame.RightVector
+		local desiredFlatLook = getHorizontalUnitDirection(desiredLookDirection)
+
+		local candidateRotations = {
+			CFrame.new(),
+			CFrame.fromAxisAngle(forwardAxis, math.pi),
+			CFrame.fromAxisAngle(forwardAxis, math.pi * 0.5),
+			CFrame.fromAxisAngle(forwardAxis, -math.pi * 0.5),
+			CFrame.fromAxisAngle(rightAxis, math.pi * 0.5),
+			CFrame.fromAxisAngle(rightAxis, -math.pi * 0.5),
+			CFrame.fromAxisAngle(rightAxis, math.pi),
+		}
+
+		local bestReferencePlacementCFrame = referencePlacementCFrame
+		local bestScore = -math.huge
+
+		for _, rotation in ipairs(candidateRotations) do
+			local candidateReferencePlacementCFrame = referencePlacementCFrame * rotation
+			candidateReferencePlacementCFrame *= getPlacementFacingOffset(tool)
+
+			local candidatePivotCFrame = candidateReferencePlacementCFrame
+			if referenceToPivot then
+				candidatePivotCFrame = candidateReferencePlacementCFrame * referenceToPivot
+			end
+
+			local upScore = candidatePivotCFrame.UpVector.Y
+			local facingScore = 0
+			if desiredFlatLook then
+				local candidateFlatLook = getHorizontalUnitDirection(candidatePivotCFrame.LookVector)
+				if candidateFlatLook then
+					facingScore = desiredFlatLook:Dot(candidateFlatLook)
+				end
+			end
+
+			local totalScore = upScore * 10 + facingScore
+			if totalScore > bestScore then
+				bestScore = totalScore
+				bestReferencePlacementCFrame = candidateReferencePlacementCFrame
+			end
+		end
+
+		return bestReferencePlacementCFrame
 	end
 
 	-- Returns hitPosition, hitNormal, placementDirection (or nils)
@@ -300,6 +416,12 @@ local function create()
 		local size = boundsSize or Vector3.new(3, 3, 3)
 		local placementPosition = hitPosition + Vector3.new(0, (size.Y * 0.5) + 0.05, 0)
 		local placementCFrame = CFrame.lookAt(placementPosition, placementPosition + flatLook.Unit)
+		local hasManualPlacementRotation = tool and typeof(tool:GetAttribute("TurretPlacementRotationDeg")) == "Vector3"
+		if hasManualPlacementRotation then
+			placementCFrame *= getPlacementFacingOffset(tool)
+		else
+			placementCFrame = resolveUprightReferencePlacementCFrame(placementCFrame, flatLook, tool)
+		end
 		placementCFrame *= getPlacementRotationOffset(tool)
 
 		for _, entry in ipairs(previewParts) do
@@ -309,11 +431,34 @@ local function create()
 			end
 		end
 
+		local positionOffsetCFrame = getPlacementPositionOffset(tool)
+		if previewModel and positionOffsetCFrame ~= CFrame.new() then
+			local previewPivot = previewModel:GetPivot()
+			local pivotSpaceOffset = previewPivot * positionOffsetCFrame * previewPivot:Inverse()
+			for _, entry in ipairs(previewParts) do
+				local part = entry.part
+				if part and part.Parent then
+					part.CFrame = pivotSpaceOffset * part.CFrame
+				end
+			end
+		end
+
 		local overlapExclusions = buildExclusionList(character, previewModel)
 		local overlapParams = OverlapParams.new()
 		overlapParams.FilterType = Enum.RaycastFilterType.Exclude
 		overlapParams.FilterDescendantsInstances = overlapExclusions
-		local overlaps = workspace:GetPartBoundsInBox(placementCFrame, size + SENTRY_PREVIEW_PADDING, overlapParams)
+		local overlapCFrame = placementCFrame
+		local overlapSize = size
+		if previewModel then
+			local ok, previewBoundsCFrame, previewBoundsSize = pcall(function()
+				return previewModel:GetBoundingBox()
+			end)
+			if ok and previewBoundsCFrame and previewBoundsSize then
+				overlapCFrame = previewBoundsCFrame
+				overlapSize = previewBoundsSize
+			end
+		end
+		local overlaps = workspace:GetPartBoundsInBox(overlapCFrame, overlapSize + SENTRY_PREVIEW_PADDING, overlapParams)
 
 		local blocked = false
 		for _, part in ipairs(overlaps) do

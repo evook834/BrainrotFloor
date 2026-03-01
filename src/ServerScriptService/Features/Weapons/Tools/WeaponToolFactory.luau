@@ -142,6 +142,8 @@ local function configureWeaponTool(tool, weaponDef, owner)
 
 	tool.Name = weaponDef.DisplayName
 	tool.CanBeDropped = false
+	tool.Enabled = true
+	tool.ManualActivationOnly = false
 	tool:SetAttribute("WeaponId", weaponDef.Id)
 	tool:SetAttribute("WeaponClass", weaponClass)
 	tool:SetAttribute("ClassTag", weaponDef.ClassTag)
@@ -152,6 +154,11 @@ local function configureWeaponTool(tool, weaponDef, owner)
 	tool:SetAttribute("Range", weaponDef.Range)
 	tool:SetAttribute("Cooldown", weaponDef.Cooldown)
 	tool:SetAttribute("TurretPlacementDistance", weaponDef.TurretPlacementDistance)
+	if type(weaponDef.TurretPlacementReferenceMode) == "string" and weaponDef.TurretPlacementReferenceMode ~= "" then
+		tool:SetAttribute("TurretPlacementReferenceMode", weaponDef.TurretPlacementReferenceMode)
+	end
+	tool:SetAttribute("TurretPlacementFacingYawDeg", weaponDef.TurretPlacementFacingYawDeg)
+	tool:SetAttribute("TurretPlacementPositionOffset", weaponDef.TurretPlacementPositionOffset)
 	tool:SetAttribute("TurretPlacementRotationDeg", weaponDef.TurretPlacementRotationDeg)
 	tool:SetAttribute("MagazineSize", getMagazineSize(weaponDef, owner))
 	tool:SetAttribute("ReloadSeconds", getReloadSeconds(weaponDef, owner))
@@ -160,7 +167,11 @@ local function configureWeaponTool(tool, weaponDef, owner)
 	tool.RequiresHandle = handle ~= nil
 	if handle and handle:IsA("BasePart") then
 		handle.CanCollide = false
-		prepareToolParts(tool, handle)
+		handle.Anchored = false
+		handle.Massless = true
+		if tool:GetAttribute("SkipPrepareToolParts") ~= true then
+			prepareToolParts(tool, handle)
+		end
 	end
 
 	local grip = CFrame.new(-0.3, -0.8, 0)
@@ -209,8 +220,15 @@ local function configureWeaponTool(tool, weaponDef, owner)
 	local classFireHandlers = (getClassFireHandlers and getClassFireHandlers()) or {}
 	-- Tool-specific handlers that depend on factory services (sentry, inventory)
 	classFireHandlers.SentryDeployer = function(ownerPlayer, characterModel, rootPart, _origin, _direction, shotOrigin, shotDirection, _ctx)
-		local didDeploy = sentryTurretController
-			and sentryTurretController.deploySentryTurret(ownerPlayer, characterModel, rootPart, weaponDef, shotOrigin, shotDirection)
+		local didDeploy = sentryTurretController and sentryTurretController.deploySentryTurret(
+			ownerPlayer,
+			characterModel,
+			rootPart,
+			weaponDef,
+			shotOrigin,
+			shotDirection,
+			tool
+		)
 		if didDeploy then
 			consumeOwnedWeaponInstances(ownerPlayer, weaponDef.Id)
 		end

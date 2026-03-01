@@ -2,6 +2,7 @@
 	SentryTurretController — Deploy/place turrets, combat loop, healthbar UI.
 	Placement: resolveSentryPlacementCFrame, resolveSentryPlacementPivotCFrame,
 	resolveUprightSentryReferencePlacementCFrame, applySentryPlacementRotationOffset,
+	applySentryPlacementFacingOffset, applySentryPlacementPositionOffset,
 	alignPivotYawToDirection, resolveSentryPlacementReferencePart.
 	Deploy + repair: deploySentryTurret, repairOwnedSentries.
 	Targeting/combat: findTurretTarget, pickTurretTargetCandidate, startTurretCombatLoop,
@@ -11,6 +12,7 @@
 ]]
 
 local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
@@ -33,6 +35,7 @@ local MAX_SENTRY_COUNT_PER_PLAYER = ShopConstants.MAX_SENTRY_COUNT_PER_PLAYER
 local SENTRY_REPAIR_INTERRUPT_SECONDS = ShopConstants.SENTRY_REPAIR_INTERRUPT_SECONDS
 local DEFAULT_TURRET_ROCKET_SPREAD_DEGREES = ShopConstants.DEFAULT_TURRET_ROCKET_SPREAD_DEGREES
 local TURRET_ROCKET_BURST_MODE_TOKEN = ShopConstants.TURRET_ROCKET_BURST_MODE_TOKEN
+local TURRET_LASER_BEAM_MODE_TOKEN = ShopConstants.TURRET_LASER_BEAM_MODE_TOKEN
 
 -- Placement and combat tuning (named for scalability)
 local PLACEMENT_ORIGIN_OFFSET_Y = 1.5
@@ -40,6 +43,7 @@ local MIN_FLOOR_NORMAL_Y = 0.55
 local PLACEMENT_BOUNDS_OFFSET_Y = 0.05
 local OVERLAP_PADDING = 0.25
 local MUZZLE_HEIGHT_RATIO = 0.35
+local SENTRY_TEMPLATE_PREPARED_ATTR = "SentryTemplatePrepared"
 
 local sentryRuntime = nil
 local fireRocket = nil
@@ -88,6 +92,15 @@ local attachTurretHealthBar = SentryHealthBar.attachTurretHealthBar
 local pickTurretTargetCandidate = sentryTargeting.pickTurretTargetCandidate
 local findTurretTarget = sentryTargeting.findTurretTarget
 
+local function appendLivePlayerCharacters(exclusions)
+	for _, player in ipairs(Players:GetPlayers()) do
+		local character = player.Character
+		if character then
+			table.insert(exclusions, character)
+		end
+	end
+end
+
 local function resolveTurretMuzzleOrigin(rootPart, weaponDef)
 	local muzzleLocalOffset = Vector3.new(0, rootPart.Size.Y * MUZZLE_HEIGHT_RATIO, 0)
 	local configuredOffset = weaponDef and weaponDef.TurretMuzzleOffset
@@ -107,10 +120,22 @@ local function aimTurretModel(record, rootPart, lookDirection)
 	local referencePart = SentryPlacement.resolveSentryPlacementReferencePart(record.model)
 	if referencePart then
 		local desiredReferencePlacementCFrame = CFrame.lookAt(referencePart.Position, referencePart.Position + flatLook.Unit)
+		local weaponDef = record.weaponDef
+		local hasManualPlacementRotation = typeof(weaponDef.TurretPlacementRotationDeg) == "Vector3"
+		if hasManualPlacementRotation then
+			desiredReferencePlacementCFrame =
+				SentryPlacement.applySentryPlacementFacingOffset(desiredReferencePlacementCFrame, weaponDef)
+		else
+			desiredReferencePlacementCFrame =
+				SentryPlacement.resolveUprightSentryReferencePlacementCFrame(
+					record.model,
+					desiredReferencePlacementCFrame,
+					flatLook,
+					weaponDef
+				)
+		end
 		desiredReferencePlacementCFrame =
-			SentryPlacement.resolveUprightSentryReferencePlacementCFrame(record.model, desiredReferencePlacementCFrame, flatLook)
-		desiredReferencePlacementCFrame =
-			SentryPlacement.applySentryPlacementRotationOffset(desiredReferencePlacementCFrame, record.weaponDef)
+			SentryPlacement.applySentryPlacementRotationOffset(desiredReferencePlacementCFrame, weaponDef)
 		record.model:PivotTo(SentryPlacement.resolveSentryPlacementPivotCFrame(record.model, desiredReferencePlacementCFrame))
 	else
 		local currentPivot = record.model:GetPivot()
@@ -183,11 +208,226 @@ local function fireTurretRocketBurst(record, muzzleOrigin, lookDirection, turret
 	return rocketsToFire
 end
 
+local function resetLaserFocusState(record)
+	record.laserFocusTarget = nil
+	record.laserFocusStartAt = nil
+end
+
+local function resolveLaserBeamEndPosition(record, muzzleOrigin, lookDirection)
+	local normalizedDirection = lookDirection
+	if typeof(normalizedDirection) ~= "Vector3" or normalizedDirection.Magnitude <= 0.001 then
+		normalizedDirection = Vector3.new(0, 0, -1)
+	else
+		normalizedDirection = normalizedDirection.Unit
+	end
+
+	local maxDistance = math.max(20, tonumber(record.turretLaserRange) or tonumber(record.acquireRange) or 180)
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+
+	local exclusions = { record.model }
+	local enemyContainer = getEnemyContainer()
+	if enemyContainer then
+		table.insert(exclusions, enemyContainer)
+	end
+	local effectsFolder = getEffectsFolder()
+	if effectsFolder then
+		table.insert(exclusions, effectsFolder)
+	end
+	local sentryFolder = getSentryTurretFolder()
+	if sentryFolder then
+		table.insert(exclusions, sentryFolder)
+	end
+	appendLivePlayerCharacters(exclusions)
+
+	raycastParams.FilterDescendantsInstances = exclusions
+	raycastParams.IgnoreWater = true
+
+	local hitResult = Workspace:Raycast(muzzleOrigin, normalizedDirection * maxDistance, raycastParams)
+	if hitResult then
+		return hitResult.Position
+	end
+
+	return muzzleOrigin + (normalizedDirection * maxDistance)
+end
+
+local function pointToSegmentDistance(point, segmentStart, segmentDirection, segmentLength)
+	local offset = point - segmentStart
+	local along = math.clamp(offset:Dot(segmentDirection), 0, segmentLength)
+	local closestPoint = segmentStart + (segmentDirection * along)
+	return (point - closestPoint).Magnitude, along
+end
+
+local function collectLaserBeamTargets(record, muzzleOrigin, beamEndPosition)
+	local enemyContainer = getEnemyContainer()
+	if not enemyContainer then
+		return {}
+	end
+
+	local beamVector = beamEndPosition - muzzleOrigin
+	local beamLength = beamVector.Magnitude
+	if beamLength <= 0.05 then
+		return {}
+	end
+
+	local beamDirection = beamVector.Unit
+	local hitRadius = math.max(1, tonumber(record.turretLaserHitRadius) or 4)
+	local beamTargets = {}
+
+	for _, enemyModel in ipairs(enemyContainer:GetChildren()) do
+		if enemyModel:IsA("Model") and isEnemyModelAlive(enemyModel) then
+			local enemyRoot = ModelRootResolver.resolveRootPart(enemyModel)
+			if enemyRoot then
+				local distanceFromBeam, distanceAlongBeam =
+					pointToSegmentDistance(enemyRoot.Position, muzzleOrigin, beamDirection, beamLength)
+				if distanceFromBeam <= hitRadius then
+					table.insert(beamTargets, {
+						model = enemyModel,
+						root = enemyRoot,
+						distanceAlongBeam = distanceAlongBeam,
+					})
+				end
+			end
+		end
+	end
+
+	table.sort(beamTargets, function(a, b)
+		return a.distanceAlongBeam < b.distanceAlongBeam
+	end)
+
+	return beamTargets
+end
+
+local function resolveLaserDamageMultiplier(record, primaryTarget, now)
+	if not primaryTarget or not primaryTarget.Parent then
+		resetLaserFocusState(record)
+		return 1
+	end
+
+	if record.laserFocusTarget ~= primaryTarget or type(record.laserFocusStartAt) ~= "number" then
+		record.laserFocusTarget = primaryTarget
+		record.laserFocusStartAt = now
+	end
+
+	local rampSeconds = math.max(0.1, tonumber(record.turretLaserRampSeconds) or 2.4)
+	local maxMultiplier = math.max(1, tonumber(record.turretLaserMaxDamageMultiplier) or 4)
+	local focusedSeconds = math.max(0, now - record.laserFocusStartAt)
+	local rampAlpha = math.clamp(focusedSeconds / rampSeconds, 0, 1)
+	return 1 + ((maxMultiplier - 1) * rampAlpha)
+end
+
+local function fireTurretLaserBeam(record, muzzleOrigin, lookDirection, primaryEnemyModel, primaryEnemyRoot, turretShotDamage, now)
+	if not primaryEnemyModel or not primaryEnemyRoot then
+		resetLaserFocusState(record)
+		return 0
+	end
+
+	local beamEndPosition = resolveLaserBeamEndPosition(record, muzzleOrigin, lookDirection)
+	local beamTargets = collectLaserBeamTargets(record, muzzleOrigin, beamEndPosition)
+	if #beamTargets == 0 then
+		local beamVector = beamEndPosition - muzzleOrigin
+		local beamLength = beamVector.Magnitude
+		if beamLength > 0.05 then
+			local beamDirection = beamVector.Unit
+			local distanceFromBeam, distanceAlongBeam =
+				pointToSegmentDistance(primaryEnemyRoot.Position, muzzleOrigin, beamDirection, beamLength)
+			if distanceFromBeam <= math.max(1, tonumber(record.turretLaserHitRadius) or 4) then
+				table.insert(beamTargets, {
+					model = primaryEnemyModel,
+					root = primaryEnemyRoot,
+					distanceAlongBeam = distanceAlongBeam,
+				})
+			end
+		end
+	end
+
+	local damageMultiplier = 1
+	if #beamTargets > 0 then
+		damageMultiplier = resolveLaserDamageMultiplier(record, primaryEnemyModel, now)
+	else
+		resetLaserFocusState(record)
+	end
+	local resolvedDamage = math.max(0, turretShotDamage * damageMultiplier)
+	if resolvedDamage <= 0 then
+		return 0
+	end
+
+	local pulseSpeed = math.max(0.1, tonumber(record.turretLaserPulseSpeed) or 8)
+	local thickness = math.max(0.15, tonumber(record.turretLaserThickness) or 0.55)
+	local pulseAlpha = 0.5 + (0.5 * math.sin(now * pulseSpeed))
+	local flareSize = 0.4 + (0.18 * pulseAlpha)
+	local farthestHitPosition = nil
+
+	WeaponVfx.createMuzzleFlash(muzzleOrigin, Color3.fromRGB(255, 65, 65), flareSize, 0.06)
+	WeaponVfx.createLaserBeam(muzzleOrigin, beamEndPosition, {
+		color = Color3.fromRGB(255, 35, 35),
+		coreColor = Color3.fromRGB(255, 220, 220),
+		thickness = thickness,
+		lifetimeSeconds = 0.1,
+		pulseSpeed = pulseSpeed,
+	})
+
+	for _, beamTarget in ipairs(beamTargets) do
+		farthestHitPosition = beamTarget.root.Position
+		EnemyDamageService.applyDamageToEnemy(record.owner, beamTarget.model, resolvedDamage, record.weaponDef, {
+			applyClassMultiplier = false,
+			allowBurnOnHit = false,
+			allowCriticalHits = false,
+		})
+	end
+
+	if farthestHitPosition then
+		WeaponVfx.createMuzzleFlash(farthestHitPosition, Color3.fromRGB(255, 85, 85), flareSize * 0.85, 0.05)
+	end
+
+	return 1
+end
+
+local function resolvePlacementWeaponDef(weaponDef, placementTool)
+	if not placementTool or not placementTool:IsA("Tool") then
+		return weaponDef
+	end
+
+	local placementDistance = placementTool:GetAttribute("TurretPlacementDistance")
+	local placementFacingYawDeg = placementTool:GetAttribute("TurretPlacementFacingYawDeg")
+	local placementPositionOffset = placementTool:GetAttribute("TurretPlacementPositionOffset")
+	local placementRotationDeg = placementTool:GetAttribute("TurretPlacementRotationDeg")
+	if typeof(placementDistance) ~= "number"
+		and typeof(placementFacingYawDeg) ~= "number"
+		and typeof(placementPositionOffset) ~= "Vector3"
+		and typeof(placementRotationDeg) ~= "Vector3"
+	then
+		return weaponDef
+	end
+
+	local resolvedWeaponDef = {}
+	for key, value in pairs(weaponDef) do
+		resolvedWeaponDef[key] = value
+	end
+
+	if typeof(placementDistance) == "number" then
+		resolvedWeaponDef.TurretPlacementDistance = placementDistance
+	end
+	if typeof(placementFacingYawDeg) == "number" then
+		resolvedWeaponDef.TurretPlacementFacingYawDeg = placementFacingYawDeg
+	end
+	if typeof(placementPositionOffset) == "Vector3" then
+		resolvedWeaponDef.TurretPlacementPositionOffset = placementPositionOffset
+	end
+	if typeof(placementRotationDeg) == "Vector3" then
+		resolvedWeaponDef.TurretPlacementRotationDeg = placementRotationDeg
+	end
+
+	return resolvedWeaponDef
+end
+
 -- Placement helpers
 local alignPivotYawToDirection = SentryPlacement.alignPivotYawToDirection
 local resolveSentryPlacementReferencePart = SentryPlacement.resolveSentryPlacementReferencePart
 local resolveSentryPlacementPivotCFrame = SentryPlacement.resolveSentryPlacementPivotCFrame
+local applySentryPlacementFacingOffset = SentryPlacement.applySentryPlacementFacingOffset
 local applySentryPlacementRotationOffset = SentryPlacement.applySentryPlacementRotationOffset
+local applySentryPlacementPositionOffset = SentryPlacement.applySentryPlacementPositionOffset
 local resolveUprightSentryReferencePlacementCFrame = SentryPlacement.resolveUprightSentryReferencePlacementCFrame
 
 local function startTurretCombatLoop(record)
@@ -232,6 +472,7 @@ local function startTurretCombatLoop(record)
 			local targetingOrigin = resolveTurretMuzzleOrigin(rootPart, record.weaponDef)
 			local enemyModel, enemyRoot = findTurretTarget(record, targetingOrigin)
 			if not enemyModel or not enemyRoot then
+				resetLaserFocusState(record)
 				continue
 			end
 
@@ -260,6 +501,12 @@ local function startTurretCombatLoop(record)
 				if shotsConsumed <= 0 then
 					continue
 				end
+			elseif normalizeWeaponToken(record.turretAttackMode) == TURRET_LASER_BEAM_MODE_TOKEN then
+				shotsConsumed =
+					fireTurretLaserBeam(record, muzzleOrigin, lookDirection, enemyModel, enemyRoot, turretShotDamage, now)
+				if shotsConsumed <= 0 then
+					continue
+				end
 			else
 				WeaponVfx.createMuzzleFlash(muzzleOrigin, Color3.fromRGB(120, 225, 255), 0.22, 0.05)
 				WeaponVfx.createTracerSegment(muzzleOrigin, enemyRoot.Position, Color3.fromRGB(120, 225, 255), 0.1, 0.05)
@@ -281,7 +528,16 @@ local function startTurretCombatLoop(record)
 	end)
 end
 
-local function resolveSentryPlacementCFrame(player, character, rootPart, sentryModel, weaponDef, explicitShotOrigin, explicitShotDirection)
+local function resolveSentryPlacementCFrame(
+	player,
+	character,
+	rootPart,
+	sentryModel,
+	weaponDef,
+	placementTool,
+	explicitShotOrigin,
+	explicitShotDirection
+)
 	local fallbackOrigin = rootPart.Position + Vector3.new(0, PLACEMENT_ORIGIN_OFFSET_Y, 0)
 	local fallbackDirection = rootPart.CFrame.LookVector
 	local rayDirection = nil
@@ -323,12 +579,16 @@ local function resolveSentryPlacementCFrame(player, character, rootPart, sentryM
 		return nil
 	end
 
-	local ok, _, boundsSize = pcall(function()
+	local ok, boundsCFrame, boundsSize = pcall(function()
 		return sentryModel:GetBoundingBox()
 	end)
-	if not ok or not boundsSize then
+	if not ok or not boundsCFrame or not boundsSize then
 		return nil
 	end
+	local currentPivot = sentryModel:GetPivot()
+	local pivotToBounds = currentPivot:ToObjectSpace(boundsCFrame)
+	local boundsToPivot = boundsCFrame:ToObjectSpace(currentPivot)
+	local useBoundsCenterReference = placementTool and placementTool:GetAttribute("TurretPlacementReferenceMode") == "BoundsCenter"
 
 	local lookDirection = Vector3.new(rayDirection.X, 0, rayDirection.Z)
 	if lookDirection.Magnitude <= 0.01 then
@@ -340,9 +600,23 @@ local function resolveSentryPlacementCFrame(player, character, rootPart, sentryM
 
 	local placementPosition = hitResult.Position + Vector3.new(0, (boundsSize.Y * 0.5) + PLACEMENT_BOUNDS_OFFSET_Y, 0)
 	local referencePlacementCFrame = CFrame.lookAt(placementPosition, placementPosition + lookDirection.Unit)
-	referencePlacementCFrame = resolveUprightSentryReferencePlacementCFrame(sentryModel, referencePlacementCFrame, lookDirection)
+	local hasManualPlacementRotation = typeof(weaponDef.TurretPlacementRotationDeg) == "Vector3"
+	if hasManualPlacementRotation then
+		-- Explicit full rotation overrides the auto-upright correction.
+		referencePlacementCFrame = applySentryPlacementFacingOffset(referencePlacementCFrame, weaponDef)
+	else
+		referencePlacementCFrame =
+			resolveUprightSentryReferencePlacementCFrame(sentryModel, referencePlacementCFrame, lookDirection, weaponDef)
+	end
 	referencePlacementCFrame = applySentryPlacementRotationOffset(referencePlacementCFrame, weaponDef)
-	local placementCFrame = resolveSentryPlacementPivotCFrame(sentryModel, referencePlacementCFrame)
+	local placementCFrame
+	if useBoundsCenterReference then
+		placementCFrame = referencePlacementCFrame * boundsToPivot
+	else
+		placementCFrame = resolveSentryPlacementPivotCFrame(sentryModel, referencePlacementCFrame)
+	end
+	placementCFrame = applySentryPlacementPositionOffset(placementCFrame, weaponDef)
+	local overlapCFrame = placementCFrame * pivotToBounds
 	local overlapParams = OverlapParams.new()
 	overlapParams.FilterType = Enum.RaycastFilterType.Exclude
 	local overlapExclusions = { character, getEffectsFolder() }
@@ -352,7 +626,7 @@ local function resolveSentryPlacementCFrame(player, character, rootPart, sentryM
 	overlapParams.FilterDescendantsInstances = overlapExclusions
 
 	local padding = Vector3.new(OVERLAP_PADDING, OVERLAP_PADDING, OVERLAP_PADDING)
-	local overlaps = Workspace:GetPartBoundsInBox(referencePlacementCFrame, boundsSize + padding, overlapParams)
+	local overlaps = Workspace:GetPartBoundsInBox(overlapCFrame, boundsSize + padding, overlapParams)
 	for _, part in ipairs(overlaps) do
 		if part and part.Parent and part.CanCollide then
 			return nil
@@ -362,7 +636,7 @@ local function resolveSentryPlacementCFrame(player, character, rootPart, sentryM
 	return placementCFrame
 end
 
-local function deploySentryTurret(player, character, rootPart, weaponDef, explicitShotOrigin, explicitShotDirection)
+local function deploySentryTurret(player, character, rootPart, weaponDef, explicitShotOrigin, explicitShotDirection, placementTool)
 	if not sentryRuntime then
 		return false
 	end
@@ -371,9 +645,8 @@ local function deploySentryTurret(player, character, rootPart, weaponDef, explic
 	if activeCount >= MAX_SENTRY_COUNT_PER_PLAYER then
 		return false
 	end
-	if sentryRuntime.countPlayerSentriesByKind(player, weaponDef.Id) >= 1 then
-		return false
-	end
+
+	local placementWeaponDef = resolvePlacementWeaponDef(weaponDef, placementTool)
 
 	local sentryModel = WeaponToolSetup.buildSentryModelFromTemplate(weaponDef)
 	if not sentryModel then
@@ -385,7 +658,8 @@ local function deploySentryTurret(player, character, rootPart, weaponDef, explic
 		character,
 		rootPart,
 		sentryModel,
-		weaponDef,
+		placementWeaponDef,
+		placementTool,
 		explicitShotOrigin,
 		explicitShotDirection
 	)
@@ -415,16 +689,25 @@ local function deploySentryTurret(player, character, rootPart, weaponDef, explic
 	local turretRocketProjectileSpeed = combatStats.turretRocketProjectileSpeed
 	local turretRocketRange = combatStats.turretRocketRange
 	local turretRocketSpreadDegrees = combatStats.turretRocketSpreadDegrees
+	local turretLaserRange = combatStats.turretLaserRange
+	local turretLaserHitRadius = combatStats.turretLaserHitRadius
+	local turretLaserThickness = combatStats.turretLaserThickness
+	local turretLaserRampSeconds = combatStats.turretLaserRampSeconds
+	local turretLaserMaxDamageMultiplier = combatStats.turretLaserMaxDamageMultiplier
+	local turretLaserPulseSpeed = combatStats.turretLaserPulseSpeed
 	local turretMaxAmmo = sentryRuntime.resolveTurretMaxAmmo(weaponDef)
 	local turretInitialAmmo = sentryRuntime.resolveTurretInitialAmmo(weaponDef, turretMaxAmmo)
 
-	for _, descendant in ipairs(sentryModel:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			descendant.Anchored = true
-			descendant.CanCollide = false
-			descendant.CanTouch = true
-			descendant.CanQuery = true
+	if sentryModel:GetAttribute(SENTRY_TEMPLATE_PREPARED_ATTR) ~= true then
+		for _, descendant in ipairs(sentryModel:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				descendant.Anchored = true
+				descendant.CanCollide = false
+				descendant.CanTouch = true
+				descendant.CanQuery = true
+			end
 		end
+		sentryModel:SetAttribute(SENTRY_TEMPLATE_PREPARED_ATTR, true)
 	end
 
 	local humanoid = sentryModel:FindFirstChildOfClass("Humanoid")
@@ -474,11 +757,19 @@ local function deploySentryTurret(player, character, rootPart, weaponDef, explic
 		turretRocketProjectileSpeed = turretRocketProjectileSpeed,
 		turretRocketRange = turretRocketRange,
 		turretRocketSpreadDegrees = turretRocketSpreadDegrees,
+		turretLaserRange = turretLaserRange,
+		turretLaserHitRadius = turretLaserHitRadius,
+		turretLaserThickness = turretLaserThickness,
+		turretLaserRampSeconds = turretLaserRampSeconds,
+		turretLaserMaxDamageMultiplier = turretLaserMaxDamageMultiplier,
+		turretLaserPulseSpeed = turretLaserPulseSpeed,
 		maxAmmo = turretMaxAmmo,
 		ammo = turretInitialAmmo,
 		lastFireAt = -math.huge,
 		lastDamagedAt = -1,
 		currentTarget = nil,
+		laserFocusTarget = nil,
+		laserFocusStartAt = nil,
 		healthFill = healthFill,
 		ammoLabel = ammoLabel,
 		connections = {},
@@ -591,7 +882,9 @@ return {
 	resolveSentryPlacementCFrame = resolveSentryPlacementCFrame,
 	resolveSentryPlacementPivotCFrame = resolveSentryPlacementPivotCFrame,
 	resolveUprightSentryReferencePlacementCFrame = resolveUprightSentryReferencePlacementCFrame,
+	applySentryPlacementFacingOffset = applySentryPlacementFacingOffset,
 	applySentryPlacementRotationOffset = applySentryPlacementRotationOffset,
+	applySentryPlacementPositionOffset = applySentryPlacementPositionOffset,
 	alignPivotYawToDirection = alignPivotYawToDirection,
 	resolveSentryPlacementReferencePart = resolveSentryPlacementReferencePart,
 	deploySentryTurret = deploySentryTurret,

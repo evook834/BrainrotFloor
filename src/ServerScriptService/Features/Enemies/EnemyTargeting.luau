@@ -112,16 +112,14 @@ local function getEffectiveEnemyHitRadius(enemyModel, enemyRoot)
 	return math.clamp(radius, 1.2, 10)
 end
 
-local function findEnemyAlongSegment(character, segmentStart, segmentEnd, extraRadius, allowEnemyOcclusion)
+local function getEnemiesAlongSegment(character, segmentStart, segmentEnd, extraRadius, allowEnemyOcclusion)
 	local enemyContainer = getEnemyContainer()
 	if not enemyContainer then
-		return nil, nil
+		return {}
 	end
 
-	local closestEnemy = nil
-	local closestDistance = math.huge
-	local impactPoint = nil
 	local radiusPadding = math.max(0, extraRadius or 0)
+	local hits = {}
 
 	EnemyRegistry.forEachTrackedEnemy(function(enemyModel)
 		local enemyRoot = EnemyRegistry.getRootPart(enemyModel)
@@ -130,17 +128,30 @@ local function findEnemyAlongSegment(character, segmentStart, segmentEnd, extraR
 			local distanceFromPath = (enemyRoot.Position - nearestPoint).Magnitude
 			local allowedRadius = getEffectiveEnemyHitRadius(enemyModel, enemyRoot) + radiusPadding
 			if distanceFromPath <= allowedRadius and hasClearPathToEnemy(character, segmentStart, enemyModel, enemyRoot, allowEnemyOcclusion) then
-				local alongDistance = (nearestPoint - segmentStart).Magnitude
-				if alongDistance < closestDistance then
-					closestDistance = alongDistance
-					closestEnemy = enemyModel
-					impactPoint = nearestPoint
-				end
+				table.insert(hits, {
+					enemy = enemyModel,
+					impactPoint = nearestPoint,
+					alongDistance = (nearestPoint - segmentStart).Magnitude,
+				})
 			end
 		end
 	end)
 
-	return closestEnemy, impactPoint
+	table.sort(hits, function(left, right)
+		return left.alongDistance < right.alongDistance
+	end)
+
+	return hits
+end
+
+local function findEnemyAlongSegment(character, segmentStart, segmentEnd, extraRadius, allowEnemyOcclusion)
+	local hits = getEnemiesAlongSegment(character, segmentStart, segmentEnd, extraRadius, allowEnemyOcclusion)
+	local firstHit = hits[1]
+	if not firstHit then
+		return nil, nil
+	end
+
+	return firstHit.enemy, firstHit.impactPoint
 end
 
 local function getEnemiesInCone(character, origin, lookDirection, range, arcDegrees, allowEnemyOcclusion)
@@ -183,6 +194,7 @@ return {
 	getEnemyHitRadius = getEnemyHitRadius,
 	getEnemyTemplateProfile = getEnemyTemplateProfile,
 	getEffectiveEnemyHitRadius = getEffectiveEnemyHitRadius,
+	getEnemiesAlongSegment = getEnemiesAlongSegment,
 	findEnemyAlongSegment = findEnemyAlongSegment,
 	getEnemiesInCone = getEnemiesInCone,
 }

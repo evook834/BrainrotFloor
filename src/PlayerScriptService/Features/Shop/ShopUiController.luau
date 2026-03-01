@@ -15,6 +15,7 @@ local Config = require(ReplicatedStorage.Shared.GameConfig)
 local ClassChangedClientEvent = require(ReplicatedStorage.Shared.Classes.ClassChangedClientEvent)
 
 local started = false
+local PROMINENT_STATUS_MESSAGE = "Not enough money."
 
 local function run()
 	if started then
@@ -56,7 +57,10 @@ local function run()
 		if result and result.success then
 			view.setStatus(result.message or ShopUiMessages.ShopActionSuccessDefault, ShopUiConstants.StatusSuccess)
 		else
-			view.setStatus((result and result.message) or ShopUiMessages.ShopActionDeniedDefault, ShopUiConstants.StatusError)
+			local deniedMessage = (result and result.message) or ShopUiMessages.ShopActionDeniedDefault
+			view.setStatus(deniedMessage, ShopUiConstants.StatusError, {
+				prominent = deniedMessage == PROMINENT_STATUS_MESSAGE,
+			})
 		end
 
 		if panel.Visible then
@@ -93,14 +97,16 @@ local function run()
 			rowRefs.buyButton.AutoButtonColor = not rowState.disabled
 
 			if not rowState.disabled then
+				local weaponId = weapon.id
+				local isAmmoPurchase = rowState.isAmmoPurchase
 				rowRefs.buyButton.Activated:Connect(function()
-					if rowState.isAmmoPurchase then
+					if isAmmoPurchase then
 						applyShopAction(function()
-							return shopBuyAmmoFunction:InvokeServer({ weaponId = weapon.id })
+							return shopBuyAmmoFunction:InvokeServer({ weaponId = weaponId })
 						end)
 					else
 						applyShopAction(function()
-							return shopBuyWeaponFunction:InvokeServer(weapon.id)
+							return shopBuyWeaponFunction:InvokeServer(weaponId)
 						end)
 					end
 				end)

@@ -212,25 +212,6 @@ local function buildEffectiveCatalog()
 		end
 	end
 
-	-- Any valid model in ServerStorage/EnemyTemplates becomes spawnable by default.
-	for _, template in spawnableTemplates do
-		local templateName = template.Name
-		if not knownTemplateNames[templateName] then
-			knownTemplateNames[templateName] = true
-			table.insert(catalog, {
-				Id = templateName,
-				TemplateName = templateName,
-				DisplayName = templateName,
-				MinWave = 1,
-				MaxWave = nil,
-				Weight = 1,
-				IsBoss = false,
-				Danger = "Weakling",
-				Tier = "Easy",
-			})
-		end
-	end
-
 	return catalog
 end
 

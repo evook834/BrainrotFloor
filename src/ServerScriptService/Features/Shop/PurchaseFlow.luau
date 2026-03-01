@@ -27,6 +27,15 @@ local function success(message)
 	}
 end
 
+local function isRepeatPurchasableWeapon(weaponDef)
+	if type(weaponDef) ~= "table" then
+		return false
+	end
+
+	local weaponClass = tostring(weaponDef.WeaponClass or "")
+	return weaponClass == "RepairTool"
+end
+
 local function canPurchaseRightNow(context)
 	local canPurchase = false
 	if context.canPurchaseNow then
@@ -127,7 +136,7 @@ function PurchaseFlow.buyWeapon(player, weaponId, context)
 		end
 	end
 
-	if context.playerOwnsWeapon and context.playerOwnsWeapon(player, weaponId) then
+	if not isRepeatPurchasableWeapon(weaponDef) and context.playerOwnsWeapon and context.playerOwnsWeapon(player, weaponId) then
 		return failure("You already own this weapon.")
 	end
 

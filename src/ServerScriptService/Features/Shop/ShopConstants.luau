@@ -21,6 +21,7 @@ ShopConstants.MAX_SENTRY_COUNT_PER_PLAYER = 3
 ShopConstants.SENTRY_REPAIR_INTERRUPT_SECONDS = 0.45
 ShopConstants.DEFAULT_SENTRY_MAX_AMMO = 300
 ShopConstants.TURRET_ROCKET_BURST_MODE_TOKEN = "rocketburst"
+ShopConstants.TURRET_LASER_BEAM_MODE_TOKEN = "laserbeam"
 ShopConstants.DEFAULT_TURRET_ROCKET_SPREAD_DEGREES = 4
 
 return ShopConstants

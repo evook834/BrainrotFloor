@@ -6,6 +6,25 @@ local Config = require(ReplicatedStorage.Shared.GameConfig)
 local ModelRootResolver = require(script.Parent.ModelRootResolver)
 
 local EnemySpawnResolver = {}
+local ALLOWED_TEMPLATE_NAMES = {}
+
+do
+	local configuredCatalog = Config.Enemy.Catalog
+	if type(configuredCatalog) == "table" then
+		for _, entry in ipairs(configuredCatalog) do
+			if type(entry) == "table" then
+				local templateName = entry.TemplateName
+				if type(templateName) == "string" and templateName ~= "" then
+					ALLOWED_TEMPLATE_NAMES[templateName] = true
+				end
+			end
+		end
+	end
+end
+
+local function isSpawnDefined(templateName)
+	return ALLOWED_TEMPLATE_NAMES[templateName] == true
+end
 
 local function getTemplateProfile(templateName)
 	local templateProfile = (Config.Enemy.TemplateProfiles or {})[templateName]
@@ -24,7 +43,7 @@ function EnemySpawnResolver.getEnemyTemplates()
 
 	local templates = {}
 	for _, child in folder:GetChildren() do
-		if child:IsA("Model") and ModelRootResolver.resolveRootPart(child) then
+		if child:IsA("Model") and isSpawnDefined(child.Name) and ModelRootResolver.resolveRootPart(child) then
 			table.insert(templates, child)
 		end
 	end
@@ -35,6 +54,10 @@ end
 function EnemySpawnResolver.getTemplateByName(templateName)
 	local folder = ServerStorage:FindFirstChild(Config.Enemy.TemplateFolderName)
 	if not folder then
+		return nil
+	end
+
+	if not isSpawnDefined(templateName) then
 		return nil
 	end
 

@@ -11,6 +11,10 @@ export type WeaponRowRefs = {
 	buyButton: TextButton,
 }
 
+export type StatusOptions = {
+	prominent: boolean?,
+}
+
 export type View = {
 	gui: ScreenGui,
 	panel: Frame,
@@ -18,7 +22,7 @@ export type View = {
 	listFrame: ScrollingFrame,
 	refillAllButton: TextButton,
 	statusLabel: TextLabel,
-	setStatus: (text: string?, color: Color3?) -> (),
+	setStatus: (text: string?, color: Color3?, options: StatusOptions?) -> (),
 	setSubtitle: (text: string, color: Color3?) -> (),
 	clearRows: () -> (),
 	buildWeaponRow: (listFrame: ScrollingFrame, index: number) -> WeaponRowRefs,
@@ -50,6 +54,23 @@ local function build(): View
 	panelStroke.Transparency = 0.18
 	panelStroke.Thickness = 1
 	panelStroke.Parent = panel
+
+	local prominentStatusLabel = Instance.new("TextLabel")
+	prominentStatusLabel.Name = "ProminentStatus"
+	prominentStatusLabel.Size = UDim2.new(0, 520, 0, 42)
+	prominentStatusLabel.Position = UDim2.new(0.5, 0, 0, -18)
+	prominentStatusLabel.AnchorPoint = Vector2.new(0.5, 0)
+	prominentStatusLabel.BackgroundTransparency = 1
+	prominentStatusLabel.Text = ""
+	prominentStatusLabel.Visible = false
+	prominentStatusLabel.ZIndex = 5
+	prominentStatusLabel.TextXAlignment = Enum.TextXAlignment.Center
+	prominentStatusLabel.TextYAlignment = Enum.TextYAlignment.Center
+	prominentStatusLabel.TextWrapped = true
+	prominentStatusLabel.TextColor3 = ShopUiConstants.DefaultStatusColor
+	prominentStatusLabel.Font = Enum.Font.GothamBold
+	prominentStatusLabel.TextSize = 26
+	prominentStatusLabel.Parent = gui
 
 	local title = Instance.new("TextLabel")
 	title.Name = "Title"
@@ -151,12 +172,19 @@ local function build(): View
 	statusLabel.TextSize = 14
 	statusLabel.Parent = panel
 
-	local function setStatus(text: string?, color: Color3?)
-		statusLabel.Text = text or ""
+	local function setStatus(text: string?, color: Color3?, options: StatusOptions?)
+		local statusText = text or ""
+		local isProminent = options and options.prominent == true
+
+		statusLabel.Text = if isProminent then "" else statusText
+		prominentStatusLabel.Text = statusText
+		prominentStatusLabel.Visible = isProminent and statusText ~= ""
 		if color then
 			statusLabel.TextColor3 = color
+			prominentStatusLabel.TextColor3 = color
 		else
 			statusLabel.TextColor3 = ShopUiConstants.DefaultStatusColor
+			prominentStatusLabel.TextColor3 = ShopUiConstants.DefaultStatusColor
 		end
 	end
 

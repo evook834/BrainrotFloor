@@ -47,6 +47,14 @@ local function isIncendiaryBulletWeapon(weaponDef)
 	return burnChance > 0 and burnDamageFractionPerSecond > 0
 end
 
+local function shouldPierceEnemies(weaponDef)
+	if type(weaponDef) ~= "table" then
+		return false
+	end
+
+	return weaponDef.PierceEnemies == true
+end
+
 local function createBulletShotVfx(origin, hitPosition, weaponDef)
 	if isIncendiaryBulletWeapon(weaponDef) then
 		createMuzzleFlash(origin, Color3.fromRGB(255, 160, 80), 0.42, 0.08)
@@ -101,34 +109,67 @@ local function fireBulletShot(player, character, origin, direction, weaponDef, s
 		end
 	end
 	rayDirection = applyBulletSpread(rayDirection, spreadDegrees)
-	local raycastParams = buildWeaponRaycastParams(character, {})
-	local result = Workspace:Raycast(rayOrigin, rayDirection * range, raycastParams)
 	local hitPosition = rayOrigin + rayDirection * range
-	local enemyTarget = nil
+	local enemyTargets = nil
 
-	if result then
-		hitPosition = result.Position
-		enemyTarget = EnemyTargeting.resolveEnemyFromRaycastResult(result)
-	end
-	if not enemyTarget then
+	if shouldPierceEnemies(weaponDef) then
+		local worldExclusions = {}
+		local enemyContainer = EnemyTargeting.getEnemyContainer()
+		if enemyContainer then
+			table.insert(worldExclusions, enemyContainer)
+		end
+		local worldRaycastParams = buildWeaponRaycastParams(character, worldExclusions)
+		local worldResult = Workspace:Raycast(rayOrigin, rayDirection * range, worldRaycastParams)
+		if worldResult then
+			hitPosition = worldResult.Position
+		end
+
 		local fallbackRadius = 0.75
-		local fallbackEnd = hitPosition
 		if isSniperWeapon then
 			fallbackRadius = math.max(2.5, tonumber(weaponDef.SniperHitAssistRadius) or 2.5)
-			fallbackEnd = rayOrigin + (rayDirection * range)
 		end
-		local fallbackEnemy, fallbackImpact = EnemyTargeting.findEnemyAlongSegment(character, rayOrigin, fallbackEnd, fallbackRadius)
-		if fallbackEnemy then
-			enemyTarget = fallbackEnemy
-			if fallbackImpact then
-				hitPosition = fallbackImpact
+		local piercedHits = EnemyTargeting.getEnemiesAlongSegment(character, rayOrigin, hitPosition, fallbackRadius, true)
+		if #piercedHits > 0 then
+			enemyTargets = {}
+			for _, hit in ipairs(piercedHits) do
+				table.insert(enemyTargets, hit.enemy)
 			end
+		end
+	else
+		local raycastParams = buildWeaponRaycastParams(character, {})
+		local result = Workspace:Raycast(rayOrigin, rayDirection * range, raycastParams)
+		local enemyTarget = nil
+
+		if result then
+			hitPosition = result.Position
+			enemyTarget = EnemyTargeting.resolveEnemyFromRaycastResult(result)
+		end
+		if not enemyTarget then
+			local fallbackRadius = 0.75
+			local fallbackEnd = hitPosition
+			if isSniperWeapon then
+				fallbackRadius = math.max(2.5, tonumber(weaponDef.SniperHitAssistRadius) or 2.5)
+				fallbackEnd = rayOrigin + (rayDirection * range)
+			end
+			local fallbackEnemy, fallbackImpact = EnemyTargeting.findEnemyAlongSegment(character, rayOrigin, fallbackEnd, fallbackRadius)
+			if fallbackEnemy then
+				enemyTarget = fallbackEnemy
+				if fallbackImpact then
+					hitPosition = fallbackImpact
+				end
+			end
+		end
+
+		if enemyTarget then
+			enemyTargets = { enemyTarget }
 		end
 	end
 
 	createBulletShotVfx(origin, hitPosition, weaponDef)
-	if enemyTarget then
-		EnemyDamageService.applyDamageToEnemy(player, enemyTarget, weaponDef.Damage or 20, weaponDef)
+	if enemyTargets then
+		for _, enemyTarget in ipairs(enemyTargets) do
+			EnemyDamageService.applyDamageToEnemy(player, enemyTarget, weaponDef.Damage or 20, weaponDef)
+		end
 	end
 end
 

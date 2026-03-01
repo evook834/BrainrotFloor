@@ -89,6 +89,15 @@ function SentryStatResolver.resolveCombatStats(weaponDef, options)
 			0,
 			tonumber(normalizedWeaponDef.TurretRocketSpreadDegrees) or defaultRocketSpreadDegrees
 		),
+		turretLaserRange = math.max(20, tonumber(normalizedWeaponDef.TurretLaserRange) or tonumber(normalizedWeaponDef.Range) or 180),
+		turretLaserHitRadius = math.max(1, tonumber(normalizedWeaponDef.TurretLaserHitRadius) or 4),
+		turretLaserThickness = math.max(0.15, tonumber(normalizedWeaponDef.TurretLaserThickness) or 0.55),
+		turretLaserRampSeconds = math.max(0.1, tonumber(normalizedWeaponDef.TurretLaserRampSeconds) or 2.4),
+		turretLaserMaxDamageMultiplier = math.max(
+			1,
+			tonumber(normalizedWeaponDef.TurretLaserMaxDamageMultiplier) or 4
+		),
+		turretLaserPulseSpeed = math.max(0.1, tonumber(normalizedWeaponDef.TurretLaserPulseSpeed) or 8),
 	}
 end
 
