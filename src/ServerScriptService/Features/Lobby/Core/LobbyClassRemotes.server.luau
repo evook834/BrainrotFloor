@@ -3,6 +3,7 @@
 	select their class before match. Selection is persisted via PlayerDataService and applies in Match.
 ]]
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
@@ -29,6 +30,20 @@ local function ensureRemote(parent, className, name)
 end
 
 ClassDataPayload.init()
+
+local function queuePlayerClassAttributeSync(player)
+	task.defer(function()
+		if player.Parent == Players then
+			ClassDataPayload.syncPlayerClassAttribute(player)
+		end
+	end)
+end
+
+Players.PlayerAdded:Connect(queuePlayerClassAttributeSync)
+
+for _, player in ipairs(Players:GetPlayers()) do
+	queuePlayerClassAttributeSync(player)
+end
 
 local remotesFolder = ReplicatedStorage:FindFirstChild(Config.Remotes.Folder)
 if not remotesFolder then

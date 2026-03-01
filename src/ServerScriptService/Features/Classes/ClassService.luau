@@ -26,6 +26,7 @@ local classCombatRules = nil
 local classRuntimeEffects = nil
 local classStateSync = nil
 local classChangedCallbacks = {}
+local SELECTED_CLASS_ID_ATTRIBUTE = "SelectedClassId"
 
 local function ensureRemote(parent, className, name)
 	local instance = parent:FindFirstChild(name)
@@ -69,6 +70,23 @@ end
 
 getDefaultClassId = function()
 	return ClassStateHelpers.getDefaultClassId(getClassSystemConfig(), classById, classOrder)
+end
+
+local function syncPlayerSelectedClassAttribute(player, selectedClassId)
+	if not player or not player:IsA("Player") then
+		return
+	end
+
+	local resolvedClassId = normalizeToken(selectedClassId)
+	if resolvedClassId == "" then
+		local state = playerStateByPlayer[player]
+		resolvedClassId = normalizeToken(state and state.selectedClassId or "")
+	end
+	if resolvedClassId == "" then
+		resolvedClassId = normalizeToken(getDefaultClassId())
+	end
+
+	player:SetAttribute(SELECTED_CLASS_ID_ATTRIBUTE, resolvedClassId)
 end
 
 local function getXpRequiredForNextLevel(classDef, level)
@@ -339,6 +357,7 @@ local function selectClass(player, classId)
 
 	local state = getOrCreatePlayerState(player)
 	if state.selectedClassId == classDef.Id then
+		syncPlayerSelectedClassAttribute(player, classDef.Id)
 		return {
 			success = true,
 			message = string.format("%s is already selected.", classDef.DisplayName),
@@ -349,6 +368,7 @@ local function selectClass(player, classId)
 	local previousClassId = state.selectedClassId
 	state.selectedClassId = classDef.Id
 	getOrCreateClassProgress(state, classDef.Id)
+	syncPlayerSelectedClassAttribute(player, classDef.Id)
 	writeClassStateToDataService(player, state)
 
 	if player.Character then
@@ -388,6 +408,8 @@ local function bindPlayer(player)
 		state.selectedClassId = defaultClassId
 		getOrCreateClassProgress(state, state.selectedClassId)
 	end
+
+	syncPlayerSelectedClassAttribute(player, state.selectedClassId)
 
 	disconnectCharacterConnection(player)
 

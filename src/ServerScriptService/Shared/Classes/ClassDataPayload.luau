@@ -13,6 +13,7 @@ local PlayerDataService = require(script.Parent.Parent.PlayerData.PlayerDataServ
 
 local classById = {}
 local classOrder = {}
+local SELECTED_CLASS_ID_ATTRIBUTE = "SelectedClassId"
 
 local normalizeToken = ClassStateHelpers.normalizeToken
 
@@ -88,6 +89,21 @@ local function getOrCreateClassProgress(state, classId)
 	return ClassStateHelpers.getOrCreateClassProgress(state, classId)
 end
 
+local function syncPlayerClassAttribute(player, state)
+	if not player or not player:IsA("Player") then
+		return
+	end
+
+	local resolvedState = state
+	if type(resolvedState) ~= "table" then
+		resolvedState = getPlayerState(player)
+	end
+
+	local classDef = getClassDefinition(resolvedState.selectedClassId)
+	local selectedClassId = classDef and classDef.Id or getDefaultClassId()
+	player:SetAttribute(SELECTED_CLASS_ID_ATTRIBUTE, selectedClassId)
+end
+
 local function writeStateToPlayerData(player, state)
 	if not PlayerDataService.isReady() or not state then
 		return
@@ -104,6 +120,7 @@ function buildPayloadForPlayer(player)
 		}
 	end
 	local state = getPlayerState(player)
+	syncPlayerClassAttribute(player, state)
 	local classDef = getClassDefinition(state.selectedClassId)
 	if not classDef then
 		return {
@@ -140,6 +157,7 @@ function selectClass(player, classId)
 	end
 	local state = getPlayerState(player)
 	if state.selectedClassId == classDef.Id then
+		syncPlayerClassAttribute(player, state)
 		return {
 			success = true,
 			message = string.format("%s is already selected.", classDef.DisplayName),
@@ -148,6 +166,7 @@ function selectClass(player, classId)
 	end
 	state.selectedClassId = classDef.Id
 	getOrCreateClassProgress(state, classDef.Id)
+	syncPlayerClassAttribute(player, state)
 	writeStateToPlayerData(player, state)
 	return {
 		success = true,
@@ -164,5 +183,6 @@ end
 return {
 	buildPayloadForPlayer = buildPayloadForPlayer,
 	selectClass = selectClass,
+	syncPlayerClassAttribute = syncPlayerClassAttribute,
 	init = init,
 }
