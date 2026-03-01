@@ -586,6 +586,20 @@ function ClassService.start()
 		return selectClass(player, classId)
 	end
 
+	-- Re-bind ClassSelect after other scripts (e.g. LobbyClassRemotes) so Match handler wins when both run.
+	-- Otherwise the shop reads ClassService state which never gets updated by Lobby's handler.
+	task.defer(function()
+		classSelectFunction.OnServerInvoke = function(player, classId)
+			if type(classId) ~= "string" then
+				return {
+					success = false,
+					message = "Invalid class selection.",
+				}
+			end
+			return selectClass(player, classId)
+		end
+	end)
+
 	remotesFolder:GetAttributeChangedSignal("CurrentWaveState"):Connect(function()
 		refreshAllCharacterClassBonuses()
 	end)

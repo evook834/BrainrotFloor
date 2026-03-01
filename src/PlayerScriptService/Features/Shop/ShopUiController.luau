@@ -41,6 +41,7 @@ local function run()
 	local refillAllButton = view.refillAllButton
 
 	local isRefreshing = false
+	local pendingRefreshAfterCurrent = false -- when a refresh is skipped due to isRefreshing, re-request after current completes
 	local refillAllPurchaseEnabled = false
 	local refreshCatalog
 	local openSessionToken = 0
@@ -59,12 +60,12 @@ local function run()
 		end
 
 		if panel.Visible then
-			task.defer(function()
-				if panel.Visible then
-					refreshCatalog()
-				end
-			end)
-		end
+				task.defer(function()
+					if panel.Visible then
+						refreshCatalog()
+					end
+				end)
+			end
 		return result
 	end
 
@@ -113,9 +114,9 @@ local function run()
 
 	refreshCatalog = function()
 		if isRefreshing then
+			pendingRefreshAfterCurrent = true
 			return
 		end
-
 		isRefreshing = true
 		local ok, catalog = pcall(function()
 			return shopGetCatalogFunction:InvokeServer()
@@ -124,6 +125,19 @@ local function run()
 
 		if ok and type(catalog) == "table" and catalog.success then
 			renderCatalog(catalog)
+		end
+
+		-- If a class-change (or other) refresh was skipped while we were loading, run one now.
+		if pendingRefreshAfterCurrent then
+			pendingRefreshAfterCurrent = false
+			task.defer(function()
+				if panel.Visible then
+					refreshCatalog()
+				end
+			end)
+			return
+		end
+		if ok and type(catalog) == "table" and catalog.success then
 			return
 		end
 
@@ -142,6 +156,12 @@ local function run()
 		panel.Visible = true
 		view.setStatus(ShopUiMessages.OpenStatusHint, ShopUiConstants.StatusInfo)
 		refreshCatalog()
+		-- Deferred second refresh so catalog reflects server state after any replication/ordering delay.
+		task.defer(function()
+			if panel.Visible then
+				refreshCatalog()
+			end
+		end)
 
 		local sessionToken = openSessionToken
 		task.spawn(function()
