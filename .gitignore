@@ -1,5 +1,5 @@
 sourcemap.json
-BrainrotFloor.rojo.rbxlx
+*.rbxlx
 *.rbxlx.lock
 local_saves/
 .backup_state/
@@ -7,5 +7,4 @@ aftman.toml
 artifacts/
 release-artifacts/
 scripts/
-.cache/
-reactui
+.cursor/
