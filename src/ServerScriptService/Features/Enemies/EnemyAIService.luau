@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local SharedEnemyDefinitions = require(ReplicatedStorage.Shared.Enemy.EnemyDefinitions)
@@ -251,10 +252,19 @@ local function faceTarget(enemyModel, referenceRootCFrame, targetPosition, turnS
 	pivotEnemyModelToRoot(enemyModel, targetCFrame, pivotToRootOffset)
 end
 
-local function waitForNextTick(thinkInterval)
-	local interval = math.max(0.03, tonumber(thinkInterval) or 0.15)
-	task.wait(interval)
-	return interval
+local function resolveLiveTargetRootPart(targetHumanoid, fallbackRootPart)
+	if targetHumanoid and targetHumanoid.Parent then
+		local liveTargetRoot = ModelRootResolver.resolveRootPart(targetHumanoid.Parent)
+		if liveTargetRoot then
+			return liveTargetRoot
+		end
+	end
+
+	if fallbackRootPart and fallbackRootPart.Parent then
+		return fallbackRootPart
+	end
+
+	return nil
 end
 
 local function prepareModelForMovement(enemyModel)
@@ -325,10 +335,15 @@ function EnemyAIService.start(enemyModel, templateName)
 	end
 
 	local lastAttackAt = -math.huge
+	local thinkInterval = math.max(0.03, tonumber(profile.ThinkInterval) or 0.15)
+	local currentTargetHumanoid = nil
+	local currentTargetRootPart = nil
+	local currentTargetPlayer = nil
+	local timeUntilRetarget = 0
 
 	task.spawn(function()
 		while enemyModel.Parent do
-			local deltaTime = waitForNextTick(profile.ThinkInterval)
+			local deltaTime = RunService.Heartbeat:Wait()
 
 			if healthHumanoid and healthHumanoid.Health <= 0 then
 				break
@@ -341,8 +356,43 @@ function EnemyAIService.start(enemyModel, templateName)
 			pivotToRootOffset = getPivotToRootOffset(enemyModel, rootPart)
 			local referenceRootCFrame = EnemyMotionAnimator.getReferenceRootCFrame(motionState, rootPart.CFrame)
 
-			local targetHumanoid, targetRootPart, distance, targetPlayer = getNearestTarget(referenceRootCFrame.Position, profile.AcquireRange)
-			if targetHumanoid and targetRootPart then
+			timeUntilRetarget -= deltaTime
+
+			local liveTargetRootPart = resolveLiveTargetRootPart(currentTargetHumanoid, currentTargetRootPart)
+			local distance = nil
+			local shouldRetarget = timeUntilRetarget <= 0
+
+			if currentTargetHumanoid and currentTargetHumanoid.Health <= 0 then
+				shouldRetarget = true
+			end
+
+			if currentTargetHumanoid and liveTargetRootPart then
+				distance = (liveTargetRootPart.Position - referenceRootCFrame.Position).Magnitude
+				if distance > profile.AcquireRange then
+					shouldRetarget = true
+				end
+			elseif currentTargetHumanoid or currentTargetRootPart then
+				shouldRetarget = true
+			end
+
+			if shouldRetarget then
+				currentTargetHumanoid, currentTargetRootPart, distance, currentTargetPlayer =
+					getNearestTarget(referenceRootCFrame.Position, profile.AcquireRange)
+				liveTargetRootPart = resolveLiveTargetRootPart(currentTargetHumanoid, currentTargetRootPart)
+
+				if currentTargetHumanoid and liveTargetRootPart then
+					distance = (liveTargetRootPart.Position - referenceRootCFrame.Position).Magnitude
+				else
+					currentTargetHumanoid = nil
+					currentTargetRootPart = nil
+					currentTargetPlayer = nil
+					distance = nil
+				end
+
+				timeUntilRetarget = thinkInterval
+			end
+
+			if currentTargetHumanoid and liveTargetRootPart and distance then
 				if distance <= profile.AttackRange then
 					stopTrack(chaseTrack)
 					EnemyMotionAnimator.setMoving(motionState, false)
@@ -355,34 +405,38 @@ function EnemyAIService.start(enemyModel, templateName)
 							attackTrack:Play(0.05, 1, 1)
 						end
 
+						local attackTargetHumanoid = currentTargetHumanoid
+						local attackTargetPlayer = currentTargetPlayer
+
 						task.delay(profile.AttackWindup, function()
-							if not enemyModel.Parent or not targetHumanoid.Parent then
+							if not enemyModel.Parent or not attackTargetHumanoid or not attackTargetHumanoid.Parent then
 								return
 							end
 
 							local liveRootPart = EnemyRegistry.getRootPart(enemyModel)
-							local liveTargetRoot = ModelRootResolver.resolveRootPart(targetHumanoid.Parent)
+							local liveTargetRoot = ModelRootResolver.resolveRootPart(attackTargetHumanoid.Parent)
 							if not liveRootPart or not liveTargetRoot then
 								return
 							end
 
 							local attackDistance = (liveTargetRoot.Position - liveRootPart.Position).Magnitude
-							if attackDistance <= profile.AttackRange + 1.5 and targetHumanoid.Health > 0 then
-								local damageMultiplier = targetPlayer and ClassService.getIncomingDamageMultiplier(targetPlayer) or 1
+							if attackDistance <= profile.AttackRange + 1.5 and attackTargetHumanoid.Health > 0 then
+								local damageMultiplier = attackTargetPlayer and ClassService.getIncomingDamageMultiplier(attackTargetPlayer) or 1
 								local baseDamage = (tonumber(profile.AttackDamage) or 0) * enemyDamageMultiplier
 								local finalDamage = math.max(0, baseDamage * damageMultiplier)
 								if finalDamage > 0 then
-									targetHumanoid:TakeDamage(finalDamage)
+									attackTargetHumanoid:TakeDamage(finalDamage)
 								end
 							end
 						end)
 					end
 
+					EnemyMotionAnimator.step(motionState, deltaTime)
 					local attackMotionOffset = EnemyMotionAnimator.getRootMotionOffset(motionState, false)
 					faceTarget(
 						enemyModel,
 						referenceRootCFrame,
-						targetRootPart.Position,
+						liveTargetRootPart.Position,
 						profile.TurnSpeed,
 						deltaTime,
 						facingOffsetCFrame,
@@ -396,12 +450,13 @@ function EnemyAIService.start(enemyModel, templateName)
 						chaseTrack:Play(0.15, 1, 1)
 					end
 					EnemyMotionAnimator.setMoving(motionState, true)
+					EnemyMotionAnimator.step(motionState, deltaTime)
 					local movementMotionOffset = EnemyMotionAnimator.getRootMotionOffset(motionState, true)
 
 					setMovementState(
 						enemyModel,
 						referenceRootCFrame,
-						targetRootPart.Position,
+						liveTargetRootPart.Position,
 						profile.MoveSpeed,
 						deltaTime,
 						profile.TurnSpeed,
@@ -415,6 +470,7 @@ function EnemyAIService.start(enemyModel, templateName)
 			else
 				stopTrack(chaseTrack)
 				EnemyMotionAnimator.setMoving(motionState, false)
+				EnemyMotionAnimator.step(motionState, deltaTime)
 				pivotEnemyModelToRoot(enemyModel, referenceRootCFrame, pivotToRootOffset)
 				EnemyMotionAnimator.clearOffset(motionState)
 			end

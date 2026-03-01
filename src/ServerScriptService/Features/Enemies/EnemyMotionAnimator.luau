@@ -1,5 +1,4 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 
 local SharedEnemyDefinitions = require(ReplicatedStorage.Shared.Enemy.EnemyDefinitions)
 
@@ -26,6 +25,7 @@ local FLY_NAME_HINTS = {
 	"celeste",
 	"dragon",
 	"fly",
+	"flaming",
 	"saturn",
 	"ufo",
 }
@@ -34,6 +34,7 @@ local FLY_RIG_HINTS = {
 	"booster",
 	"engine",
 	"jet",
+	"plane",
 	"propeller",
 	"rotor",
 	"thruster",
@@ -67,7 +68,9 @@ local EXCLUDED_JOINT_NAME_HINTS = {
 	"waist",
 }
 
-local JOINT_UPDATE_INTERVAL = 1 / 30
+local MOVE_BLEND_IN_SPEED = 10
+local MOVE_BLEND_OUT_SPEED = 7
+local FLY_IDLE_BLEND = 0.3
 
 local function containsKeyword(text, keywords)
 	for _, keyword in ipairs(keywords) do
@@ -252,6 +255,15 @@ local function getAttackAlpha(state)
 	return math.sin(progress * math.pi)
 end
 
+local function getMovementBlend(state)
+	local moveBlend = clamp(tonumber(state.moveBlend) or 0, 0, 1)
+	if state.locomotionMode == "fly" then
+		return FLY_IDLE_BLEND + ((1 - FLY_IDLE_BLEND) * moveBlend)
+	end
+
+	return moveBlend
+end
+
 local function applyJointTransforms(state)
 	if state.destroyed then
 		return
@@ -259,6 +271,7 @@ local function applyJointTransforms(state)
 
 	local cycle = getElapsed(state) * state.style.speed
 	local attackAlpha = getAttackAlpha(state)
+	local movementBlend = getMovementBlend(state)
 
 	for _, joint in ipairs(state.joints) do
 		local motor = joint.motor
@@ -267,29 +280,29 @@ local function applyJointTransforms(state)
 			local roll = 0
 			local translation = Vector3.zero
 
-			if state.isMoving then
+			if movementBlend > 0.001 then
 				local wave = math.sin(cycle + joint.phaseOffset)
 				local secondaryWave = math.sin(cycle * 0.5 + joint.phaseOffset)
 
 				if state.locomotionMode == "fly" then
 					if joint.role == "leg" then
-						pitch = -joint.pitchAmplitude * 0.35 + wave * joint.pitchAmplitude * 0.35
-						translation = Vector3.new(0, math.abs(wave) * joint.liftAmplitude, 0)
+						pitch = (-joint.pitchAmplitude * 0.35 + wave * joint.pitchAmplitude * 0.35) * movementBlend
+						translation = Vector3.new(0, math.abs(wave) * joint.liftAmplitude * movementBlend, 0)
 					else
-						pitch = -wave * joint.pitchAmplitude * 0.55
-						roll = joint.sideSign * joint.rollAmplitude * (0.45 + secondaryWave * 0.55)
-						translation = Vector3.new(0, math.abs(wave) * joint.liftAmplitude, 0)
+						pitch = -wave * joint.pitchAmplitude * 0.55 * movementBlend
+						roll = joint.sideSign * joint.rollAmplitude * (0.45 + secondaryWave * 0.55) * movementBlend
+						translation = Vector3.new(0, math.abs(wave) * joint.liftAmplitude * movementBlend, 0)
 					end
 				else
 					if joint.role == "arm" then
-						pitch = -wave * joint.pitchAmplitude
-						roll = joint.sideSign * secondaryWave * joint.rollAmplitude
+						pitch = -wave * joint.pitchAmplitude * movementBlend
+						roll = joint.sideSign * secondaryWave * joint.rollAmplitude * movementBlend
 					elseif joint.role == "leg" then
-						pitch = wave * joint.pitchAmplitude
-						roll = joint.sideSign * secondaryWave * joint.rollAmplitude * 0.35
+						pitch = wave * joint.pitchAmplitude * movementBlend
+						roll = joint.sideSign * secondaryWave * joint.rollAmplitude * 0.35 * movementBlend
 					else
-						pitch = -wave * joint.pitchAmplitude * 0.45
-						roll = joint.sideSign * secondaryWave * joint.rollAmplitude * 0.6
+						pitch = -wave * joint.pitchAmplitude * 0.45 * movementBlend
+						roll = joint.sideSign * secondaryWave * joint.rollAmplitude * 0.6 * movementBlend
 					end
 				end
 			end
@@ -318,29 +331,6 @@ local function resetJointTransforms(state)
 	end
 end
 
-local function startJointLoop(state)
-	if state.loopStarted or #state.joints == 0 then
-		return
-	end
-
-	state.loopStarted = true
-
-	task.spawn(function()
-		local lastUpdateAt = os.clock()
-
-		while not state.destroyed and state.enemyModel.Parent do
-			local now = os.clock()
-			if now - lastUpdateAt >= JOINT_UPDATE_INTERVAL then
-				lastUpdateAt = now
-				applyJointTransforms(state)
-			end
-			RunService.Heartbeat:Wait()
-		end
-
-		resetJointTransforms(state)
-	end)
-end
-
 function EnemyMotionAnimator.createState(enemyModel, templateName, rootPart)
 	local baseTemplateName = SharedEnemyDefinitions.resolveBaseTemplateName(templateName)
 	if type(baseTemplateName) ~= "string" or baseTemplateName == "" then
@@ -360,21 +350,34 @@ function EnemyMotionAnimator.createState(enemyModel, templateName, rootPart)
 		locomotionMode = locomotionMode,
 		style = scaleStyle(baseStyle, seed),
 		isMoving = false,
+		moveBlend = 0,
 		destroyed = false,
 		joints = {},
-		loopStarted = false,
 	}
 
 	if rootPart then
 		state.joints = collectLimbJoints(enemyModel, rootPart, state)
 	end
 
-	startJointLoop(state)
 	return state
 end
 
 function EnemyMotionAnimator.step(state, deltaTime)
-	return
+	if not state or state.destroyed then
+		return
+	end
+
+	local resolvedDeltaTime = clamp(tonumber(deltaTime) or 0, 0, 0.25)
+	local targetBlend = if state.isMoving then 1 else 0
+	local response = if targetBlend > state.moveBlend then MOVE_BLEND_IN_SPEED else MOVE_BLEND_OUT_SPEED
+	local alpha = math.clamp(response * resolvedDeltaTime, 0, 1)
+
+	state.moveBlend += (targetBlend - state.moveBlend) * alpha
+	if math.abs(targetBlend - state.moveBlend) <= 0.001 then
+		state.moveBlend = targetBlend
+	end
+
+	applyJointTransforms(state)
 end
 
 function EnemyMotionAnimator.triggerAttack(state)
@@ -429,22 +432,24 @@ function EnemyMotionAnimator.getRootMotionOffset(state, isMoving)
 
 	local style = state.style
 	local motionOffset = CFrame.new()
+	local movementBlend = getMovementBlend(state)
+	local shouldAnimateLocomotion = movementBlend > 0.001 and (isMoving == true or state.locomotionMode == "fly")
 
-	if isMoving == true then
+	if shouldAnimateLocomotion then
 		local cycle = getElapsed(state) * style.speed
 
 		if state.locomotionMode == "fly" then
-			local lift = math.sin(cycle) * style.vertical
-			local sway = math.sin(cycle * 0.65 + 0.4) * style.sway
-			local pitch = math.cos(cycle * 0.8) * style.pitch
-			local roll = math.sin(cycle * 1.4) * style.roll
+			local lift = math.sin(cycle) * style.vertical * movementBlend
+			local sway = math.sin(cycle * 0.65 + 0.4) * style.sway * movementBlend
+			local pitch = math.cos(cycle * 0.8) * style.pitch * movementBlend
+			local roll = math.sin(cycle * 1.4) * style.roll * movementBlend
 			motionOffset = CFrame.new(sway, lift, 0) * CFrame.Angles(pitch, 0, roll)
 		else
 			local stride = math.sin(cycle)
-			local bounce = math.abs(stride) * style.vertical
-			local sway = stride * style.sway
-			local pitch = -math.abs(math.cos(cycle)) * style.pitch
-			local roll = math.sin(cycle * 0.55 + 0.2) * style.roll
+			local bounce = math.abs(stride) * style.vertical * movementBlend
+			local sway = stride * style.sway * movementBlend
+			local pitch = -math.abs(math.cos(cycle)) * style.pitch * movementBlend
+			local roll = math.sin(cycle * 0.55 + 0.2) * style.roll * movementBlend
 			motionOffset = CFrame.new(sway, bounce, 0) * CFrame.Angles(pitch, 0, roll)
 		end
 	end
